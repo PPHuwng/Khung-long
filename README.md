@@ -4,13 +4,15 @@ Game Unity 2D dùng hình ảnh từ `Assets.zip`: khủng long chạy vô tận
 
 ## Mở và chơi
 
-1. Cài **Unity 6.0 LTS** qua Unity Hub. Project khai báo bản **6000.0.32f1**; nên mở bằng bản này trước để tránh thay đổi định dạng asset.
+1. Cài đúng **Unity 6000.4.0f1** qua Unity Hub, theo `ProjectSettings/ProjectVersion.txt` gốc của bạn (revision `8cf496087c8f`).
 2. Trong Unity Hub chọn **Add → Add project from disk**, chọn thư mục `Khung-long` chứa `Assets`, `Packages`, `ProjectSettings`.
-3. Chờ Unity Package Manager tải các package trong `Packages/manifest.json` (URP, Input System, UGUI và Test Framework).
+3. Chờ Unity Package Manager tải các package theo `Packages/manifest.json` và `Packages/packages-lock.json` gốc: URP **17.4.0**, Input System **1.19.0**, UGUI **2.0.0**, Test Framework **1.6.0** cùng các gói 2D của dự án cũ.
 4. Mở `Assets/CityDino/Scenes/CityRunner.unity`, hoặc menu **City Dino → Open City Runner Scene**. Nhấn **Play**.
 5. Đặt Game View **16:9**, ví dụ **1280 × 720**. Giao diện tự co theo cửa sổ; trên điện thoại dùng màn hình ngang.
 
 Scene mới đã được thêm vào Build Settings. Nếu mở `Assets/Scenes/SampleScene.unity` cũ và nhấn Play, bootstrap cũng chuyển sang game mới; không phải gán prefab hoặc UI thủ công.
+
+Project giữ cấu hình gốc từ `ProjectSettings.zip` và `Packages.zip`: tên/định danh ứng dụng, layer Ground/Obstacle, Input System actions, đồ họa URP theo Quality, âm thanh và vật lý. Thay đổi trong Build Settings là thêm `CityRunner.unity` ở đầu danh sách, giữ scene cũ và cấu hình Input System. Cấu hình package có 52 phụ thuộc trực tiếp và file khóa 65 package, được giữ nguyên từ bản bạn gửi.
 
 | Thao tác | Bàn phím | Chuột / cảm ứng |
 |---|---|---|
