@@ -12,6 +12,10 @@ namespace CityDino
         private const string SaveKey = "CityDino.Save.v1";
         private const float CanvasWidth = 1280f;
         private const float CanvasHeight = 720f;
+        private static readonly Rect MoveLeftButton = new Rect(38, 618, 88, 70);
+        private static readonly Rect MoveRightButton = new Rect(136, 618, 88, 70);
+        private static readonly Rect DuckButton = new Rect(1000, 618, 112, 70);
+        private static readonly Rect JumpButton = new Rect(1126, 618, 112, 70);
         private RunnerSession session;
         private RunnerArt art;
         private RunnerWorldView world;
@@ -80,6 +84,12 @@ namespace CityDino
             Keyboard keys = Keyboard.current;
             bool jump = keys != null && (keys.spaceKey.wasPressedThisFrame || keys.upArrowKey.wasPressedThisFrame || keys.wKey.wasPressedThisFrame);
             bool duck = keys != null && (keys.downArrowKey.isPressed || keys.sKey.isPressed);
+            float horizontal = 0;
+            if (keys != null)
+            {
+                if (keys.leftArrowKey.isPressed || keys.aKey.isPressed) horizontal -= 1;
+                if (keys.rightArrowKey.isPressed || keys.dKey.isPressed) horizontal += 1;
+            }
             if (keys != null && keys.escapeKey.wasPressedThisFrame)
             {
                 if (showShop || showHistory) { showShop = false; showHistory = false; }
@@ -91,12 +101,8 @@ namespace CityDino
 
             if (session.State == RunState.Playing)
             {
-                Vector2 point;
-                bool pointerDown, pointerHeld;
-                GetPointer(out point, out pointerDown, out pointerHeld);
-                bool duckArea = new Rect(1000, 618, 112, 70).Contains(point);
-                duck |= pointerHeld && duckArea;
-                if (pointerDown && point.x >= 0 && point.x <= CanvasWidth && point.y > 130 && point.y < 710 && !duckArea) jump = true;
+                ReadPointers(ref horizontal, ref jump, ref duck);
+                session.SetHorizontal(horizontal);
                 session.SetDucking(duck);
                 if (jump && session.Jump()) Play(jumpSound);
             }
@@ -113,25 +119,39 @@ namespace CityDino
             if (dirty && Time.unscaledTime >= nextSave) FlushSave();
         }
 
-        private static void GetPointer(out Vector2 point, out bool down, out bool held)
+        private static void ReadPointers(ref float horizontal, ref bool jump, ref bool duck)
         {
-            Vector2 raw = new Vector2(-1000, -1000);
-            down = held = false;
-            if (Touchscreen.current != null && Touchscreen.current.primaryTouch.press.isPressed)
+            bool activeTouch = false;
+            if (Touchscreen.current != null)
             {
-                raw = Touchscreen.current.primaryTouch.position.ReadValue();
-                down = Touchscreen.current.primaryTouch.press.wasPressedThisFrame;
-                held = true;
+                var touches = Touchscreen.current.touches;
+                for (int i = 0; i < touches.Count; i++)
+                {
+                    var touch = touches[i];
+                    bool down = touch.press.wasPressedThisFrame;
+                    bool held = touch.press.isPressed;
+                    if (!down && !held) continue;
+                    activeTouch = true;
+                    ApplyPointer(touch.position.ReadValue(), down, held, ref horizontal, ref jump, ref duck);
+                }
             }
-            else if (Mouse.current != null)
+            if (!activeTouch && Mouse.current != null)
             {
-                raw = Mouse.current.position.ReadValue();
-                down = Mouse.current.leftButton.wasPressedThisFrame;
-                held = Mouse.current.leftButton.isPressed;
+                ApplyPointer(Mouse.current.position.ReadValue(), Mouse.current.leftButton.wasPressedThisFrame,
+                    Mouse.current.leftButton.isPressed, ref horizontal, ref jump, ref duck);
             }
+        }
+
+        private static void ApplyPointer(Vector2 raw, bool down, bool held, ref float horizontal, ref bool jump, ref bool duck)
+        {
             float scale = Mathf.Min(Screen.width / CanvasWidth, Screen.height / CanvasHeight);
             Vector2 offset = new Vector2((Screen.width - CanvasWidth * scale) * 0.5f, (Screen.height - CanvasHeight * scale) * 0.5f);
-            point = (new Vector2(raw.x, Screen.height - raw.y) - offset) / Mathf.Max(scale, 0.001f);
+            Vector2 point = (new Vector2(raw.x, Screen.height - raw.y) - offset) / Mathf.Max(scale, 0.001f);
+            if (point.x < 0 || point.x > CanvasWidth || point.y <= 130 || point.y >= 710) return;
+            if (MoveLeftButton.Contains(point)) { if (held) horizontal -= 1; }
+            else if (MoveRightButton.Contains(point)) { if (held) horizontal += 1; }
+            else if (DuckButton.Contains(point)) { if (held) duck = true; }
+            else if (down) jump = true;
         }
 
         private void BeginRun()
@@ -186,14 +206,14 @@ namespace CityDino
             Box(new Rect(64, 56, 486, 602), cream);
             Text(new Rect(98, 85, 390, 24), "●  DINO CITY  /  ENDLESS RUNNER", 15, soft, FontStyle.Bold);
             Text(new Rect(94, 128, 420, 148), "CHẠY QUA\nTHÀNH PHỐ.", 58, ink, FontStyle.Bold);
-            Text(new Rect(98, 292, 392, 56), "Một chú khủng long. Những con phố mới.\nNhảy thật khéo, gom sao và đi xa hơn mỗi ngày.", 18, soft);
+            Text(new Rect(98, 292, 392, 56), "Đổi vị trí, vượt bẫy và làm chủ nhịp chạy.\nThành phố mới, tốc độ mới, thử thách mới.", 18, soft);
             Stat(new Rect(98, 366, 124, 64), "KỶ LỤC", session.Save.BestScore.ToString("N0"));
             Stat(new Rect(238, 366, 124, 64), "LƯỢT TRƯỚC", session.Save.LastScore.ToString("N0"));
             Stat(new Rect(378, 366, 124, 64), "VÍ SAO", session.Save.Wallet.ToString("N0"));
             if (Button(new Rect(98, 458, 418, 62), "BẮT ĐẦU CHẠY     →", mint, ink, 22)) BeginRun();
             if (Button(new Rect(98, 534, 202, 52), "Cửa hàng", ink, cream)) showShop = true;
             if (Button(new Rect(314, 534, 202, 52), "Thành tích", new Color32(231, 231, 215, 255), ink)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "SPACE để bắt đầu  ·  Chơi được bằng cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 02  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), "BÌNH MINH MỚI. KỶ LỤC MỚI.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -234,15 +254,19 @@ namespace CityDino
 
         private void DrawPlayHints()
         {
-            Box(new Rect(38, 638, 630, 43), new Color(0.06f, 0.13f, 0.18f, 0.85f));
-            Text(new Rect(54, 646, 600, 25), "SPACE / ↑: nhảy kép   ·   ↓: cúi   ·   ESC: tạm dừng", 16, cream);
-            Box(new Rect(1000, 618, 112, 70), cream);
-            Text(new Rect(1000, 618, 112, 70), "CÚI ↓", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
-            Box(new Rect(1126, 618, 112, 70), mint);
-            Text(new Rect(1126, 618, 112, 70), "NHẢY ↑", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Box(MoveLeftButton, cream);
+            Text(MoveLeftButton, "←", 30, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Box(MoveRightButton, cream);
+            Text(MoveRightButton, "→", 30, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Box(new Rect(242, 632, 728, 56), new Color(0.06f, 0.13f, 0.18f, 0.88f));
+            Text(new Rect(260, 640, 696, 41), "← → / A D: di chuyển   ·   SPACE / ↑: nhảy kép\n↓ / S: cúi tránh bẫy   ·   ESC: tạm dừng", 15, cream);
+            Box(DuckButton, cream);
+            Text(DuckButton, "CÚI ↓", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Box(JumpButton, mint);
+            Text(JumpButton, "NHẢY ↑", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             Text(new Rect(38, 592, 430, 28), Mathf.FloorToInt(session.Distance / 20f) + " m  ·  " + (session.Speed / RunnerSession.InitialSpeed).ToString("0.00") + "×  ·  Chặng " + session.StageNumber, 15, cream, FontStyle.Bold);
             if (collectedFlash > 0)
-                Text(new Rect(200, 398 - (0.65f - collectedFlash) * 50 - session.PlayerY, 90, 40), "+ SAO", 20, orange, FontStyle.Bold);
+                Text(new Rect(session.PlayerX - 20, 398 - (0.65f - collectedFlash) * 50 - session.PlayerY, 90, 40), "+ SAO", 20, orange, FontStyle.Bold);
         }
 
         private void DrawPaused()

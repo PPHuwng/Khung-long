@@ -1,7 +1,10 @@
 // Compile-only surface of Unity APIs referenced by this repository.
-// These signatures catch C# integration/type errors; they do not emulate Unity,
-// execute rendering, validate serialization, or replace an Editor play test.
+// These signatures catch C# integration/type errors. Vector2/Rect arithmetic
+// and explicit fake device values also support focused input-coordinate checks.
+// They do not emulate Unity events, execute rendering, validate serialization,
+// or replace an Editor play test.
 using System;
+using System.Collections.Generic;
 namespace UnityEngine
 {
     public class Object
@@ -90,7 +93,7 @@ namespace UnityEngine
         public static T GetBuiltinResource<T>(string path) where T : Object { return default(T); }
     }
     public class Font : Object { }
-    public class Texture : Object { }
+    public class Texture : Object { public virtual int width { get; set; } public virtual int height { get; set; } }
     public class Texture2D : Texture
     {
         public Texture2D(int width, int height, TextureFormat format, bool mipChain) { }
@@ -105,7 +108,7 @@ namespace UnityEngine
     {
         public float r, g, b, a;
         public Color(float r, float g, float b, float a = 1f) { this.r = r; this.g = g; this.b = b; this.a = a; }
-        public static Color white, red;
+        public static Color white, red, clear;
         public static Color Lerp(Color a, Color b, float t) { return default(Color); }
     }
     public struct Color32
@@ -120,9 +123,9 @@ namespace UnityEngine
         public float magnitude { get { return 0; } }
         public float sqrMagnitude { get { return 0; } }
         public static Vector2 zero;
-        public static Vector2 operator +(Vector2 a, Vector2 b) { return default(Vector2); }
-        public static Vector2 operator -(Vector2 a, Vector2 b) { return default(Vector2); }
-        public static Vector2 operator /(Vector2 a, float scale) { return default(Vector2); }
+        public static Vector2 operator +(Vector2 a, Vector2 b) { return new Vector2(a.x+b.x, a.y+b.y); }
+        public static Vector2 operator -(Vector2 a, Vector2 b) { return new Vector2(a.x-b.x, a.y-b.y); }
+        public static Vector2 operator /(Vector2 a, float scale) { return new Vector2(a.x/scale, a.y/scale); }
         public static implicit operator Vector3(Vector2 value) { return default(Vector3); }
     }
     public struct Vector3
@@ -143,7 +146,7 @@ namespace UnityEngine
         public float xMax { get { return x+width; } }
         public float yMax { get { return y+height; } }
         public Vector2 center { get { return new Vector2(x+width/2,y+height/2); } }
-        public bool Contains(Vector2 point) { return false; }
+        public bool Contains(Vector2 point) { return point.x>=x && point.x<xMax && point.y>=y && point.y<yMax; }
     }
     public static class Mathf
     {
@@ -227,7 +230,12 @@ namespace UnityEngine.SceneManagement
 namespace UnityEngine.InputSystem
 {
     public class ButtonControl { public bool isPressed, wasPressedThisFrame; }
-    public class Vector2Control { public UnityEngine.Vector2 ReadValue() { return default(UnityEngine.Vector2); } }
+    public class Vector2Control
+    {
+        // Harness-only value injection; no OS device or event stream is emulated.
+        public UnityEngine.Vector2 TestValue;
+        public UnityEngine.Vector2 ReadValue() { return TestValue; }
+    }
     public class Keyboard
     {
         public static Keyboard current;
@@ -235,6 +243,13 @@ namespace UnityEngine.InputSystem
     }
     public class Mouse { public static Mouse current; public Vector2Control position; public ButtonControl leftButton; }
     public class TouchControl { public ButtonControl press; public Vector2Control position; }
-    public class Touchscreen { public static Touchscreen current; public TouchControl primaryTouch; }
+    public class Touchscreen
+    {
+        public static Touchscreen current;
+        public TouchControl primaryTouch;
+        // The production package exposes ReadOnlyArray<TouchControl>; the list
+        // retains the Count/indexer surface used by the multitouch controller.
+        public List<TouchControl> touches = new List<TouchControl>();
+    }
 }
 namespace TMPro { public class TMP_Text : UnityEngine.Behaviour { public string text; } }

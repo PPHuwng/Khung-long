@@ -7,10 +7,13 @@ using CityDino;
 internal static class Program
 {
     private static int passed;
+    private static int notSelected;
+    private static string testFilter;
     private static readonly List<string> failures = new List<string>();
 
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--only") testFilter = args[1];
         Test("menu does not simulate and starting resets a run", MenuAndStart);
         Test("double jump rejects a third jump and resets on landing", DoubleJump);
         Test("pause freezes world, score, speed, and player", Pause);
@@ -32,17 +35,34 @@ internal static class Program
         Test("hearts have a rare randomized spawn cadence", HeartCadence);
         Test("districts progress and skyway includes real gaps", Districts);
         Test("obstacles and gaps do not form impossible overlapping hazards", SpawnSafety);
+        Test("horizontal control moves left/right and respects screen bounds", HorizontalMovement);
+        Test("airborne steering works in both directions", AirSteering);
+        Test("invalid horizontal inputs are safe and finite inputs clamp", HorizontalInputValidation);
+        Test("pause, menu, death and restart stop horizontal intent", HorizontalStateTransitions);
+        Test("hazard collisions follow the player after moving", MovingCollision);
+        Test("pickups follow the player after moving", MovingPickups);
+        Test("floor and fall recovery follow the player after moving", MovingFloor);
+        Test("moving into a gap removes floor support", WalkIntoGap);
+        Test("spike collisions use the triangle instead of empty corners", SpikeShape);
+        Test("saw collisions use a circle instead of empty corners", SawShape);
+        Test("saws rotate and floating blades leave a safe duck lane", SawMotion);
+        Test("random packs cover all hazard types and composite rhythms", PatternVariety);
+        Test("sampled generated packs have a real jump or duck solution", PatternReplay);
+        Test("faster start and speed ceiling exceed the previous version", FasterPacing);
+        Test("seeded full runs can traverse successive packs without taking damage", SequentialRunner);
         Test("save input is sanitized without discarding valid progress", SaveValidation);
         Test("long frame updates behave like fixed small steps", FrameStep);
         Console.WriteLine();
         Console.WriteLine("Gameplay core: " + passed + " passed, " + failures.Count + " failed.");
         foreach (string failure in failures) Console.Error.WriteLine(failure);
+        if (notSelected>0) Console.WriteLine(notSelected+" checks were not selected and did not run.");
         Console.WriteLine("These checks execute production C# gameplay. Unity rendering/import was not executed.");
         return failures.Count == 0 ? 0 : 1;
     }
 
     private static void Test(string name, Action body)
     {
+        if (!string.IsNullOrEmpty(testFilter) && name.IndexOf(testFilter,StringComparison.OrdinalIgnoreCase)<0) { notSelected++; return; }
         try { body(); passed++; Console.WriteLine("PASS " + name); }
         catch (Exception e) { failures.Add("FAIL " + name + ": " + e.Message); Console.WriteLine(failures[failures.Count - 1]); }
     }
@@ -72,7 +92,7 @@ internal static class Program
 
     private static bool Hazard(WorldEntity entity)
     {
-        return entity.Kind == EntityKind.House || entity.Kind == EntityKind.Hydrant || entity.Kind == EntityKind.Plane || entity.Kind == EntityKind.Gap;
+        return entity.Kind != EntityKind.Star && entity.Kind != EntityKind.Heart;
     }
 
     private static void ClearHazards(RunnerSession run)
@@ -93,16 +113,16 @@ internal static class Program
 
     private static WorldEntity Inject(RunnerSession run, EntityKind kind, float y = 0, float width = 60, float height = 64)
     {
-        var entity = new WorldEntity { Id = 1000000 + World(run).Count, Kind = kind, X = 220 - width / 2, Y = y, Width = width, Height = height };
+        var entity = new WorldEntity { Id = 1000000 + World(run).Count, Kind = kind, X = run.PlayerX - width / 2, Y = y, BaseY = y, Width = width, Height = height };
         World(run).Add(entity);
         return entity;
     }
 
     private static string Snapshot(RunnerSession run)
     {
-        return string.Join("|", run.State, run.Distance, run.Elapsed, run.Score, run.Speed, run.PlayerY, run.VelocityY,
+        return string.Join("|", run.State, run.Distance, run.Elapsed, run.Score, run.Speed, run.PlayerX, run.PlayerY, run.VelocityY,
             run.Lives, run.IsDucking, run.CurrentDistrict, run.StageNumber,
-            string.Join(";", run.Entities.Where(e => !e.Removed).Select(e => e.Kind + ":" + e.Variant + ":" + e.X + ":" + e.Y + ":" + e.Width)));
+            string.Join(";", run.Entities.Where(e => !e.Removed).Select(e => e.Kind + ":" + e.Variant + ":" + e.PatternId + ":" + e.X + ":" + e.Y + ":" + e.Width + ":" + e.Rotation)));
     }
 
     private static void MenuAndStart()
@@ -115,7 +135,7 @@ internal static class Program
         run.StartRun();
         Check(run.State == RunState.Playing && run.Lives == 3, "Start did not apply permanent extra lives");
         Check(run.Score == 0 && run.RunStars == 0 && run.PlayerY == 0, "New run was not clean");
-        Near(run.Speed, 250, 0.01f, "Unexpected initial speed");
+        Near(run.Speed, RunnerSession.InitialSpeed, 0.01f, "Unexpected initial speed");
     }
 
     private static void DoubleJump()
@@ -164,10 +184,10 @@ internal static class Program
     {
         RunnerSession run = New(23); run.StartRun();
         WorldEntity obstacle = run.Entities.First(e => e.Kind==EntityKind.Hydrant);
-        while (obstacle.X - RunnerSession.PlayerX > 100 && run.State==RunState.Playing)
+        while (obstacle.X - run.PlayerX > 100 && run.State==RunState.Playing)
             run.Update(1f/120);
         Check(run.Jump(), "Could not jump for opening obstacle");
-        for (int i=0; i<120 && obstacle.X+obstacle.Width>RunnerSession.PlayerX-50; i++)
+        for (int i=0; i<120 && obstacle.X+obstacle.Width>run.PlayerX-50; i++)
             run.Update(1f/120);
         Check(run.State==RunState.Playing && run.Lives==1, "Opening obstacle cannot be cleared by a normal jump");
         Check(run.RunStars>0, "Opening did not teach collecting stars");
@@ -188,10 +208,10 @@ internal static class Program
     {
         RunnerSession run = New(); run.StartRun();
         Advance(run, 10);
-        Near(run.Speed, 261, 0.1f, "Acceleration must be small and time based");
+        Near(run.Speed, RunnerSession.InitialSpeed + 10 * RunnerSession.SpeedAcceleration, 0.1f, "Acceleration must be small and time based");
         Check(run.Score == (int)(run.Distance / 20), "Score does not follow distance");
         Advance(run, 590);
-        Near(run.Speed, 430, 0.01f, "Speed did not cap");
+        Near(run.Speed, RunnerSession.MaximumSpeed, 0.01f, "Speed did not cap");
         Check(run.State == RunState.Playing && run.Score > 10000, "Long run did not progress");
     }
 
@@ -341,28 +361,401 @@ internal static class Program
         Check(gap && run.StageNumber >= 6, "Skyway did not produce gaps/stage progression");
     }
 
-    private static void SpawnSafety()
+    private sealed class PackSpec
     {
+        public int Seed;
+        public int Id;
+        public float Speed;
+        public float Start;
+        public float End;
+        public float SpawnTime;
+        public List<WorldEntity> Entities;
+    }
+
+    private static List<PackSpec> catalog;
+
+    private static WorldEntity CopyEntity(WorldEntity source)
+    {
+        return new WorldEntity
+        {
+            Id = source.Id, PatternId = source.PatternId, Kind = source.Kind, Variant = source.Variant,
+            X = source.X, Y = source.Y, BaseY = source.BaseY, Width = source.Width, Height = source.Height,
+            Rotation = source.Rotation, MotionPhase = source.MotionPhase, MotionAmplitude = source.MotionAmplitude
+        };
+    }
+
+    private static List<PackSpec> Packs()
+    {
+        if (catalog != null) return catalog;
+        catalog = new List<PackSpec>();
         for (int seed = 0; seed < 12; seed++)
         {
             RunnerSession run = New(seed); run.StartRun();
             var seen = new HashSet<int>();
-            float previousEnd = float.NegativeInfinity;
             for (int i = 0; i < 120 * 215; i++)
             {
-                foreach (WorldEntity e in run.Entities)
+                foreach (var group in run.Entities.Where(e => !e.Removed && Hazard(e)).GroupBy(e => e.PatternId))
                 {
-                    if (!e.Removed && Hazard(e) && seen.Add(e.Id))
-                    {
-                        float absoluteStart = e.X + run.Distance;
-                        Check(absoluteStart - previousEnd >= 350, "Hazards lack recovery spacing for seed " + seed);
-                        previousEnd = absoluteStart + e.Width;
-                    }
+                    if (!seen.Add(group.Key)) continue;
+                    Check(group.Key > 0, "Generated hazard pack lacks a shared identity");
+                    var entities = group.Select(CopyEntity).ToList();
+                    float start = entities.Min(e => e.X + run.Distance);
+                    float end = entities.Max(e => e.X + e.Width + run.Distance);
+                    foreach (WorldEntity e in entities) e.X = e.X + run.Distance - start;
+                    catalog.Add(new PackSpec { Seed=seed, Id=group.Key, Speed=run.Speed, SpawnTime=run.Elapsed,
+                        Start=start, End=end, Entities=entities });
                 }
+                // Generation checks remove hazards only after recording the complete
+                // pack. Physical traversability is checked separately with real collisions.
                 ClearHazards(run); run.Update(1f / 120);
             }
-            Check(seen.Count > 40, "Spacing check did not exercise enough generated hazards");
+            Check(seen.Count > 60, "Generation did not exercise enough packs for seed " + seed);
         }
+        return catalog;
+    }
+
+    private static void SpawnSafety()
+    {
+        foreach (var seed in Packs().GroupBy(p => p.Seed))
+        {
+            PackSpec previous = null;
+            foreach (PackSpec pack in seed.OrderBy(p => p.Id))
+            {
+                if (previous != null)
+                {
+                    float gap = pack.Start - previous.End;
+                    // At least 0.7s recovery remains even if the player holds right.
+                    float recovery = gap / (previous.Speed + RunnerSession.HorizontalSpeed);
+                    Check(recovery >= 0.70f, "Insufficient inter-pack recovery for seed " + pack.Seed +
+                        " pack " + pack.Id + ": " + recovery.ToString("0.000") + "s");
+                }
+                bool floorHazard = pack.Entities.Any(e => e.Kind != EntityKind.Plane &&
+                    !(e.Kind == EntityKind.Saw && e.BaseY > RunnerSession.DuckHeight));
+                bool ceilingHazard = pack.Entities.Any(e => e.Kind == EntityKind.Plane ||
+                    (e.Kind == EntityKind.Saw && e.BaseY > RunnerSession.DuckHeight));
+                Check(!(floorHazard && ceilingHazard), "A pack combines incompatible jump/duck lanes");
+                if (pack.Entities.Any(e => e.Kind == EntityKind.Gap))
+                    Check(pack.Entities.Count == 1, "A ground obstacle covers a gap in the same pack");
+                previous = pack;
+            }
+        }
+    }
+
+    private static void HorizontalMovement()
+    {
+        RunnerSession run = New(); run.StartRun();
+        Near(run.PlayerX, RunnerSession.StartPlayerX, 0, "Incorrect starting position");
+        run.SetHorizontal(1); Advance(run, 0.5f);
+        Near(run.PlayerX, RunnerSession.StartPlayerX + RunnerSession.HorizontalSpeed * 0.5f, 0.1f,
+            "Right input did not move at the configured speed");
+        Advance(run, 3);
+        Near(run.PlayerX, RunnerSession.MaximumPlayerX, 0.01f, "Right screen bound failed");
+        run.SetHorizontal(-1); Advance(run, 4);
+        Near(run.PlayerX, RunnerSession.MinimumPlayerX, 0.01f, "Left screen bound failed");
+        run.SetHorizontal(0); float before = run.PlayerX; Advance(run, 0.5f);
+        Near(run.PlayerX, before, 0, "Releasing movement did not stop horizontal travel");
+    }
+
+    private static void AirSteering()
+    {
+        RunnerSession run = New(); run.StartRun(); run.Jump();
+        run.SetHorizontal(1); Advance(run, 0.25f);
+        Check(run.PlayerY > 0 && run.PlayerX > RunnerSession.StartPlayerX, "Right steering failed in the air");
+        run.SetHorizontal(-1); Advance(run, 0.25f);
+        Check(run.PlayerY > 0, "Steering unexpectedly cancelled the jump");
+        Near(run.PlayerX, RunnerSession.StartPlayerX, 0.1f, "Left steering failed in the air");
+    }
+
+    private static void HorizontalInputValidation()
+    {
+        RunnerSession run = New(); run.StartRun();
+        foreach (float invalid in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity })
+        {
+            float before = run.PlayerX; run.SetHorizontal(invalid); Advance(run, 0.1f);
+            Near(run.PlayerX, before, 0, "Invalid axis changed position");
+        }
+        run.SetHorizontal(100); Advance(run, 0.1f);
+        Near(run.PlayerX, RunnerSession.StartPlayerX + RunnerSession.HorizontalSpeed * 0.1f, 0.1f, "Axis above one was not clamped");
+        run.SetHorizontal(-100); Advance(run, 0.1f);
+        Near(run.PlayerX, RunnerSession.StartPlayerX, 0.1f, "Axis below minus one was not clamped");
+    }
+
+    private static void HorizontalStateTransitions()
+    {
+        RunnerSession run = New();
+        run.SetHorizontal(1); run.Update(0.1f);
+        Near(run.PlayerX, RunnerSession.StartPlayerX, 0, "Menu accepted horizontal movement");
+        run.StartRun(); run.SetHorizontal(1); Advance(run, 0.2f);
+        run.TogglePause(); float pausedX = run.PlayerX;
+        run.SetHorizontal(-1); run.Update(30);
+        Near(run.PlayerX, pausedX, 0, "Pause accepted horizontal movement");
+        run.TogglePause(); Advance(run, 0.1f);
+        Near(run.PlayerX, pausedX, 0, "Resume reused stale horizontal input");
+        run.SetHorizontal(1); run.ReturnToMenu();
+        float menuX = run.PlayerX; run.SetHorizontal(-1); run.Update(1);
+        Near(run.PlayerX, menuX, 0, "Return to menu retained horizontal movement");
+        run.StartRun(); Advance(run, 0.1f);
+        Near(run.PlayerX, RunnerSession.StartPlayerX, 0, "Restart did not reset horizontal position/input");
+        Inject(run, EntityKind.House); run.Update(1f / 120);
+        Check(run.State == RunState.GameOver, "Fixture did not end run");
+        float deadX = run.PlayerX; run.SetHorizontal(1); run.Update(1);
+        Near(run.PlayerX, deadX, 0, "Game over accepted horizontal movement");
+    }
+
+    private static void MovingCollision()
+    {
+        RunnerSession run = New(); run.StartRun(); run.SetHorizontal(1); Advance(run, 0.7f);
+        run.SetHorizontal(0); World(run).Clear();
+        World(run).Add(new WorldEntity { Id=9100, Kind=EntityKind.House,
+            X=RunnerSession.StartPlayerX-30, Width=60, Height=64 });
+        run.Update(1f / 120);
+        Check(run.State == RunState.Playing, "An obstacle at the old anchor hit the moved player");
+        Inject(run, EntityKind.Barrier); run.Update(1f / 120);
+        Check(run.State == RunState.GameOver, "An obstacle at the moved player did not hit");
+    }
+
+    private static void MovingPickups()
+    {
+        RunnerSession run = New(); run.StartRun(); run.SetHorizontal(1); Advance(run, 0.7f);
+        run.SetHorizontal(0); World(run).Clear();
+        int before = run.RunStars;
+        WorldEntity old = new WorldEntity { Id=9101, Kind=EntityKind.Star,
+            X=RunnerSession.StartPlayerX-14, Y=22, Width=28, Height=28 };
+        World(run).Add(old); run.Update(1f / 120);
+        Check(!old.Removed && run.RunStars == before, "A star at the old anchor was collected remotely");
+        Inject(run, EntityKind.Star, 22, 28, 28); run.Update(1f / 120);
+        Check(run.RunStars == before + 1, "A star at the current player position was not collected");
+        Inject(run, EntityKind.Heart, 22, 28, 28); run.Update(1f / 120);
+        Check(run.Lives == 2, "A heart at the current player position was not collected");
+    }
+
+    private static void MovingFloor()
+    {
+        RunnerSession run = New(upgrade: 1); run.StartRun(); run.SetHorizontal(1); Advance(run, 0.7f);
+        run.SetHorizontal(0); World(run).Clear();
+        World(run).Add(new WorldEntity { Id=9102, Kind=EntityKind.Gap,
+            X=RunnerSession.StartPlayerX-40, Width=80, Height=160 });
+        run.Update(0.1f);
+        Near(run.PlayerY, 0, 0, "A gap at the old anchor removed floor under the moved player");
+        World(run).Clear(); Inject(run, EntityKind.Gap, 0, 500, 160);
+        Advance(run, 0.15f, false);
+        Check(run.PlayerY < 0, "A gap at the new player position did not remove floor");
+        for (int i=0; i<120 && run.Lives==2; i++) run.Update(1f/120);
+        Check(run.Lives==1 && run.State==RunState.Playing, "Moved player did not recover once from a fall");
+        Advance(run, 1, false);
+        Check(run.Lives==1 && run.PlayerY==0, "Fall recovery left a hole under the moved player");
+    }
+
+    private static void WalkIntoGap()
+    {
+        RunnerSession run = New(); run.StartRun(); World(run).Clear();
+        World(run).Add(new WorldEntity { Id=9103, Kind=EntityKind.Gap,
+            X=400, Width=300, Height=160 });
+        run.SetHorizontal(1); Advance(run, 0.35f, false);
+        Check(run.PlayerX > RunnerSession.StartPlayerX && run.PlayerY < 0,
+            "Walking into a scrolling gap retained floor support");
+    }
+
+    private static void SetField(RunnerSession run, string name, object value)
+    {
+        FieldInfo field = typeof(RunnerSession).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field == null) throw new InvalidOperationException("Fixture cannot find state " + name);
+        field.SetValue(run, value);
+    }
+
+    private static void SetProperty(RunnerSession run, string name, object value)
+    {
+        SetField(run, "<" + name + ">k__BackingField", value);
+    }
+
+    private static void SpikeShape()
+    {
+        RunnerSession corner = New(); corner.StartRun(); World(corner).Clear();
+        SetProperty(corner, "PlayerY", 20f); SetField(corner, "grounded", false);
+        World(corner).Add(new WorldEntity { Id=9104, Kind=EntityKind.Spike,
+            X=corner.PlayerX+18, Y=0, Width=100, Height=100 });
+        corner.Update(1f/120);
+        Check(corner.State==RunState.Playing, "Empty upper corner of a spike was treated as solid");
+        RunnerSession middle = New(); middle.StartRun(); World(middle).Clear();
+        SetProperty(middle, "PlayerY", 20f); SetField(middle, "grounded", false);
+        Inject(middle, EntityKind.Spike, 0, 100, 100); middle.Update(1f/120);
+        Check(middle.State==RunState.GameOver, "Solid triangle centre did not cause damage");
+    }
+
+    private static void SawShape()
+    {
+        RunnerSession corner = New(); corner.StartRun(); World(corner).Clear();
+        World(corner).Add(new WorldEntity { Id=9105, Kind=EntityKind.Saw,
+            X=corner.PlayerX+21, Y=80, BaseY=80, Width=80, Height=80 });
+        corner.Update(1f/120);
+        Check(corner.State==RunState.Playing, "Empty corner outside the circular blade was treated as solid");
+        RunnerSession middle = New(); middle.StartRun(); World(middle).Clear();
+        Inject(middle, EntityKind.Saw, 16, 80, 80); middle.Update(1f/120);
+        Check(middle.State==RunState.GameOver, "Blade centre did not cause damage");
+    }
+
+    private static void SawMotion()
+    {
+        RunnerSession run = New(); run.StartRun(); World(run).Clear();
+        WorldEntity saw = Inject(run, EntityKind.Saw, 61, 76, 76);
+        saw.MotionAmplitude = 8; saw.MotionPhase = 0;
+        run.SetDucking(true);
+        for (int i=0; i<360; i++)
+        {
+            saw.X = run.PlayerX-saw.Width/2;
+            run.Update(1f/120);
+            Check(run.State==RunState.Playing, "A floating saw invaded the safe duck lane");
+            Check(saw.Y >= 53-0.01f && saw.Y <= 69+0.01f, "Saw left its authored vertical motion band");
+        }
+        Check(saw.Rotation != 0 && saw.Y != saw.BaseY, "Saw did not rotate and bob");
+    }
+
+    private static void PatternVariety()
+    {
+        HashSet<EntityKind> kinds = new HashSet<EntityKind>(Packs().SelectMany(p => p.Entities).Select(e => e.Kind));
+        foreach (EntityKind expected in new[] { EntityKind.House, EntityKind.Hydrant, EntityKind.Plane,
+            EntityKind.Gap, EntityKind.Spike, EntityKind.Saw, EntityKind.Barrier })
+            Check(kinds.Contains(expected), "Endless generation omitted " + expected);
+        Check(Packs().Any(p => p.Entities.Count(e => e.Kind==EntityKind.Spike)==3), "No triple spike rhythm appeared");
+        Check(Packs().Any(p => p.Entities.Count(e => e.Kind==EntityKind.Barrier)==2), "No stepped barrier rhythm appeared");
+        Check(Packs().Any(p => p.Entities.Any(e => e.Kind==EntityKind.Saw && e.MotionAmplitude>0)), "No floating moving blade appeared");
+    }
+
+    private static string PackSignature(PackSpec pack)
+    {
+        return string.Join(";", pack.Entities.Select(e => e.Kind + ":" +
+            Math.Ceiling(e.X/10) + ":" + Math.Ceiling(e.Width/10) + ":" + Math.Ceiling(e.Height/10) + ":" + e.BaseY));
+    }
+
+    private static bool ReplayPack(PackSpec pack, float speed, float playerX, float lead, float secondJumpDelay)
+    {
+        RunnerSession run = New(991); run.StartRun(); World(run).Clear();
+        SetProperty(run, "Elapsed", (speed-RunnerSession.InitialSpeed)/RunnerSession.SpeedAcceleration);
+        SetProperty(run, "Speed", speed); SetProperty(run, "PlayerX", playerX);
+        SetField(run, "distanceToPattern", 1000000f); SetField(run, "nextHeartAt", float.MaxValue);
+        var obstacles = new List<WorldEntity>();
+        foreach (WorldEntity e in pack.Entities)
+        {
+            WorldEntity clone = CopyEntity(e);
+            clone.X += playerX + speed*0.65f;
+            obstacles.Add(clone); World(run).Add(clone);
+        }
+        bool duck = obstacles.All(e => e.Kind==EntityKind.Plane || (e.Kind==EntityKind.Saw && e.BaseY>RunnerSession.DuckHeight));
+        run.SetDucking(duck);
+        bool jumped = false, jumpedAgain = false;
+        float firstAt = 0.65f-lead;
+        for (int i=0; i<120*4; i++)
+        {
+            float t = i/120f;
+            if (!duck && !jumped && t>=firstAt) { jumped=run.Jump(); }
+            if (!duck && jumped && secondJumpDelay>=0 && !jumpedAgain && t>=firstAt+secondJumpDelay)
+                jumpedAgain=run.Jump();
+            run.Update(1f/120);
+            if (run.State!=RunState.Playing || run.Lives!=1) return false;
+            if (obstacles.All(e => e.X+e.Width<run.PlayerX-RunnerSession.PlayerWidth))
+            {
+                // A missed ledge can cause death after the hole has scrolled past;
+                // require an actual landing rather than only a passing X position.
+                if (run.PlayerY<=0.01f && run.VelocityY==0) return true;
+            }
+        }
+        return false;
+    }
+
+    private static void PatternReplay()
+    {
+        var samples = Packs().GroupBy(PackSignature).Select(g => g.OrderByDescending(p => p.End-p.Start).First()).ToList();
+        int replayed = 0;
+        foreach (PackSpec pack in samples)
+            foreach (float speed in new[] {RunnerSession.InitialSpeed, RunnerSession.MaximumSpeed})
+                foreach (float x in new[] {RunnerSession.MinimumPlayerX, RunnerSession.MaximumPlayerX})
+                {
+                    bool pass = false;
+                    foreach (float lead in new[] {0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
+                    {
+                        foreach (float second in new[] {-1f,0.28f,0.4f,0.52f,0.64f})
+                            if (ReplayPack(pack,speed,x,lead,second)) { pass=true; break; }
+                        if (pass) break;
+                    }
+                    Check(pass, "No jump/duck solution for pack " + PackSignature(pack) +
+                        " at speed " + speed + " and player X " + x);
+                    replayed++;
+                }
+        Check(samples.Count>=20 && replayed>=80, "Traversability replay had too few distinct real pack geometries");
+        Console.WriteLine("  Replayed " + samples.Count + " sampled geometries at both speed limits and both screen bounds.");
+    }
+
+    private static void SequentialRunner()
+    {
+        for (int seed=0; seed<6; seed++)
+            foreach (float x in new[] {RunnerSession.StartPlayerX,RunnerSession.MaximumPlayerX})
+            {
+                RunnerSession run=New(seed); run.StartRun(); SetProperty(run,"PlayerX",x);
+                int current=0, solved=0;
+                bool jumped=false, second=false;
+                float jumpTime=0, jumpLead=0.28f, doubleDelay=-1;
+                string description="";
+                for (int step=0; step<120*215; step++)
+                {
+                    var group=run.Entities.Where(e => !e.Removed && Hazard(e) &&
+                        e.X+e.Width>run.PlayerX-RunnerSession.PlayerWidth).GroupBy(e=>e.PatternId)
+                        .OrderBy(g=>g.Min(e=>e.X)).FirstOrDefault();
+                    if (group!=null)
+                    {
+                        if (group.Key!=current)
+                        {
+                            if (current!=0) solved++;
+                            current=group.Key; jumped=false; second=false;
+                            var copies=group.Select(CopyEntity).ToList();
+                            float left=copies.Min(e=>e.X);
+                            foreach (WorldEntity e in copies) e.X-=left;
+                            var livePack=new PackSpec { Entities=copies };
+                            description=PackSignature(livePack);
+                            float arrival=Math.Max(0,(left-run.PlayerX)/run.Speed);
+                            float approach=Math.Min(RunnerSession.MaximumSpeed,run.Speed+arrival*RunnerSession.SpeedAcceleration);
+                            bool found=false;
+                            foreach (float lead in new[] {0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
+                            {
+                                foreach (float delay in new[] {-1f,0.28f,0.4f,0.52f,0.64f})
+                                    if (ReplayPack(livePack,approach,run.PlayerX,lead-0.025f,delay) &&
+                                        ReplayPack(livePack,approach,run.PlayerX,lead+0.025f,delay))
+                                    { jumpLead=lead; doubleDelay=delay; found=true; break; }
+                                if (found) break;
+                            }
+                            Check(found,"No sequential plan for "+description);
+                        }
+                        bool overhead=group.All(e=>e.Kind==EntityKind.Plane ||
+                            (e.Kind==EntityKind.Saw && e.BaseY>RunnerSession.DuckHeight));
+                        run.SetDucking(overhead);
+                        float distance=group.Min(e=>e.X)-run.PlayerX;
+                        if (!overhead && !jumped && run.PlayerY<=0.01f &&
+                            distance<=run.Speed*jumpLead)
+                        {
+                            jumped=run.Jump(); jumpTime=run.Elapsed;
+                        }
+                        if (!overhead && jumped && !second && doubleDelay>=0 && run.Elapsed-jumpTime>=doubleDelay)
+                            second=run.Jump();
+                    }
+                    int before=run.Lives;
+                    run.Update(1f/120);
+                    Check(run.State==RunState.Playing && run.Lives>=before,
+                        "Sequence bot hit a hazard for seed "+seed+" X="+x+" at "+
+                        run.Elapsed.ToString("0.00")+"s pack="+current+" Y="+run.PlayerY+" VY="+run.VelocityY+
+                        " jumped="+jumped+" double="+second+" lead="+jumpLead+" plan="+description+" since="+(run.Elapsed-jumpTime)+
+                        " hazards="+string.Join(";",run.Entities.Where(e=>Hazard(e)&&e.X<run.PlayerX+180&&e.X+e.Width>run.PlayerX-100)
+                            .Select(e=>e.PatternId+":"+e.Kind+"@"+e.X+","+e.Y+" size="+e.Width+","+e.Height))+" reason="+run.EndReason);
+                }
+                Check(solved>=70 && run.Score>4000 && run.Speed==RunnerSession.MaximumSpeed,
+                    "Sequential run did not cover enough authored packs and capped-speed play");
+            }
+    }
+
+    private static void FasterPacing()
+    {
+        Check(RunnerSession.InitialSpeed>=350 && RunnerSession.InitialSpeed>250*1.3f,
+            "Starting pace was not materially faster than the previous version");
+        Check(RunnerSession.MaximumSpeed>430 && RunnerSession.MaximumSpeed<RunnerSession.InitialSpeed*2,
+            "Top speed did not increase with a controlled ceiling");
     }
 
     private static void SaveValidation()

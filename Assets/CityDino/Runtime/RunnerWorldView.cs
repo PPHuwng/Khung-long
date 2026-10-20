@@ -5,19 +5,20 @@ using UnityEngine;
 namespace CityDino
 {
     /// <summary>
-    /// Draws the simulation in a fixed 1280 x 720 presentation space. Physics and
-    /// collision decisions belong to RunnerSession, never to the scrolling art.
+    /// World art in the same virtual canvas as RunnerSession. Layers and effects
+    /// never move collision geometry: every player/hazard position comes from core.
     /// </summary>
     public sealed class RunnerWorldView : IDisposable
     {
         private const float Width = RunnerSession.CanvasWidth;
         private const float Height = RunnerSession.CanvasHeight;
         private const float GroundY = RunnerSession.GroundY;
-        private const float DinoX = RunnerSession.PlayerX;
 
         private readonly RunnerArt art;
         private readonly Texture2D circle;
         private readonly Texture2D glow;
+        private readonly Texture2D spike;
+        private readonly Texture2D saw;
         private readonly List<Vector2> gaps = new List<Vector2>(12);
         private GUIStyle signStyle;
         private District shownDistrict = District.Day;
@@ -25,6 +26,9 @@ namespace CityDino
         private Palette nextPalette;
         private float transitionStarted = -10f;
         private bool initialized;
+        private bool hasPlayerPosition;
+        private bool facingLeft;
+        private float lastPlayerX;
 
         private struct Palette
         {
@@ -37,25 +41,30 @@ namespace CityDino
             this.art = art ?? throw new ArgumentNullException(nameof(art));
             circle = MakeCircle(false);
             glow = MakeCircle(true);
+            spike = MakeSpike();
+            saw = MakeSaw();
         }
 
         public void Draw(RunnerSession session, float ambientTime)
         {
-            if (session == null || (Event.current != null && Event.current.type != EventType.Repaint))
-                return;
-
+            if (session == null || (Event.current != null && Event.current.type != EventType.Repaint)) return;
             Color oldColor = GUI.color;
             Matrix4x4 oldMatrix = GUI.matrix;
             try
             {
                 Palette palette = CurrentPalette(session.CurrentDistrict, ambientTime);
-                float scroll = session.State == RunState.Menu ? ambientTime * 24f : session.Distance;
+                bool menu = session.State == RunState.Menu;
+                float scroll = menu ? ambientTime * 75f : session.Distance;
+                float clock = menu ? ambientTime : session.Elapsed;
                 DrawSky(palette, scroll, ambientTime);
                 DrawCity(palette, scroll, ambientTime);
                 ReadGaps(session);
-                DrawRoad(palette, scroll);
-                DrawEntities(session, palette, ambientTime);
-                DrawDino(session, ambientTime);
+                DrawRoad(palette, scroll, session.Speed / RunnerSession.InitialSpeed);
+                if (!menu)
+                {
+                    DrawEntities(session, palette, clock);
+                    DrawDino(session, clock);
+                }
                 DrawWeather(palette, scroll, ambientTime);
             }
             finally
@@ -87,33 +96,33 @@ namespace CityDino
         {
             Palette p = new Palette
             {
-                Sky = Hex(0x91d8e2), Horizon = Hex(0xe9f5dc), Backdrop = Color.white,
-                FarCity = Hex(0x91bfc8), Foundation = Hex(0x192d40), Road = Color.white,
-                Accent = Hex(0xf8cc66)
+                Sky = Hex(0x86c9df), Horizon = Hex(0xf0ead4), Backdrop = Color.white,
+                FarCity = Hex(0x8aaabf), Foundation = Hex(0x17283e), Road = Color.white,
+                Accent = Hex(0x70e5d1)
             };
             switch (district)
             {
                 case District.Rain:
-                    p.Sky = Hex(0x738eaa); p.Horizon = Hex(0xc0d0d4); p.Backdrop = Hex(0xa1b9cb);
-                    p.FarCity = Hex(0x627d93); p.Road = Hex(0xb7c7d0); p.Accent = Hex(0x9eeced); p.Rain = 0.7f;
+                    p.Sky = Hex(0x5e7897); p.Horizon = Hex(0xb6c8d2); p.Backdrop = Hex(0xa1c4d7);
+                    p.FarCity = Hex(0x5c7899); p.Road = Hex(0xb2c7d1); p.Accent = Hex(0x8df5f0); p.Rain = 0.7f;
                     break;
                 case District.Sunset:
-                    p.Sky = Hex(0xdd8e9d); p.Horizon = Hex(0xffdf9c); p.Backdrop = Hex(0xffd0a7);
-                    p.FarCity = Hex(0xab869e); p.Road = Hex(0xf4c6ad); p.Accent = Hex(0xffd372); p.Sunset = 1f;
+                    p.Sky = Hex(0x947db4); p.Horizon = Hex(0xffd5a0); p.Backdrop = Hex(0xffd8c4);
+                    p.FarCity = Hex(0x9a85a7); p.Road = Hex(0xf7d1b4); p.Accent = Hex(0xffc680); p.Sunset = 1f;
                     break;
                 case District.Night:
-                    p.Sky = Hex(0x152542); p.Horizon = Hex(0x49547b); p.Backdrop = Hex(0x7b89b9);
-                    p.FarCity = Hex(0x303c60); p.Foundation = Hex(0x111e32); p.Road = Hex(0x9ca8c6);
-                    p.Accent = Hex(0x9fefd4); p.Night = 1f;
+                    p.Sky = Hex(0x101b37); p.Horizon = Hex(0x3c466b); p.Backdrop = Hex(0x91a5d5);
+                    p.FarCity = Hex(0x303c64); p.Foundation = Hex(0x101b2f); p.Road = Hex(0xabbada);
+                    p.Accent = Hex(0x89ffe4); p.Night = 1f;
                     break;
                 case District.Skyway:
-                    p.Sky = Hex(0x8bbbe5); p.Horizon = Hex(0xe7f1f7); p.Backdrop = Hex(0xbddbed);
-                    p.FarCity = Hex(0x92a9cd); p.Road = Hex(0xd8e8f4); p.Accent = Hex(0xffd26f); p.Skyway = 1f;
+                    p.Sky = Hex(0x7bb4df); p.Horizon = Hex(0xe7edf6); p.Backdrop = Hex(0xc9e8ff);
+                    p.FarCity = Hex(0x8daccb); p.Road = Hex(0xe2edf9); p.Accent = Hex(0xffdc8d); p.Skyway = 1f;
                     break;
                 case District.Storm:
-                    p.Sky = Hex(0x35445f); p.Horizon = Hex(0x8796aa); p.Backdrop = Hex(0x8b9cb6);
-                    p.FarCity = Hex(0x536480); p.Foundation = Hex(0x152338); p.Road = Hex(0x91a5b9);
-                    p.Accent = Hex(0xbee7f0); p.Rain = 1f; p.Night = 0.35f;
+                    p.Sky = Hex(0x29354f); p.Horizon = Hex(0x74899e); p.Backdrop = Hex(0x9caed2);
+                    p.FarCity = Hex(0x4f6382); p.Foundation = Hex(0x142137); p.Road = Hex(0x94aec7);
+                    p.Accent = Hex(0x94ecf6); p.Rain = 1f; p.Night = 0.4f;
                     break;
             }
             return p;
@@ -135,163 +144,178 @@ namespace CityDino
 
         private void DrawSky(Palette p, float scroll, float time)
         {
-            for (int i = 0; i < 32; i++)
+            for (int i = 0; i < 40; i++)
             {
-                float fraction = i / 31f;
-                Fill(new Rect(0f, i * Height / 32f, Width, Height / 32f + 1f), Color.Lerp(p.Sky, p.Horizon, fraction));
+                float fraction = i / 39f;
+                Fill(new Rect(0f, i * Height / 40f, Width, Height / 40f + 1f), Color.Lerp(p.Sky, p.Horizon, fraction));
             }
-
             if (p.Night > 0.1f)
             {
-                for (int i = 0; i < 48; i++)
+                for (int i = 0; i < 46; i++)
                 {
                     float x = Repeat(i * 173.71f + 73f, Width);
-                    float y = 82f + Repeat(i * 53.13f, 235f);
-                    float alpha = p.Night * (0.25f + 0.45f * (0.5f + Mathf.Sin(time * 1.1f + i) * 0.5f));
+                    float y = 93f + Repeat(i * 53.13f, 230f);
+                    float alpha = p.Night * (0.28f + 0.42f * (0.5f + Mathf.Sin(time * 1.1f + i) * 0.5f));
                     float size = i % 5 == 0 ? 3f : 2f;
                     Fill(new Rect(x, y, size, size), new Color(0.92f, 0.97f, 1f, alpha));
                 }
             }
-
-            float celestialY = Mathf.Lerp(165f, 235f, p.Sunset);
-            Color sun = Color.Lerp(Hex(0xffe6a7), Hex(0xe7f5ff), p.Night);
-            sun.a = Mathf.Lerp(0.95f, 0.2f, p.Rain);
-            Disc(new Rect(1025f, celestialY - 32f, 144f, 144f), WithAlpha(sun, sun.a * 0.28f), true);
-            Disc(new Rect(1060f, celestialY, 72f, 72f), sun);
+            float celestialY = Mathf.Lerp(152f, 230f, p.Sunset);
+            Color sun = Color.Lerp(Hex(0xffe8b0), Hex(0xe6f7ff), p.Night);
+            sun.a = Mathf.Lerp(0.94f, 0.2f, p.Rain);
+            Disc(new Rect(974f, celestialY - 55f, 225f, 225f), WithAlpha(sun, sun.a * 0.24f), true);
+            Disc(new Rect(1040f, celestialY + 5f, 88f, 88f), sun);
             if (p.Night > 0.4f)
-                Disc(new Rect(1079f, celestialY - 8f, 65f, 65f), WithAlpha(p.Sky, p.Night));
-
+                Disc(new Rect(1063f, celestialY - 5f, 78f, 78f), WithAlpha(p.Sky, p.Night));
             for (int i = 0; i < 7; i++)
             {
-                float x = Repeat(i * 247f - scroll * 0.055f + time * 2f, 1550f) - 160f;
-                float y = 145f + (i % 3) * 65f;
-                float size = 0.65f + (i % 3) * 0.2f;
-                Cloud(x, y, size, new Color(1f, 1f, 1f, Mathf.Lerp(0.65f, 0.12f, p.Night) * (1f - p.Rain * 0.5f)));
+                float x = Repeat(i * 247f - scroll * 0.035f + time * 2f, 1550f) - 160f;
+                float y = 145f + (i % 3) * 52f;
+                float size = 0.6f + (i % 3) * 0.18f;
+                Cloud(x, y, size, new Color(1f, 1f, 1f, Mathf.Lerp(0.56f, 0.1f, p.Night) * (1f - p.Rain * 0.5f)));
             }
         }
 
         private void DrawCity(Palette p, float scroll, float time)
         {
-            float skylineY = Mathf.Lerp(490f, 635f, p.Skyway);
-            for (int i = -1; i < 19; i++)
+            float baseY = Mathf.Lerp(552f, 700f, p.Skyway);
+            // Sparse silhouettes stay furthest away; they never contain a painted sky or road.
+            for (int i = -1; i < 21; i++)
             {
-                int variant = (i + 100) % 9;
-                float x = i * 82f - Repeat(scroll * 0.055f, 82f);
-                float buildingHeight = 70f + (variant * 31 % 130);
-                Color tint = p.FarCity;
-                tint.a = 0.5f;
-                Fill(new Rect(x, skylineY - buildingHeight, 55f + variant % 3 * 9f, buildingHeight), tint);
-                Fill(new Rect(x + 19f, skylineY - buildingHeight - 10f, 16f, 10f), tint);
-                if (p.Night > 0.2f)
-                {
-                    for (int row = 0; row < 5; row++)
-                        for (int col = 0; col < 3; col++)
-                            if ((i + row + col * 3) % 3 != 0)
-                                Fill(new Rect(x + 9f + col * 14f, skylineY - buildingHeight + 18f + row * 22f, 5f, 7f), WithAlpha(p.Accent, p.Night * 0.5f));
-                }
+                int variant = (i + 99) % 9;
+                float x = i * 79f - Repeat(scroll * 0.035f, 79f);
+                float height = 76f + (variant * 37 % 164);
+                Color tint = WithAlpha(p.FarCity, 0.3f);
+                Fill(new Rect(x, baseY - height - 40f, 52f + variant % 3 * 11f, height), tint);
+                Fill(new Rect(x + 20f, baseY - height - 57f, 15f, 17f), tint);
             }
 
-            Texture2D city = art.CityBackdrop != null ? art.CityBackdrop : art.Background;
-            if (city != null)
-            {
-                const float tileWidth = 1410f;
-                float x = -Repeat(scroll * 0.11f, tileWidth);
-                float y = Mathf.Lerp(125f, 345f, p.Skyway);
-                float height = Mathf.Lerp(435f, 295f, p.Skyway);
-                Color tint = p.Backdrop;
-                tint.a = Mathf.Lerp(0.88f, 0.48f, p.Skyway);
-                GUI.color = tint;
-                // Exclude the road baked into the bottom of the supplied city image.
-                Rect source = new Rect(0f, 0.145f, 1f, 0.855f);
-                GUI.DrawTextureWithTexCoords(new Rect(x, y, tileWidth, height), city, source, true);
-                GUI.DrawTextureWithTexCoords(new Rect(x + tileWidth, y, tileWidth, height), city, source, true);
-                GUI.color = Color.white;
-                // The thin atmospheric veil joins the art's upper edge to the sky.
-                for (int i = 0; i < 10; i++)
-                    Fill(new Rect(0f, y + i * 3f, Width, 3f), WithAlpha(p.Sky, (1f - i / 10f) * 0.55f));
-            }
+            if (art.SkylineFar != null)
+                DrawSkyline(art.SkylineFar, art.SkylineFarUV, Mathf.Lerp(335f, 295f, p.Skyway), baseY - 8f,
+                    scroll * 0.075f, WithAlpha(Color.Lerp(Color.white, p.Backdrop, 0.45f), 0.65f));
+            else
+                DrawProceduralSkyline(p, scroll, baseY, false);
 
+            // Haze sits BETWEEN layers rather than hiding the player/obstacles.
+            for (int i = 0; i < 8; i++)
+                Fill(new Rect(0f, baseY - 152f + i * 19f, Width, 20f), WithAlpha(p.Horizon, (i / 7f) * 0.1f));
+
+            if (art.SkylineNear != null)
+                DrawSkyline(art.SkylineNear, art.SkylineNearUV, Mathf.Lerp(285f, 240f, p.Skyway), baseY,
+                    scroll * 0.17f, WithAlpha(Color.Lerp(Color.white, p.Backdrop, 0.28f), 0.72f));
+            else
+                DrawProceduralSkyline(p, scroll, baseY, true);
+
+            // Tiny passing light strips reinforce movement without resembling hazards.
+            float viaductY = Mathf.Lerp(512f, 667f, p.Skyway);
+            Fill(new Rect(0f, viaductY, Width, 3f), WithAlpha(p.FarCity, 0.25f));
+            for (int i = 0; i < 11; i++)
+            {
+                float x = Repeat(i * 153f - scroll * 0.32f, Width + 170f) - 100f;
+                Fill(new Rect(x, viaductY - 3f, 42f, 2f), WithAlpha(p.Accent, 0.3f + p.Night * 0.18f));
+            }
             if (p.Skyway > 0.1f)
             {
                 for (int i = 0; i < 6; i++)
                 {
-                    float x = Repeat(i * 310f - scroll * 0.17f, 1680f) - 180f;
-                    Cloud(x, 605f + (i % 2) * 45f, 1.35f, new Color(0.96f, 0.98f, 1f, p.Skyway * 0.68f));
+                    float x = Repeat(i * 310f - scroll * 0.13f, 1680f) - 180f;
+                    Cloud(x, 615f + i % 2 * 46f, 1.4f, new Color(0.96f, 0.98f, 1f, p.Skyway * 0.65f));
                 }
             }
-
-            // Small local details give the skyline a readable foreground scale.
-            float signX = 1010f - Repeat(scroll * 0.2f, 1580f);
-            if (signX > -150f && p.Skyway < 0.5f)
+            if (p.Skyway < 0.5f)
             {
-                Fill(new Rect(signX + 13f, 496f, 6f, 65f), Hex(0x43576c));
-                Fill(new Rect(signX, 473f, 114f, 31f), Hex(0x23394c));
-                Fill(new Rect(signX + 4f, 477f, 106f, 23f), Hex(0xc9e8d4));
-                if (signStyle == null)
+                float x = 1050f - Repeat(scroll * 0.3f, 1660f);
+                if (x > -140f)
                 {
-                    signStyle = new GUIStyle { font = art.Font, fontSize = 13, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
-                    signStyle.normal.textColor = Hex(0x284b4e);
+                    Fill(new Rect(x + 10f, 502f, 4f, 58f), WithAlpha(Hex(0x344c60), 0.48f));
+                    Fill(new Rect(x, 479f, 107f, 28f), WithAlpha(Hex(0x203648), 0.75f));
+                    Fill(new Rect(x + 3f, 482f, 101f, 22f), WithAlpha(p.Accent, 0.9f));
+                    Sign(new Rect(x + 4f, 483f, 99f, 20f), "DINO / CITY", Hex(0x203648), 12);
                 }
-                GUI.color = Color.white;
-                GUI.Label(new Rect(signX + 3f, 477f, 108f, 23f), "DINO CITY", signStyle);
+            }
+        }
+
+        private static void DrawSkyline(Texture2D texture, Rect source, float height, float bottom, float scroll, Color tint)
+        {
+            // Preserve the buildings' proportions after trimming transparent sky/feet.
+            float aspect = source.width * texture.width / Mathf.Max(1f, source.height * texture.height);
+            float tileWidth = Mathf.Max(1f, aspect * height);
+            float start = -Repeat(scroll, tileWidth);
+            int tile = (int)Math.Floor(scroll / tileWidth);
+            GUI.color = tint;
+            for (float x = start; x < Width; x += tileWidth, tile++)
+            {
+                // Alternate reflections join identical edge pixels and avoid a hard panorama seam.
+                Rect uv = (tile & 1) == 0 ? source : new Rect(source.x + source.width, source.y, -source.width, source.height);
+                GUI.DrawTextureWithTexCoords(new Rect(x, bottom - height, tileWidth + 1f, height), texture, uv, true);
+            }
+        }
+
+        private static void DrawProceduralSkyline(Palette p, float scroll, float bottom, bool near)
+        {
+            float spacing = near ? 118f : 86f;
+            float parallax = near ? 0.16f : 0.07f;
+            for (int i = -1; i < 16; i++)
+            {
+                int index = i + 60;
+                float x = i * spacing - Repeat(scroll * parallax, spacing);
+                float height = 78f + index * (near ? 39 : 31) % (near ? 170 : 210);
+                Color tint = Color.Lerp(p.FarCity, p.Foundation, near ? 0.28f : 0.04f);
+                tint.a = near ? 0.58f : 0.4f;
+                float width = spacing - 16f - index % 3 * 9f;
+                Fill(new Rect(x, bottom - height, width, height), tint);
+                Fill(new Rect(x + width * 0.3f, bottom - height - 10f, width * 0.4f, 10f), tint);
+                for (int row = 0; row < 6; row++)
+                    for (int column = 0; column < 4; column++)
+                        if ((index + row * 3 + column) % 4 != 0 && row * 22f + 20f < height)
+                            Fill(new Rect(x + 12f + column * 16f, bottom - height + 17f + row * 22f, 4f, 7f),
+                                WithAlpha(p.Night > 0.2f ? p.Accent : p.Horizon, near ? 0.36f : 0.2f));
             }
         }
 
         private void ReadGaps(RunnerSession session)
         {
             gaps.Clear();
+            if (session.State == RunState.Menu) return;
             foreach (WorldEntity entity in session.Entities)
-            {
                 if (!entity.Removed && entity.Kind == EntityKind.Gap && entity.X < Width && entity.X + entity.Width > 0f)
                     gaps.Add(new Vector2(Mathf.Max(0f, entity.X), Mathf.Min(Width, entity.X + entity.Width)));
-            }
             gaps.Sort((a, b) => a.x.CompareTo(b.x));
         }
 
-        private void DrawRoad(Palette p, float scroll)
+        private void DrawRoad(Palette p, float scroll, float speedRatio)
         {
             float left = 0f;
             for (int i = 0; i < gaps.Count; i++)
             {
                 Vector2 gap = gaps[i];
-                if (gap.x > left)
-                    DrawRoadSegment(left, gap.x, p, scroll);
+                if (gap.x > left) DrawRoadSegment(left, gap.x, p, scroll, speedRatio);
                 left = Mathf.Max(left, gap.y);
             }
-            if (left < Width)
-                DrawRoadSegment(left, Width, p, scroll);
-
+            if (left < Width) DrawRoadSegment(left, Width, p, scroll, speedRatio);
             for (int i = 0; i < gaps.Count; i++)
             {
                 Vector2 gap = gaps[i];
                 DrawWarningEdge(gap.x - 14f, p.Accent);
                 DrawWarningEdge(gap.y, p.Accent);
-                // Downward marker is decorative; the open span remains empty.
                 Line(new Vector2(gap.x - 2f, GroundY + 6f), new Vector2(gap.x - 2f, GroundY + 46f), WithAlpha(p.Foundation, 0.65f), 3f);
                 Line(new Vector2(gap.y + 2f, GroundY + 6f), new Vector2(gap.y + 2f, GroundY + 46f), WithAlpha(p.Foundation, 0.65f), 3f);
             }
         }
 
-        private void DrawRoadSegment(float left, float right, Palette p, float scroll)
+        private void DrawRoadSegment(float left, float right, Palette p, float scroll, float speedRatio)
         {
             float width = right - left;
-            if (width <= 0f)
-                return;
+            if (width <= 0f) return;
             GUI.BeginGroup(new Rect(left, GroundY, width, Height - GroundY));
             try
             {
                 bool flying = p.Skyway > 0.5f || gaps.Count > 0;
                 Texture2D texture = flying ? art.PlatformLong : art.Road;
-                if (texture == null)
-                    texture = art.PlatformLong;
+                if (texture == null) texture = art.PlatformLong;
                 float tileWidth = flying ? 360f : 680f;
                 float slabHeight = flying ? 105f : 114f;
-
-                if (!flying)
-                    Fill(new Rect(0f, 0f, width, Height - GroundY), p.Foundation);
-                else
-                    Fill(new Rect(0f, 0f, width, 39f), p.Foundation);
-
+                Fill(new Rect(0f, 0f, width, flying ? 39f : Height - GroundY), p.Foundation);
                 float firstTile = Mathf.Floor((left + scroll) / tileWidth) * tileWidth - scroll - left;
                 for (float x = firstTile; x < width; x += tileWidth)
                 {
@@ -306,22 +330,26 @@ namespace CityDino
                         Fill(new Rect(x + 30f, 32f, 70f, 4f), p.Accent);
                     }
                 }
-                Fill(new Rect(0f, 0f, width, 3f), Color.Lerp(Hex(0xc7e9e1), p.Accent, p.Night * 0.35f));
-                Fill(new Rect(0f, 4f, width, 3f), WithAlpha(Hex(0x1c3446), 0.45f));
-
-                if (p.Rain > 0.1f)
+                Fill(new Rect(0f, 0f, width, 3f), Color.Lerp(Hex(0xc7e9e1), p.Accent, p.Night * 0.5f));
+                Fill(new Rect(0f, 4f, width, 3f), WithAlpha(Hex(0x172c42), 0.6f));
+                // Road reflections move faster than the skyline, making acceleration visible.
+                for (int i = 0; i < 12; i++)
+                {
+                    float x = Repeat(i * 129f - scroll * 1.12f, 1500f) - left;
+                    float y = 16f + i % 3 * 16f;
+                    float streak = Mathf.Lerp(25f, 68f, Mathf.Clamp01(speedRatio - 1f));
+                    Fill(new Rect(x, y, streak, i % 3 == 0 ? 2f : 1f), WithAlpha(p.Accent, 0.2f + 0.12f * p.Night + 0.1f * p.Rain));
+                }
+                if (!flying)
                 {
                     for (int i = 0; i < 8; i++)
                     {
-                        float x = Repeat(i * 183f - scroll, 1400f) - left;
-                        Fill(new Rect(x, 21f + i % 3 * 13f, 43f + i % 2 * 20f, 2f), WithAlpha(p.Accent, p.Rain * 0.28f));
+                        float x = Repeat(i * 191f - scroll * 1.35f, 1480f) - left;
+                        Fill(new Rect(x, 112f + i % 2 * 17f, 44f + speedRatio * 12f, 2f), WithAlpha(p.Accent, 0.13f));
                     }
                 }
             }
-            finally
-            {
-                GUI.EndGroup();
-            }
+            finally { GUI.EndGroup(); }
         }
 
         private static void DrawWarningEdge(float x, Color color)
@@ -335,31 +363,52 @@ namespace CityDino
         {
             foreach (WorldEntity entity in session.Entities)
             {
-                if (entity.Removed || entity.Kind == EntityKind.Gap || entity.X > Width + 100f || entity.X + entity.Width < -100f)
-                    continue;
-
+                if (entity.Removed || entity.Kind == EntityKind.Gap || entity.X > Width + 100f || entity.X + entity.Width < -100f) continue;
                 float bottom = GroundY - entity.Y;
                 Rect rect = new Rect(entity.X, bottom - entity.Height, entity.Width, entity.Height);
                 Texture2D texture = null;
+                bool drawn = false;
                 switch (entity.Kind)
                 {
                     case EntityKind.House:
                         texture = entity.Variant % 3 == 0 ? art.House1 : entity.Variant % 3 == 1 ? art.House2 : art.House3;
-                        Disc(new Rect(entity.X - 7f, GroundY - 4f, entity.Width + 14f, 10f), new Color(0.05f, 0.12f, 0.18f, 0.18f), true);
+                        GroundShadow(entity.X, entity.Width);
                         break;
                     case EntityKind.Hydrant:
                         texture = art.Hydrant;
-                        Disc(new Rect(entity.X - 6f, GroundY - 4f, entity.Width + 12f, 10f), new Color(0.05f, 0.12f, 0.18f, 0.18f), true);
+                        GroundShadow(entity.X, entity.Width);
                         break;
                     case EntityKind.Plane:
                         texture = art.Plane;
-                        // A leading dash makes the incoming airborne obstacle easier to read.
-                        Line(new Vector2(rect.xMax + 6f, rect.center.y), new Vector2(rect.xMax + 34f, rect.center.y), WithAlpha(p.Horizon, 0.6f), 3f);
+                        Line(new Vector2(rect.xMax + 6f, rect.center.y), new Vector2(rect.xMax + 34f, rect.center.y), WithAlpha(p.Horizon, 0.65f), 3f);
+                        DrawHazardHint(entity, session.PlayerX, rect, "CÚI", p.Accent);
+                        break;
+                    case EntityKind.Spike:
+                        GroundShadow(entity.X, entity.Width);
+                        GUI.color = Color.white;
+                        if (!DrawAtlas(rect, 0)) GUI.DrawTexture(rect, spike, ScaleMode.StretchToFill, true);
+                        drawn = true;
+                        break;
+                    case EntityKind.Saw:
+                        Disc(new Rect(rect.x - 9f, rect.y - 9f, rect.width + 18f, rect.height + 18f), new Color(1f, 0.38f, 0.24f, 0.22f), true);
+                        Matrix4x4 before = GUI.matrix;
+                        GUIUtility.RotateAroundPivot(entity.Rotation, rect.center);
+                        GUI.color = Color.white;
+                        if (!DrawAtlas(rect, 1)) GUI.DrawTexture(rect, saw, ScaleMode.StretchToFill, true);
+                        GUI.matrix = before;
+                        DrawHazardHint(entity, session.PlayerX, rect, entity.Y >= RunnerSession.DuckHeight + 4f ? "CÚI" : "NHẢY", Hex(0xffb084));
+                        drawn = true;
+                        break;
+                    case EntityKind.Barrier:
+                        GroundShadow(entity.X, entity.Width);
+                        GUI.color = Color.white;
+                        if (!DrawAtlas(rect, entity.Variant % 2 == 0 ? 2 : 3)) DrawBarrier(rect, entity.Variant, p, time);
+                        drawn = true;
                         break;
                     case EntityKind.Star:
                         texture = art.Star;
                         rect.y += Mathf.Sin(time * 3f + entity.Id * 0.9f) * 3f;
-                        Disc(new Rect(rect.center.x - rect.width, rect.center.y - rect.height, rect.width * 2f, rect.height * 2f), new Color(1f, 0.8f, 0.27f, 0.28f), true);
+                        Disc(new Rect(rect.center.x - rect.width, rect.center.y - rect.height, rect.width * 2f, rect.height * 2f), new Color(1f, 0.8f, 0.27f, 0.3f), true);
                         if (entity.Id % 3 == 0)
                         {
                             float spark = 0.5f + Mathf.Sin(time * 4f + entity.Id) * 0.5f;
@@ -373,67 +422,107 @@ namespace CityDino
                         Disc(new Rect(rect.center.x - rect.width * pulse / 2f, rect.center.y - rect.height * pulse / 2f, rect.width * pulse, rect.height * pulse), new Color(1f, 0.33f, 0.46f, 0.32f), true);
                         break;
                 }
+                if (drawn) continue;
                 if (texture != null)
                 {
-                    GUI.color = Color.Lerp(Color.white, p.Backdrop, 0.13f * p.Night);
+                    GUI.color = Color.Lerp(Color.white, p.Backdrop, 0.1f * p.Night);
                     GUI.DrawTexture(rect, texture, ScaleMode.StretchToFill, true);
                 }
-                else
-                {
-                    Fill(rect, entity.Kind == EntityKind.Heart ? Hex(0xff657d) : entity.Kind == EntityKind.Star ? Hex(0xffd36f) : Hex(0x53758a));
-                }
+                else Fill(rect, entity.Kind == EntityKind.Heart ? Hex(0xff657d) : entity.Kind == EntityKind.Star ? Hex(0xffd36f) : Hex(0x53758a));
             }
+            GUI.color = Color.white;
+        }
+
+        private bool DrawAtlas(Rect target, int cell)
+        {
+            if (art.HazardAtlas == null) return false;
+            // The catalog records tight UV bounds after the generated atlas is inspected.
+            // Drawing those bounds keeps visible triangle/circle edges aligned to collisions.
+            Rect uv = art.GetHazardUV(cell);
+            GUI.DrawTextureWithTexCoords(target, art.HazardAtlas, uv, true);
+            return true;
+        }
+
+        private void DrawHazardHint(WorldEntity entity, float playerX, Rect rect, string caption, Color color)
+        {
+            if (entity.X < playerX + 85f || entity.X > Width - 55f) return;
+            float x = rect.center.x - 23f;
+            Fill(new Rect(x, rect.y - 27f, 46f, 20f), WithAlpha(Hex(0x1e2c40), 0.9f));
+            Sign(new Rect(x + 1f, rect.y - 26f, 44f, 18f), caption, color, 11);
+        }
+
+        private void DrawBarrier(Rect rect, int variant, Palette p, float time)
+        {
+            Fill(rect, Hex(0x17263d));
+            if (variant % 2 == 0)
+            {
+                Fill(new Rect(rect.x + 4f, rect.y + 4f, rect.width - 8f, rect.height - 8f), Hex(0xf5b851));
+                GUI.BeginGroup(new Rect(rect.x + 4f, rect.y + 4f, rect.width - 8f, rect.height - 8f));
+                try
+                {
+                    for (float x = -rect.height; x < rect.width; x += 24f)
+                        Line(new Vector2(x, rect.height), new Vector2(x + rect.height, 0f), Hex(0x2b3545), 9f);
+                }
+                finally { GUI.EndGroup(); }
+            }
+            else
+            {
+                Fill(new Rect(rect.x + 5f, rect.y + 5f, rect.width - 10f, rect.height - 10f), Hex(0x25526a));
+                Color light = Color.Lerp(Hex(0x7bf3ee), p.Accent, 0.4f);
+                Fill(new Rect(rect.x + 8f, rect.y + 8f, 4f, rect.height - 16f), light);
+                Fill(new Rect(rect.xMax - 12f, rect.y + 8f, 4f, rect.height - 16f), light);
+                float pulse = 0.4f + 0.25f * Mathf.Sin(time * 4f);
+                for (float y = rect.y + 12f; y < rect.yMax - 8f; y += 12f)
+                    Fill(new Rect(rect.x + 16f, y, rect.width - 32f, 2f), WithAlpha(light, pulse));
+            }
+        }
+
+        private void GroundShadow(float x, float width)
+        {
+            Disc(new Rect(x - 7f, GroundY - 4f, width + 14f, 10f), new Color(0.03f, 0.09f, 0.15f, 0.2f), true);
         }
 
         private void DrawDino(RunnerSession session, float time)
         {
+            float x = session.PlayerX;
             float y = session.PlayerY;
             float shadowScale = Mathf.Clamp(1f - y / 450f, 0.5f, 1f);
             bool overGap = false;
-            for (int i = 0; i < gaps.Count; i++)
-                if (DinoX >= gaps[i].x && DinoX <= gaps[i].y)
-                    overGap = true;
+            for (int i = 0; i < gaps.Count; i++) if (x >= gaps[i].x && x <= gaps[i].y) overGap = true;
             if (!overGap && y > -30f)
-                Disc(new Rect(DinoX - 39f * shadowScale, GroundY - 6f, 78f * shadowScale, 13f * shadowScale), new Color(0.03f, 0.09f, 0.16f, 0.22f), true);
-
-            bool running = session.State == RunState.Playing || session.State == RunState.Menu;
-            float clock = session.State == RunState.Menu ? time : session.Elapsed;
-            float bob = running && y <= 1f && !session.IsDucking ? Mathf.Sin(clock * 21f) * 1.3f : 0f;
+                Disc(new Rect(x - 39f * shadowScale, GroundY - 6f, 78f * shadowScale, 13f * shadowScale), new Color(0.03f, 0.09f, 0.16f, 0.24f), true);
+            bool running = session.State == RunState.Playing;
+            if (!hasPlayerPosition || session.Elapsed < 0.05f) facingLeft = false;
+            else if (running && Mathf.Abs(x - lastPlayerX) > 0.15f) facingLeft = x < lastPlayerX;
+            lastPlayerX = x;
+            hasPlayerPosition = true;
+            float bob = running && y <= 1f && !session.IsDucking ? Mathf.Sin(time * 24f) * 1.3f : 0f;
             float width = session.IsDucking ? 109f : 99f;
-            float height = session.IsDucking ? 44f : 91f;
-            Rect rect = new Rect(DinoX - width / 2f, GroundY - y - height + bob, width, height);
-
+            float height = session.IsDucking ? RunnerSession.DuckHeight : RunnerSession.StandingHeight + 3f;
+            Rect rect = new Rect(x - width / 2f, GroundY - y - height + bob, width, height);
             if (session.InvincibleRemaining > 0f)
             {
                 Disc(new Rect(rect.x - 14f, rect.y - 12f, rect.width + 28f, rect.height + 26f), new Color(0.65f, 1f, 0.87f, 0.3f), true);
-                if (Mathf.FloorToInt(time * 12f) % 2 == 0)
-                    GUI.color = new Color(1f, 1f, 1f, 0.42f);
-                else
-                    GUI.color = Color.white;
+                GUI.color = Mathf.FloorToInt(time * 12f) % 2 == 0 ? new Color(1f, 1f, 1f, 0.42f) : Color.white;
             }
-            else
-                GUI.color = Color.white;
-
+            else GUI.color = Color.white;
             Texture2D texture = null;
             if (art.DinoFrames != null && art.DinoFrames.Length > 0)
             {
-                int frame = y > 3f ? Mathf.Min(2, art.DinoFrames.Length - 1) : Mathf.FloorToInt(clock * (9f + session.Speed / 150f)) % art.DinoFrames.Length;
-                if (!running && y <= 3f)
-                    frame = 0;
+                int frame = y > 3f ? Mathf.Min(2, art.DinoFrames.Length - 1) : Mathf.FloorToInt(time * (9f + session.Speed / 150f)) % art.DinoFrames.Length;
+                if (!running && y <= 3f) frame = 0;
                 texture = art.DinoFrames[frame];
             }
             if (texture != null)
-                GUI.DrawTexture(rect, texture, ScaleMode.StretchToFill, true);
-            else
-                Fill(rect, Hex(0x7fbd72));
-
+                GUI.DrawTextureWithTexCoords(rect, texture, new Rect(facingLeft ? 1f : 0f, 0f, facingLeft ? -1f : 1f, 1f), true);
+            else Fill(rect, Hex(0x7fbd72));
             if (running && y <= 1f && session.Elapsed > 0.5f)
             {
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 4; i++)
                 {
-                    float phase = Repeat(clock * 3f + i * 0.33f, 1f);
-                    float x = DinoX - 42f - phase * 44f;
-                    Fill(new Rect(x, GroundY - 2f - phase * 6f, 5f - phase * 3f, 3f), new Color(0.89f, 0.92f, 0.87f, (1f - phase) * 0.5f));
+                    float phase = Repeat(time * 4f + i * 0.25f, 1f);
+                    float particleX = facingLeft ? x + 42f + phase * 58f : x - 42f - phase * 58f;
+                    Fill(new Rect(particleX, GroundY - 2f - phase * 9f, 5f - phase * 3f, 3f), new Color(0.89f, 0.94f, 0.91f, (1f - phase) * 0.55f));
                 }
             }
             GUI.color = Color.white;
@@ -442,8 +531,7 @@ namespace CityDino
         private void DrawWeather(Palette p, float scroll, float time)
         {
             if (p.Sunset > 0.1f)
-                Disc(new Rect(855f, 170f, 550f, 550f), new Color(1f, 0.75f, 0.43f, 0.14f * p.Sunset), true);
-
+                Disc(new Rect(855f, 170f, 550f, 550f), new Color(1f, 0.75f, 0.43f, 0.12f * p.Sunset), true);
             if (p.Rain > 0.05f)
             {
                 int count = Mathf.RoundToInt(67f * p.Rain);
@@ -458,29 +546,32 @@ namespace CityDino
                 {
                     float x = Repeat(i * 111f - scroll, Width);
                     float phase = Repeat(time * 1.7f + i * 0.17f, 1f);
-                    if (phase < 0.3f)
+                    if (phase >= 0.3f) continue;
+                    bool aboveGap = false;
+                    for (int j = 0; j < gaps.Count; j++) if (x >= gaps[j].x && x <= gaps[j].y) aboveGap = true;
+                    if (!aboveGap)
                     {
-                        bool aboveGap = false;
-                        for (int j = 0; j < gaps.Count; j++)
-                            if (x >= gaps[j].x && x <= gaps[j].y)
-                                aboveGap = true;
-                        if (!aboveGap)
-                        {
-                            float spread = phase * 20f;
-                            Line(new Vector2(x - spread, GroundY - 1f), new Vector2(x - spread - 3f, GroundY - 5f), WithAlpha(p.Horizon, (0.3f - phase) * p.Rain), 1.5f);
-                            Line(new Vector2(x + spread, GroundY - 1f), new Vector2(x + spread + 3f, GroundY - 5f), WithAlpha(p.Horizon, (0.3f - phase) * p.Rain), 1.5f);
-                        }
+                        float spread = phase * 20f;
+                        Line(new Vector2(x - spread, GroundY - 1f), new Vector2(x - spread - 3f, GroundY - 5f), WithAlpha(p.Horizon, (0.3f - phase) * p.Rain), 1.5f);
+                        Line(new Vector2(x + spread, GroundY - 1f), new Vector2(x + spread + 3f, GroundY - 5f), WithAlpha(p.Horizon, (0.3f - phase) * p.Rain), 1.5f);
                     }
                 }
             }
-
             if (shownDistrict == District.Storm)
             {
-                // A soft flash, rather than a full white frame, keeps hazards readable.
                 float phase = Repeat(time, 11f);
                 if (phase < 0.08f || (phase > 0.19f && phase < 0.23f))
                     Fill(new Rect(0f, 105f, Width, GroundY - 105f), new Color(0.87f, 0.94f, 1f, 0.08f));
             }
+        }
+
+        private void Sign(Rect rect, string text, Color color, int size)
+        {
+            if (signStyle == null) signStyle = new GUIStyle { font = art.Font, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            signStyle.fontSize = size;
+            signStyle.normal.textColor = color;
+            GUI.color = Color.white;
+            GUI.Label(rect, text, signStyle);
         }
 
         private void Cloud(float x, float y, float scale, Color color)
@@ -505,8 +596,7 @@ namespace CityDino
         private static void Line(Vector2 from, Vector2 to, Color color, float thickness)
         {
             Vector2 delta = to - from;
-            if (delta.sqrMagnitude < 0.001f)
-                return;
+            if (delta.sqrMagnitude < 0.001f) return;
             Matrix4x4 previous = GUI.matrix;
             GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, from);
             Fill(new Rect(from.x, from.y - thickness * 0.5f, delta.magnitude, thickness), color);
@@ -518,16 +608,8 @@ namespace CityDino
             return new Color(((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f, 1f);
         }
 
-        private static Color WithAlpha(Color color, float alpha)
-        {
-            color.a = alpha;
-            return color;
-        }
-
-        private static float Repeat(float value, float length)
-        {
-            return value - Mathf.Floor(value / length) * length;
-        }
+        private static Color WithAlpha(Color color, float alpha) { color.a = alpha; return color; }
+        private static float Repeat(float value, float length) { return value - Mathf.Floor(value / length) * length; }
 
         private static Texture2D MakeCircle(bool soft)
         {
@@ -551,12 +633,70 @@ namespace CityDino
             return texture;
         }
 
+        private static Texture2D MakeSpike()
+        {
+            const int size = 64;
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "CityDino spike fallback";
+            texture.filterMode = FilterMode.Point;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float py = (y + 0.5f) / size;
+                    float px = Mathf.Abs((x + 0.5f) / size - 0.5f);
+                    float half = (1f - py) * 0.5f;
+                    Color color = Color.clear;
+                    if (px <= half)
+                    {
+                        bool edge = half - px < 0.055f || py < 0.065f;
+                        color = edge ? Hex(0x203249) : Color.Lerp(Hex(0xff7359), Hex(0xffe5a1), py);
+                    }
+                    pixels[y * size + x] = color;
+                }
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        private static Texture2D MakeSaw()
+        {
+            const int size = 128;
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "CityDino saw fallback";
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    double dx = (x + 0.5 - size / 2.0) / (size / 2.0);
+                    double dy = (y + 0.5 - size / 2.0) / (size / 2.0);
+                    double radius = Math.Sqrt(dx * dx + dy * dy);
+                    double edge = 0.83 + 0.14 * Math.Cos(Math.Atan2(dy, dx) * 12);
+                    Color color = Color.clear;
+                    if (radius <= edge)
+                    {
+                        color = edge - radius < 0.055 ? Hex(0x26354b) : Hex(0xc4dae0);
+                        if (radius < 0.63) color = Hex(0x738c9e);
+                        if (radius < 0.47) color = Hex(0xffa85f);
+                        if (radius < 0.27) color = Hex(0x26354b);
+                        if (radius < 0.13) color = Hex(0x8df3ec);
+                    }
+                    pixels[y * size + x] = color;
+                }
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
         public void Dispose()
         {
-            if (circle != null)
-                UnityEngine.Object.Destroy(circle);
-            if (glow != null)
-                UnityEngine.Object.Destroy(glow);
+            if (circle != null) UnityEngine.Object.Destroy(circle);
+            if (glow != null) UnityEngine.Object.Destroy(glow);
+            if (spike != null) UnityEngine.Object.Destroy(spike);
+            if (saw != null) UnityEngine.Object.Destroy(saw);
         }
     }
 }

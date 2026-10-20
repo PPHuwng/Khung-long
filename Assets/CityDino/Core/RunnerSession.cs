@@ -5,7 +5,7 @@ namespace CityDino
 {
     public enum RunState { Menu, Playing, Paused, GameOver }
     public enum District { Day, Rain, Sunset, Night, Skyway, Storm }
-    public enum EntityKind { House, Hydrant, Plane, Star, Heart, Gap }
+    public enum EntityKind { House, Hydrant, Plane, Star, Heart, Gap, Spike, Saw, Barrier }
 
     [Serializable]
     public sealed class RunRecord
@@ -39,6 +39,12 @@ namespace CityDino
         public float Width;
         public float Height;
         public bool Removed;
+        public int PatternId;
+        // Rotation is expressed in degrees. BaseY remains stable while Y bobs.
+        public float Rotation;
+        public float MotionPhase;
+        public float BaseY;
+        public float MotionAmplitude;
     }
 
     /// <summary>
@@ -51,13 +57,16 @@ namespace CityDino
         public const float CanvasWidth = 1280f;
         public const float CanvasHeight = 720f;
         public const float GroundY = 560f;
-        public const float PlayerX = 220f;
+        public const float StartPlayerX = 220f;
+        public const float MinimumPlayerX = 100f;
+        public const float MaximumPlayerX = 720f;
+        public const float HorizontalSpeed = 330f;
         public const float PlayerWidth = 60f;
         public const float StandingHeight = 88f;
         public const float DuckHeight = 44f;
-        public const float InitialSpeed = 250f;
-        public const float SpeedAcceleration = 1.1f;
-        public const float MaximumSpeed = 430f;
+        public const float InitialSpeed = 360f;
+        public const float SpeedAcceleration = 1.6f;
+        public const float MaximumSpeed = 610f;
         public const float Gravity = 1800f;
         public const float JumpVelocity = 780f;
         public const float DistrictDuration = 35f;
@@ -77,6 +86,12 @@ namespace CityDino
 
         private readonly Random random;
         private readonly List<WorldEntity> entities = new List<WorldEntity>();
+        private readonly List<PatternType> patternBag = new List<PatternType>();
+        private enum PatternType
+        {
+            Hydrant, House, SingleSpike, DoubleSpike, TripleSpike, Barrier,
+            BarrierSteps, GroundSaw, FloatingSaw, Plane, Gap
+        }
         private bool grounded;
         private bool duckRequested;
         private bool recorded;
@@ -85,12 +100,19 @@ namespace CityDino
         private float coyoteRemaining;
         private float distanceToPattern;
         private float nextHeartAt;
+        private float horizontalAxis;
+        private int nextPatternId;
+        private int activePatternId;
+        private int bagTier = -1;
+        private bool bagSkyway;
+        private PatternType previousPattern;
 
         public RunnerSession(RunnerSave save, int seed)
         {
             Save = SanitizeSave(save);
             random = new Random(seed);
             State = RunState.Menu;
+            PlayerX = StartPlayerX;
             Speed = InitialSpeed;
             CurrentDistrict = District.Day;
             Lives = 1 + Save.ExtraHeartsLevel;
@@ -104,6 +126,7 @@ namespace CityDino
         public IReadOnlyList<WorldEntity> Entities { get { return entities; } }
         public RunState State { get; private set; }
         public District CurrentDistrict { get; private set; }
+        public float PlayerX { get; private set; }
         public float PlayerY { get; private set; }
         public float VelocityY { get; private set; }
         public float Distance { get; private set; }
@@ -135,12 +158,18 @@ namespace CityDino
                 FinishRun("Bắt đầu lượt mới");
 
             entities.Clear();
+            patternBag.Clear();
             nextEntityId = 0;
+            nextPatternId = 0;
+            activePatternId = 0;
+            bagTier = -1;
+            previousPattern = PatternType.Hydrant;
             recorded = false;
             State = RunState.Playing;
             CurrentDistrict = District.Day;
             DistrictElapsed = 0f;
             StageNumber = 1;
+            PlayerX = StartPlayerX;
             PlayerY = 0f;
             VelocityY = 0f;
             Distance = 0f;
@@ -152,17 +181,18 @@ namespace CityDino
             InvincibleRemaining = 0f;
             IsDucking = false;
             duckRequested = false;
+            horizontalAxis = 0f;
             grounded = true;
             jumpsUsed = 0;
             coyoteRemaining = 0.1f;
             EndReason = "";
-            ShowToast("Nhảy qua vật cản · Nhấn lần nữa để nhảy kép", 4f);
+            ShowToast("A/D hoặc ←/→ để di chuyển · Nhấn nhảy lần nữa để nhảy kép", 4f);
 
             // A few easy stars teach collecting before the first hazard arrives.
             for (int i = 0; i < 4; i++)
                 Add(EntityKind.Star, 560f + i * 46f, 8f, 24f, 24f);
 
-            AddPattern(EntityKind.Hydrant);
+            AddPattern(PatternType.Hydrant);
             distanceToPattern = NextPatternSpacing(38f);
             nextHeartAt = Range(20f, 30f);
         }
@@ -208,6 +238,12 @@ namespace CityDino
             IsDucking = duckRequested && grounded;
         }
 
+        public void SetHorizontal(float axis)
+        {
+            horizontalAxis = State == RunState.Playing && IsFinite(axis)
+                ? Math.Max(-1f, Math.Min(1f, axis)) : 0f;
+        }
+
         public void TogglePause()
         {
             if (State == RunState.Playing)
@@ -215,6 +251,7 @@ namespace CityDino
                 State = RunState.Paused;
                 duckRequested = false;
                 IsDucking = false;
+                horizontalAxis = 0f;
             }
             else if (State == RunState.Paused)
                 State = RunState.Playing;
@@ -227,6 +264,7 @@ namespace CityDino
             State = RunState.Menu;
             IsDucking = false;
             duckRequested = false;
+            horizontalAxis = 0f;
         }
 
         public bool BuyExtraHeart()
@@ -253,6 +291,8 @@ namespace CityDino
             Score = (int)Math.Min(int.MaxValue, Math.Floor(Distance / 20d));
             InvincibleRemaining = Math.Max(0f, InvincibleRemaining - dt);
             ToastRemaining = Math.Max(0f, ToastRemaining - dt);
+            PlayerX = Math.Max(MinimumPlayerX, Math.Min(MaximumPlayerX,
+                PlayerX + horizontalAxis * HorizontalSpeed * dt));
 
             DistrictElapsed += dt;
             if (DistrictElapsed >= DistrictDuration)
@@ -271,12 +311,21 @@ namespace CityDino
             }
 
             for (int i = 0; i < entities.Count; i++)
-                entities[i].X -= travel;
+            {
+                WorldEntity entity = entities[i];
+                entity.X -= travel;
+                if (entity.Kind == EntityKind.Saw)
+                {
+                    entity.Rotation = (entity.Rotation + dt * 280f) % 360f;
+                    if (entity.MotionAmplitude > 0f)
+                        entity.Y = entity.BaseY + (float)Math.Sin(Elapsed * 2.1f + entity.MotionPhase) * entity.MotionAmplitude;
+                }
+            }
 
             distanceToPattern -= travel;
             if (distanceToPattern <= 0f)
             {
-                EntityKind kind = ChoosePattern();
+                PatternType kind = ChoosePattern();
                 float width = AddPattern(kind);
                 distanceToPattern += NextPatternSpacing(width);
             }
@@ -363,8 +412,7 @@ namespace CityDino
             {
                 WorldEntity e = entities[i];
                 if (e.Removed || e.Kind == EntityKind.Gap ||
-                    playerRight <= e.X + 3f || playerLeft >= e.X + e.Width - 3f ||
-                    playerTop <= e.Y + 3f || playerBottom >= e.Y + e.Height - 3f)
+                    !IntersectsPlayer(e, playerLeft, playerRight, playerBottom, playerTop))
                     continue;
 
                 if (e.Kind == EntityKind.Star)
@@ -399,6 +447,37 @@ namespace CityDino
             }
         }
 
+        private static bool IntersectsPlayer(WorldEntity e, float left, float right,
+            float bottom, float top)
+        {
+            if (right <= e.X + 3f || left >= e.X + e.Width - 3f ||
+                top <= e.Y + 3f || bottom >= e.Y + e.Height - 3f)
+                return false;
+
+            if (e.Kind == EntityKind.Spike)
+            {
+                // Use the actual triangle rather than its empty upper corners.
+                float centre = e.X + e.Width * 0.5f;
+                float nearestX = Math.Max(left, Math.Min(right, centre));
+                float heightAtOverlap = e.Height * Math.Max(0f,
+                    1f - Math.Abs(nearestX - centre) / (e.Width * 0.5f));
+                return bottom < e.Y + heightAtOverlap - 3f;
+            }
+            if (e.Kind == EntityKind.Saw)
+            {
+                float centreX = e.X + e.Width * 0.5f;
+                float centreY = e.Y + e.Height * 0.5f;
+                float nearestX = Math.Max(left, Math.Min(right, centreX));
+                float nearestY = Math.Max(bottom, Math.Min(top, centreY));
+                float dx = centreX - nearestX;
+                float dy = centreY - nearestY;
+                // Teeth tips remain forgiving, while the circular blade is solid.
+                float radius = Math.Min(e.Width, e.Height) * 0.43f;
+                return dx * dx + dy * dy < radius * radius;
+            }
+            return true;
+        }
+
         private void TakeHit(string reason)
         {
             if (State != RunState.Playing || InvincibleRemaining > 0f)
@@ -426,7 +505,7 @@ namespace CityDino
             for (int i = 0; i < entities.Count; i++)
             {
                 WorldEntity e = entities[i];
-                if (e.Kind == EntityKind.Gap && e.X < PlayerX + Speed * 2f &&
+                if (e.Kind == EntityKind.Gap && e.X < PlayerX + (Speed + HorizontalSpeed) * 2f &&
                     e.X + e.Width > PlayerX - 100f)
                     e.Removed = true;
             }
@@ -444,6 +523,7 @@ namespace CityDino
             VelocityY = 0f;
             IsDucking = false;
             duckRequested = false;
+            horizontalAxis = 0f;
             if (recorded)
                 return;
 
@@ -462,42 +542,133 @@ namespace CityDino
             NotifySaveChanged();
         }
 
-        private EntityKind ChoosePattern()
+        private PatternType ChoosePattern()
         {
-            double roll = random.NextDouble();
-            if (CurrentDistrict == District.Skyway && roll < 0.4d)
-                return EntityKind.Gap;
-            if (StageNumber >= 3 && roll > 0.81d)
-                return EntityKind.Plane;
-            return roll < 0.48d ? EntityKind.Hydrant : EntityKind.House;
+            int tier = Elapsed < 15f ? 0 : Elapsed < 30f ? 1 : Elapsed < 60f ? 2 : 3;
+            bool skyway = CurrentDistrict == District.Skyway;
+            if (patternBag.Count == 0 || bagTier != tier || bagSkyway != skyway)
+            {
+                patternBag.Clear();
+                patternBag.Add(PatternType.Hydrant);
+                patternBag.Add(PatternType.House);
+                patternBag.Add(PatternType.SingleSpike);
+                if (tier >= 1)
+                {
+                    patternBag.Add(PatternType.DoubleSpike);
+                    patternBag.Add(PatternType.Barrier);
+                    patternBag.Add(PatternType.GroundSaw);
+                }
+                if (tier >= 2)
+                {
+                    patternBag.Add(PatternType.TripleSpike);
+                    patternBag.Add(PatternType.BarrierSteps);
+                    patternBag.Add(PatternType.FloatingSaw);
+                    patternBag.Add(PatternType.Plane);
+                }
+                if (skyway)
+                {
+                    patternBag.Add(PatternType.Gap);
+                }
+                for (int i = patternBag.Count - 1; i > 0; i--)
+                {
+                    int j = random.Next(i + 1);
+                    PatternType temporary = patternBag[i];
+                    patternBag[i] = patternBag[j];
+                    patternBag[j] = temporary;
+                }
+                bagTier = tier;
+                bagSkyway = skyway;
+            }
+
+            int last = patternBag.Count - 1;
+            if (patternBag[last] == previousPattern)
+            {
+                // The shuffled bag covers every unlocked pattern, with no
+                // immediate repeats unless only identical entries remain.
+                for (int i = 0; i < last; i++)
+                {
+                    if (patternBag[i] == previousPattern) continue;
+                    PatternType temporary = patternBag[last];
+                    patternBag[last] = patternBag[i];
+                    patternBag[i] = temporary;
+                    break;
+                }
+            }
+            PatternType chosen = patternBag[last];
+            patternBag.RemoveAt(last);
+            previousPattern = chosen;
+            return chosen;
         }
 
-        private float AddPattern(EntityKind kind)
+        private float AddPattern(PatternType kind)
         {
+            activePatternId = ++nextPatternId;
             float width;
             float height;
             float starBase;
-            if (kind == EntityKind.Gap)
+            if (kind == PatternType.Gap)
             {
-                width = Range(105f, 155f);
-                Add(kind, SpawnX, 0f, width, 160f);
+                width = Range(140f, 205f);
+                Add(EntityKind.Gap, SpawnX, 0f, width, 160f);
                 starBase = 95f;
             }
-            else if (kind == EntityKind.Plane)
+            else if (kind == PatternType.Plane || kind == PatternType.FloatingSaw)
             {
-                width = 110f;
-                height = 42f;
-                Add(kind, SpawnX, 57f, width, height, random.Next(3));
-                // Ducking goes beneath the plane. Collectibles reinforce the safe lane.
+                width = kind == PatternType.Plane ? 110f : 76f;
+                if (kind == PatternType.Plane)
+                    Add(EntityKind.Plane, SpawnX, 57f, width, 42f, random.Next(3));
+                else
+                {
+                    WorldEntity saw = Add(EntityKind.Saw, SpawnX, 61f, width, 76f, 1);
+                    saw.MotionAmplitude = 8f;
+                    saw.MotionPhase = Range(0f, (float)Math.PI * 2f);
+                }
+                // No floor hazard occupies this pack: the low star lane tells
+                // the player to duck beneath the airborne obstacle.
                 for (int i = 0; i < 4; i++)
                     Add(EntityKind.Star, SpawnX - 35f + i * 48f, 7f, 24f, 24f);
+                activePatternId = 0;
                 return width;
             }
-            else if (kind == EntityKind.House)
+            else if (kind == PatternType.SingleSpike || kind == PatternType.DoubleSpike ||
+                kind == PatternType.TripleSpike)
+            {
+                int count = kind == PatternType.TripleSpike ? 3 : kind == PatternType.DoubleSpike ? 2 : 1;
+                const float spikeWidth = 44f;
+                const float spikeStep = 58f;
+                height = Elapsed < 60f ? 56f : 68f;
+                width = spikeWidth + (count - 1) * spikeStep;
+                for (int i = 0; i < count; i++)
+                    Add(EntityKind.Spike, SpawnX + i * spikeStep, 0f, spikeWidth, height, i % 2);
+                starBase = height + 34f;
+            }
+            else if (kind == PatternType.BarrierSteps)
+            {
+                width = 152f;
+                height = Elapsed < 60f ? 88f : 104f;
+                Add(EntityKind.Barrier, SpawnX, 0f, 58f, 52f, 0);
+                Add(EntityKind.Barrier, SpawnX + 94f, 0f, 58f, height, 1);
+                starBase = height + 25f;
+            }
+            else if (kind == PatternType.Barrier)
+            {
+                width = Range(66f, 94f);
+                height = Range(65f, Elapsed < 60f ? 88f : 100f);
+                Add(EntityKind.Barrier, SpawnX, 0f, width, height, random.Next(2));
+                starBase = height + 28f;
+            }
+            else if (kind == PatternType.GroundSaw)
+            {
+                width = 66f;
+                height = 66f;
+                Add(EntityKind.Saw, SpawnX, 0f, width, height);
+                starBase = 94f;
+            }
+            else if (kind == PatternType.House)
             {
                 width = Range(76f, 98f);
                 height = StageNumber <= 2 ? Range(64f, 82f) : Range(70f, 94f);
-                Add(kind, SpawnX, 0f, width, height, random.Next(3));
+                Add(EntityKind.House, SpawnX, 0f, width, height, random.Next(3));
                 starBase = height + 28f;
             }
             else
@@ -514,15 +685,20 @@ namespace CityDino
                 float x = SpawnX - 70f + i * (width + 140f) / 4f;
                 Add(EntityKind.Star, x, starBase + arc, 24f, 24f);
             }
+            activePatternId = 0;
             return width;
         }
 
         private float NextPatternSpacing(float previousWidth)
         {
-            // At top speed there is still >1.6 seconds between hazards. A single
-            // jump lasts ~0.87 seconds; double jumps remain a recovery option.
-            // Only one hazard is placed per pack, so a house cannot cover a hole.
-            return Math.Max(420f, Speed * 1.6f + previousWidth) + Range(35f, 155f);
+            // Packs are hand-authored to share one safe jump/duck profile.
+            // Separate packs retain recovery room even while moving right into
+            // the scroll. The small speed look-ahead covers travel from spawn
+            // to the player; short clusters still feel rhythmic rather than sparse.
+            float approachSpeed = Math.Min(MaximumSpeed, Speed + SpeedAcceleration * 4f);
+            float recoveryGap = Math.Max((approachSpeed + HorizontalSpeed) * 0.72f,
+                approachSpeed * 1.05f);
+            return previousWidth + recoveryGap + Range(25f, 120f);
         }
 
         private WorldEntity Add(EntityKind kind, float x, float y,
@@ -536,7 +712,9 @@ namespace CityDino
                 Y = y,
                 Width = width,
                 Height = height,
-                Variant = variant
+                Variant = variant,
+                BaseY = y,
+                PatternId = activePatternId
             };
             entities.Add(entity);
             return entity;

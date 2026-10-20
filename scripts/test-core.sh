@@ -20,6 +20,10 @@ if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
   chmod 700 "$XDG_RUNTIME_DIR"
 fi
 export XDG_DATA_HOME="${XDG_DATA_HOME:-${TMPDIR:-/tmp}/city-dino-xdg-data}"
+if [[ "${1:-}" == "--input-mapping" ]]; then
+  printf '%s\n' 'Stub-backed production pointer-mapping checks; this does not run Unity events or hardware.'
+  exec "$dotnet_command" run --project "$repo_dir/Tests/InputMapping/InputMapping.csproj" --configuration Release
+fi
 if [[ "${1:-}" == "--compile-unity" ]]; then
   printf '%s\n' 'Compile-only Unity API stub check; this does not run the Unity Editor.'
   exec "$dotnet_command" build "$repo_dir/Tests/UnityCompile/UnityCompile.csproj" --configuration Release --nologo
