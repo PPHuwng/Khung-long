@@ -9,6 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
-    <Compile Include="../Assets/CityDino/Core/RunnerSession.cs" Link="RunnerSession.cs" />
+    <Compile Include="../Assets/CityDino/Core/*.cs" />
   </ItemGroup>
 </Project>

@@ -78,7 +78,7 @@ namespace CityDino
         private const float SpawnX = CanvasWidth + 140f;
         private const int WalletLimit = 1000000000;
         private static readonly int[] HeartCosts = { 40, 100, 180 };
-        private static readonly District[] FirstDistricts =
+        private static readonly District[] AllDistricts =
         {
             District.Day, District.Rain, District.Sunset,
             District.Night, District.Skyway, District.Storm
@@ -105,6 +105,7 @@ namespace CityDino
         private int activePatternId;
         private int bagTier = -1;
         private bool bagSkyway;
+        private District bagDistrict;
         private PatternType previousPattern;
 
         public RunnerSession(RunnerSave save, int seed)
@@ -126,6 +127,8 @@ namespace CityDino
         public IReadOnlyList<WorldEntity> Entities { get { return entities; } }
         public RunState State { get; private set; }
         public District CurrentDistrict { get; private set; }
+        // A null selection means a fresh random starting district each run.
+        public District? StartingDistrict { get; private set; }
         public float PlayerX { get; private set; }
         public float PlayerY { get; private set; }
         public float VelocityY { get; private set; }
@@ -140,9 +143,33 @@ namespace CityDino
         public int MaxLives { get { return MaximumHearts; } }
         public int StageNumber { get; private set; }
         public bool IsDucking { get; private set; }
+        public bool FacingLeft { get; private set; }
         public string EndReason { get; private set; }
         public string Toast { get; private set; }
         public float ToastRemaining { get; private set; }
+        public bool BlackoutWarning
+        {
+            get
+            {
+                float phase, onset, duration;
+                return TryBlackoutPhase(out phase, out onset, out duration) &&
+                    phase >= onset - 1.5f && phase < onset;
+            }
+        }
+        public float DarknessAmount
+        {
+            get
+            {
+                float phase, onset, duration;
+                if (!TryBlackoutPhase(out phase, out onset, out duration)) return 0f;
+                float local = phase - onset;
+                if (local <= 0f || local >= duration) return 0f;
+                // One slow fade down/up, never a rapid strobe. The simulation
+                // clock freezes this state on pause and resets on map changes.
+                float fade = Math.Min(1f, Math.Min(local, duration - local) / 0.18f);
+                return fade * fade * (3f - 2f * fade);
+            }
+        }
         public int NextHeartCost
         {
             get
@@ -150,6 +177,17 @@ namespace CityDino
                 return Save.ExtraHeartsLevel >= MaximumUpgradeLevel
                     ? 0 : HeartCosts[Save.ExtraHeartsLevel];
             }
+        }
+
+        public bool SetStartingDistrict(District? district)
+        {
+            if (State == RunState.Playing || State == RunState.Paused ||
+                (district.HasValue && !Enum.IsDefined(typeof(District), district.Value)))
+                return false;
+            StartingDistrict = district;
+            if (State == RunState.Menu)
+                CurrentDistrict = district ?? District.Day;
+            return true;
         }
 
         public void StartRun()
@@ -166,7 +204,7 @@ namespace CityDino
             previousPattern = PatternType.Hydrant;
             recorded = false;
             State = RunState.Playing;
-            CurrentDistrict = District.Day;
+            CurrentDistrict = StartingDistrict ?? AllDistricts[random.Next(AllDistricts.Length)];
             DistrictElapsed = 0f;
             StageNumber = 1;
             PlayerX = StartPlayerX;
@@ -180,6 +218,7 @@ namespace CityDino
             Lives = 1 + Save.ExtraHeartsLevel;
             InvincibleRemaining = 0f;
             IsDucking = false;
+            FacingLeft = false;
             duckRequested = false;
             horizontalAxis = 0f;
             grounded = true;
@@ -291,8 +330,11 @@ namespace CityDino
             Score = (int)Math.Min(int.MaxValue, Math.Floor(Distance / 20d));
             InvincibleRemaining = Math.Max(0f, InvincibleRemaining - dt);
             ToastRemaining = Math.Max(0f, ToastRemaining - dt);
+            float previousPlayerX = PlayerX;
             PlayerX = Math.Max(MinimumPlayerX, Math.Min(MaximumPlayerX,
                 PlayerX + horizontalAxis * HorizontalSpeed * dt));
+            if (Math.Abs(PlayerX - previousPlayerX) > 0.0001f)
+                FacingLeft = PlayerX < previousPlayerX;
 
             DistrictElapsed += dt;
             if (DistrictElapsed >= DistrictDuration)
@@ -300,13 +342,13 @@ namespace CityDino
                 DistrictElapsed -= DistrictDuration;
                 StageNumber++;
                 District previous = CurrentDistrict;
-                if (StageNumber <= FirstDistricts.Length)
-                    CurrentDistrict = FirstDistricts[StageNumber - 1];
-                else
-                {
-                    do { CurrentDistrict = (District)random.Next(FirstDistricts.Length); }
-                    while (CurrentDistrict == previous);
-                }
+                // Select uniformly from the other districts, starting with
+                // the very first transition rather than a scripted first lap.
+                int next = random.Next(AllDistricts.Length - 1);
+                if (next >= (int)previous) next++;
+                CurrentDistrict = AllDistricts[next];
+                patternBag.Clear();
+                bagTier = -1;
                 ShowToast("Khu vực mới: " + DistrictName(CurrentDistrict), 4f);
             }
 
@@ -411,8 +453,17 @@ namespace CityDino
             for (int i = 0; i < entities.Count && State == RunState.Playing; i++)
             {
                 WorldEntity e = entities[i];
-                if (e.Removed || e.Kind == EntityKind.Gap ||
-                    !IntersectsPlayer(e, playerLeft, playerRight, playerBottom, playerTop))
+                if (e.Removed || e.Kind == EntityKind.Gap)
+                    continue;
+                // A rectangle includes the transparent space behind the neck
+                // and misses the nose. Saws use the same animated silhouette,
+                // pose and facing as the renderer instead.
+                bool touches = e.Kind == EntityKind.Saw
+                    ? RunnerGeometry.SawTouchesPlayer(e, PlayerX, PlayerY, IsDucking, FacingLeft,
+                        RunnerGeometry.GetPlayerFrame(Elapsed, Speed, PlayerY, State),
+                        RunnerGeometry.GetPlayerBob(Elapsed, PlayerY, IsDucking, State))
+                    : IntersectsPlayer(e, playerLeft, playerRight, playerBottom, playerTop);
+                if (!touches)
                     continue;
 
                 if (e.Kind == EntityKind.Star)
@@ -463,18 +514,6 @@ namespace CityDino
                     1f - Math.Abs(nearestX - centre) / (e.Width * 0.5f));
                 return bottom < e.Y + heightAtOverlap - 3f;
             }
-            if (e.Kind == EntityKind.Saw)
-            {
-                float centreX = e.X + e.Width * 0.5f;
-                float centreY = e.Y + e.Height * 0.5f;
-                float nearestX = Math.Max(left, Math.Min(right, centreX));
-                float nearestY = Math.Max(bottom, Math.Min(top, centreY));
-                float dx = centreX - nearestX;
-                float dy = centreY - nearestY;
-                // Teeth tips remain forgiving, while the circular blade is solid.
-                float radius = Math.Min(e.Width, e.Height) * 0.43f;
-                return dx * dx + dy * dy < radius * radius;
-            }
             return true;
         }
 
@@ -488,7 +527,6 @@ namespace CityDino
             {
                 VelocityY = 0f;
                 PlayerY = Math.Max(0f, PlayerY);
-                IsDucking = false;
                 FinishRun(reason);
             }
             else
@@ -521,7 +559,6 @@ namespace CityDino
             State = RunState.GameOver;
             EndReason = reason;
             VelocityY = 0f;
-            IsDucking = false;
             duckRequested = false;
             horizontalAxis = 0f;
             if (recorded)
@@ -545,8 +582,13 @@ namespace CityDino
         private PatternType ChoosePattern()
         {
             int tier = Elapsed < 15f ? 0 : Elapsed < 30f ? 1 : Elapsed < 60f ? 2 : 3;
-            bool skyway = CurrentDistrict == District.Skyway;
-            if (patternBag.Count == 0 || bagTier != tier || bagSkyway != skyway)
+            // Starting on Skyway still grants time to learn the jump controls.
+            bool skyway = CurrentDistrict == District.Skyway && Elapsed >= 10f;
+            bool onlyPrevious = patternBag.Count > 0;
+            for (int i = 0; i < patternBag.Count; i++)
+                if (patternBag[i] != previousPattern) { onlyPrevious = false; break; }
+            if (patternBag.Count == 0 || bagTier != tier || bagSkyway != skyway ||
+                bagDistrict != CurrentDistrict || onlyPrevious)
             {
                 patternBag.Clear();
                 patternBag.Add(PatternType.Hydrant);
@@ -568,7 +610,9 @@ namespace CityDino
                 if (skyway)
                 {
                     patternBag.Add(PatternType.Gap);
+                    patternBag.Add(PatternType.Gap);
                 }
+                AddDistrictPatterns(tier);
                 for (int i = patternBag.Count - 1; i > 0; i--)
                 {
                     int j = random.Next(i + 1);
@@ -578,6 +622,7 @@ namespace CityDino
                 }
                 bagTier = tier;
                 bagSkyway = skyway;
+                bagDistrict = CurrentDistrict;
             }
 
             int last = patternBag.Count - 1;
@@ -598,6 +643,65 @@ namespace CityDino
             patternBag.RemoveAt(last);
             previousPattern = chosen;
             return chosen;
+        }
+
+        private void AddDistrictPatterns(int tier)
+        {
+            // Districts favour their own rhythms while retaining the common
+            // easy packs. Tier unlocks and safe inter-pack spacing still apply.
+            switch (CurrentDistrict)
+            {
+                case District.Day:
+                    patternBag.Add(PatternType.House);
+                    patternBag.Add(PatternType.Hydrant);
+                    break;
+                case District.Rain:
+                    if (tier >= 1) patternBag.Add(PatternType.Barrier);
+                    if (tier >= 2)
+                    {
+                        patternBag.Add(PatternType.Plane);
+                        patternBag.Add(PatternType.Plane);
+                    }
+                    break;
+                case District.Sunset:
+                    if (tier >= 1) patternBag.Add(PatternType.DoubleSpike);
+                    if (tier >= 2)
+                    {
+                        patternBag.Add(PatternType.TripleSpike);
+                        patternBag.Add(PatternType.BarrierSteps);
+                    }
+                    break;
+                case District.Night:
+                    if (tier >= 1) patternBag.Add(PatternType.GroundSaw);
+                    if (tier >= 2)
+                    {
+                        patternBag.Add(PatternType.FloatingSaw);
+                        patternBag.Add(PatternType.FloatingSaw);
+                    }
+                    break;
+                case District.Storm:
+                    if (tier >= 1)
+                    {
+                        patternBag.Add(PatternType.GroundSaw);
+                        patternBag.Add(PatternType.DoubleSpike);
+                    }
+                    if (tier >= 2)
+                    {
+                        patternBag.Add(PatternType.FloatingSaw);
+                        patternBag.Add(PatternType.Plane);
+                    }
+                    break;
+            }
+        }
+
+        private bool TryBlackoutPhase(out float phase, out float onset, out float duration)
+        {
+            bool storm = CurrentDistrict == District.Storm;
+            onset = storm ? 7f : 9f;
+            duration = storm ? 1f : 0.8f;
+            phase = DistrictElapsed % (storm ? 8.5f : 10.5f);
+            return State != RunState.Menu &&
+                (storm || CurrentDistrict == District.Night);
         }
 
         private float AddPattern(PatternType kind)
@@ -748,6 +852,19 @@ namespace CityDino
                 case District.Skyway: return "Đường trên mây";
                 case District.Storm: return "Giông bão";
                 default: return "Thành phố ban ngày";
+            }
+        }
+
+        public static string DistrictChallenge(District district)
+        {
+            switch (district)
+            {
+                case District.Rain: return "Cúi tránh bẫy bay, nhảy qua rào chắn.";
+                case District.Sunset: return "Canh nhịp vượt cụm gai và rào bậc thang.";
+                case District.Night: return "Nhiều cưa xoay; đèn tắt ngắn có báo trước.";
+                case District.Skyway: return "Nhảy qua khe cầu; 10 giây đầu chưa có hố.";
+                case District.Storm: return "Đổi nhịp nhảy/cúi; trời tối ngắn có báo trước.";
+                default: return "Vượt nhà và trụ nước, làm quen nhịp chạy.";
             }
         }
 

@@ -10,6 +10,7 @@ namespace CityDino
     public sealed class CityRunnerController : MonoBehaviour
     {
         private const string SaveKey = "CityDino.Save.v1";
+        private const string StartingDistrictKey = "CityDino.StartDistrict";
         private const float CanvasWidth = 1280f;
         private const float CanvasHeight = 720f;
         private static readonly Rect MoveLeftButton = new Rect(38, 618, 88, 70);
@@ -67,6 +68,9 @@ namespace CityDino
             save.BestScore = Math.Max(save.BestScore, PlayerPrefs.GetInt("HighScore", 0));
             session = new RunnerSession(save, Environment.TickCount);
             session.SaveChanged += SaveProgress;
+            int startingDistrict = PlayerPrefs.GetInt(StartingDistrictKey, -1);
+            session.SetStartingDistrict(Enum.IsDefined(typeof(District), startingDistrict)
+                ? (District?)startingDistrict : null);
             muted = PlayerPrefs.GetInt("CityDino.Muted", 0) == 1;
             audioSource = gameObject.AddComponent<AudioSource>();
             audioSource.playOnAwake = false;
@@ -213,20 +217,51 @@ namespace CityDino
             if (Button(new Rect(98, 458, 418, 62), "BẮT ĐẦU CHẠY     →", mint, ink, 22)) BeginRun();
             if (Button(new Rect(98, 534, 202, 52), "Cửa hàng", ink, cream)) showShop = true;
             if (Button(new Rect(314, 534, 202, 52), "Thành tích", new Color32(231, 231, 215, 255), ink)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 02  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 03  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
-            Text(new Rect(800, 90, 372, 24), "BÌNH MINH MỚI. KỶ LỤC MỚI.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Text(new Rect(800, 90, 372, 24), "MỖI LƯỢT, MỘT THÀNH PHỐ.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             if (art.DinoFrames != null && art.DinoFrames.Length > 0)
             {
                 int frame = Mathf.FloorToInt(ambientTime * 7) % art.DinoFrames.Length;
                 if (art.DinoFrames[frame] != null)
-                    GUI.DrawTexture(new Rect(794, 246 + Mathf.Sin(ambientTime * 2) * 5, 228, 247), art.DinoFrames[frame], ScaleMode.ScaleToFit);
+                    GUI.DrawTexture(new Rect(900, 136 + Mathf.Sin(ambientTime * 2) * 5, 140, 151), art.DinoFrames[frame], ScaleMode.ScaleToFit);
             }
+            DrawMapSelection();
             Box(new Rect(806, 586, 376, 62), ink);
             Icon(art.Heart, new Rect(824, 602, 28, 26));
             Text(new Rect(866, 598, 304, 36), "Khởi đầu với " + (1 + session.Save.ExtraHeartsLevel) + " mạng mỗi lượt", 17, cream, FontStyle.Bold, TextAnchor.MiddleLeft);
             if (Button(new Rect(1152, 654, 72, 36), muted ? "Âm: tắt" : "Âm: bật", cream, ink, 13)) ToggleSound();
+        }
+
+        private void DrawMapSelection()
+        {
+            Box(new Rect(758, 296, 452, 274), cream);
+            Text(new Rect(780, 310, 408, 24), "CHỌN MAP KHỞI ĐẦU", 16, ink, FontStyle.Bold);
+            MapButton(new Rect(780, 343, 408, 38), null, "Ngẫu nhiên mỗi lượt");
+            MapButton(new Rect(780, 389, 198, 38), District.Day, "Bình minh");
+            MapButton(new Rect(990, 389, 198, 38), District.Rain, "Phố mưa");
+            MapButton(new Rect(780, 433, 198, 38), District.Sunset, "Nắng chiều");
+            MapButton(new Rect(990, 433, 198, 38), District.Night, "Phố đêm");
+            MapButton(new Rect(780, 477, 198, 38), District.Skyway, "Trên mây");
+            MapButton(new Rect(990, 477, 198, 38), District.Storm, "Giông bão");
+            string challenge = session.StartingDistrict.HasValue
+                ? RunnerSession.DistrictChallenge(session.StartingDistrict.Value)
+                : "Mở đầu bất kỳ map nào trong 6 map.";
+            Text(new Rect(780, 530, 408, 18), challenge, 13, soft);
+            Text(new Rect(780, 550, 408, 18), "Sau 35 giây: map ngẫu nhiên khác map vừa chạy.", 12, soft);
+        }
+
+        private void MapButton(Rect rect, District? district, string caption)
+        {
+            bool selected = session.StartingDistrict == district;
+            if (Button(rect, (selected ? "●  " : "") + caption,
+                selected ? mint : new Color32(231, 231, 215, 255), ink, 16)
+                && session.SetStartingDistrict(district))
+            {
+                PlayerPrefs.SetInt(StartingDistrictKey, district.HasValue ? (int)district.Value : -1);
+                PlayerPrefs.Save();
+            }
         }
 
         private void DrawHud()
@@ -296,7 +331,8 @@ namespace CityDino
             Text(new Rect(416, 421, 448, 27), "Quãng đường: " + Mathf.FloorToInt(session.Distance / 20f) + " m   ·   Chặng " + session.StageNumber, 16, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
             if (Button(new Rect(414, 475, 452, 60), "CHẠY LẠI    →", mint, ink, 21)) BeginRun();
             if (Button(new Rect(414, 550, 452, 50), "Về menu & nâng cấp", ink, cream, 18)) GoToMenu();
-            Text(new Rect(414, 613, 452, 22), "Nhấn R để chơi lại", 13, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+            Text(new Rect(414, 613, 452, 22), "R: chơi lại · Map đầu: " + (session.StartingDistrict.HasValue
+                ? DistrictName(session.StartingDistrict.Value) : "ngẫu nhiên"), 13, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
         }
 
         private string EndMessage()

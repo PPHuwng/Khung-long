@@ -26,9 +26,6 @@ namespace CityDino
         private Palette nextPalette;
         private float transitionStarted = -10f;
         private bool initialized;
-        private bool hasPlayerPosition;
-        private bool facingLeft;
-        private float lastPlayerX;
 
         private struct Palette
         {
@@ -66,6 +63,7 @@ namespace CityDino
                     DrawDino(session, clock);
                 }
                 DrawWeather(palette, scroll, ambientTime);
+                if (!menu) DrawDarkness(session, palette, clock);
             }
             finally
             {
@@ -347,6 +345,14 @@ namespace CityDino
                         float x = Repeat(i * 191f - scroll * 1.35f, 1480f) - left;
                         Fill(new Rect(x, 112f + i % 2 * 17f, 44f + speedRatio * 12f, 2f), WithAlpha(p.Accent, 0.13f));
                     }
+                    if (p.Rain > 0.1f)
+                    {
+                        for (int i = 0; i < 7; i++)
+                        {
+                            float x = Repeat(i * 223f - scroll, 1530f) - left;
+                            Disc(new Rect(x, 9f + i % 3 * 10f, 80f + i % 3 * 18f, 7f), WithAlpha(p.Accent, p.Rain * 0.2f));
+                        }
+                    }
                 }
             }
             finally { GUI.EndGroup(); }
@@ -359,8 +365,9 @@ namespace CityDino
             Fill(new Rect(x + 9f, GroundY + 2f, 3f, 6f), Hex(0x263249));
         }
 
-        private void DrawEntities(RunnerSession session, Palette p, float time)
+        private void DrawEntities(RunnerSession session, Palette p, float time, bool lowLight = false, float lowLightAlpha = 1f)
         {
+            Color lighting = lowLight ? new Color(0.28f, 0.32f, 0.39f, lowLightAlpha) : Color.white;
             foreach (WorldEntity entity in session.Entities)
             {
                 if (entity.Removed || entity.Kind == EntityKind.Gap || entity.X > Width + 100f || entity.X + entity.Width < -100f) continue;
@@ -372,44 +379,51 @@ namespace CityDino
                 {
                     case EntityKind.House:
                         texture = entity.Variant % 3 == 0 ? art.House1 : entity.Variant % 3 == 1 ? art.House2 : art.House3;
-                        GroundShadow(entity.X, entity.Width);
+                        if (!lowLight) GroundShadow(entity.X, entity.Width);
                         break;
                     case EntityKind.Hydrant:
                         texture = art.Hydrant;
-                        GroundShadow(entity.X, entity.Width);
+                        if (!lowLight) GroundShadow(entity.X, entity.Width);
                         break;
                     case EntityKind.Plane:
                         texture = art.Plane;
-                        Line(new Vector2(rect.xMax + 6f, rect.center.y), new Vector2(rect.xMax + 34f, rect.center.y), WithAlpha(p.Horizon, 0.65f), 3f);
-                        DrawHazardHint(entity, session.PlayerX, rect, "CÚI", p.Accent);
+                        if (!lowLight)
+                        {
+                            Line(new Vector2(rect.xMax + 6f, rect.center.y), new Vector2(rect.xMax + 34f, rect.center.y), WithAlpha(p.Horizon, 0.65f), 3f);
+                            DrawHazardHint(entity, session.PlayerX, rect, "CÚI", p.Accent);
+                        }
                         break;
                     case EntityKind.Spike:
-                        GroundShadow(entity.X, entity.Width);
-                        GUI.color = Color.white;
+                        if (!lowLight) GroundShadow(entity.X, entity.Width);
+                        GUI.color = lighting;
                         if (!DrawAtlas(rect, 0)) GUI.DrawTexture(rect, spike, ScaleMode.StretchToFill, true);
                         drawn = true;
                         break;
                     case EntityKind.Saw:
-                        Disc(new Rect(rect.x - 9f, rect.y - 9f, rect.width + 18f, rect.height + 18f), new Color(1f, 0.38f, 0.24f, 0.22f), true);
+                        if (!lowLight) Disc(new Rect(rect.x - 9f, rect.y - 9f, rect.width + 18f, rect.height + 18f), new Color(1f, 0.38f, 0.24f, 0.22f), true);
                         Matrix4x4 before = GUI.matrix;
                         GUIUtility.RotateAroundPivot(entity.Rotation, rect.center);
-                        GUI.color = Color.white;
+                        GUI.color = lighting;
                         if (!DrawAtlas(rect, 1)) GUI.DrawTexture(rect, saw, ScaleMode.StretchToFill, true);
                         GUI.matrix = before;
-                        DrawHazardHint(entity, session.PlayerX, rect, entity.Y >= RunnerSession.DuckHeight + 4f ? "CÚI" : "NHẢY", Hex(0xffb084));
+                        if (!lowLight) DrawHazardHint(entity, session.PlayerX, rect, entity.Y >= RunnerSession.DuckHeight + 4f ? "CÚI" : "NHẢY", Hex(0xffb084));
                         drawn = true;
                         break;
                     case EntityKind.Barrier:
-                        GroundShadow(entity.X, entity.Width);
-                        GUI.color = Color.white;
-                        if (!DrawAtlas(rect, entity.Variant % 2 == 0 ? 2 : 3)) DrawBarrier(rect, entity.Variant, p, time);
+                        if (!lowLight) GroundShadow(entity.X, entity.Width);
+                        GUI.color = lighting;
+                        if (!DrawAtlas(rect, entity.Variant % 2 == 0 ? 2 : 3))
+                        {
+                            if (lowLight) Fill(rect, lighting);
+                            else DrawBarrier(rect, entity.Variant, p, time);
+                        }
                         drawn = true;
                         break;
                     case EntityKind.Star:
                         texture = art.Star;
                         rect.y += Mathf.Sin(time * 3f + entity.Id * 0.9f) * 3f;
-                        Disc(new Rect(rect.center.x - rect.width, rect.center.y - rect.height, rect.width * 2f, rect.height * 2f), new Color(1f, 0.8f, 0.27f, 0.3f), true);
-                        if (entity.Id % 3 == 0)
+                        if (!lowLight) Disc(new Rect(rect.center.x - rect.width, rect.center.y - rect.height, rect.width * 2f, rect.height * 2f), new Color(1f, 0.8f, 0.27f, 0.3f), true);
+                        if (!lowLight && entity.Id % 3 == 0)
                         {
                             float spark = 0.5f + Mathf.Sin(time * 4f + entity.Id) * 0.5f;
                             Fill(new Rect(rect.xMax + 3f, rect.y + 3f, 3f, 3f), new Color(1f, 0.95f, 0.7f, spark));
@@ -419,16 +433,16 @@ namespace CityDino
                         texture = art.Heart;
                         rect.y += Mathf.Sin(time * 2.6f + entity.Id) * 4f;
                         float pulse = 1.8f + Mathf.Sin(time * 4f) * 0.15f;
-                        Disc(new Rect(rect.center.x - rect.width * pulse / 2f, rect.center.y - rect.height * pulse / 2f, rect.width * pulse, rect.height * pulse), new Color(1f, 0.33f, 0.46f, 0.32f), true);
+                        if (!lowLight) Disc(new Rect(rect.center.x - rect.width * pulse / 2f, rect.center.y - rect.height * pulse / 2f, rect.width * pulse, rect.height * pulse), new Color(1f, 0.33f, 0.46f, 0.32f), true);
                         break;
                 }
                 if (drawn) continue;
                 if (texture != null)
                 {
-                    GUI.color = Color.Lerp(Color.white, p.Backdrop, 0.1f * p.Night);
+                    GUI.color = lowLight ? lighting : Color.Lerp(Color.white, p.Backdrop, 0.1f * p.Night);
                     GUI.DrawTexture(rect, texture, ScaleMode.StretchToFill, true);
                 }
-                else Fill(rect, entity.Kind == EntityKind.Heart ? Hex(0xff657d) : entity.Kind == EntityKind.Star ? Hex(0xffd36f) : Hex(0x53758a));
+                else Fill(rect, lowLight ? lighting : entity.Kind == EntityKind.Heart ? Hex(0xff657d) : entity.Kind == EntityKind.Star ? Hex(0xffd36f) : Hex(0x53758a));
             }
             GUI.color = Color.white;
         }
@@ -482,25 +496,23 @@ namespace CityDino
             Disc(new Rect(x - 7f, GroundY - 4f, width + 14f, 10f), new Color(0.03f, 0.09f, 0.15f, 0.2f), true);
         }
 
-        private void DrawDino(RunnerSession session, float time)
+        private void DrawDino(RunnerSession session, float time, bool lowLight = false, float lowLightAlpha = 1f)
         {
             float x = session.PlayerX;
             float y = session.PlayerY;
             float shadowScale = Mathf.Clamp(1f - y / 450f, 0.5f, 1f);
             bool overGap = false;
             for (int i = 0; i < gaps.Count; i++) if (x >= gaps[i].x && x <= gaps[i].y) overGap = true;
-            if (!overGap && y > -30f)
+            if (!lowLight && !overGap && y > -30f)
                 Disc(new Rect(x - 39f * shadowScale, GroundY - 6f, 78f * shadowScale, 13f * shadowScale), new Color(0.03f, 0.09f, 0.16f, 0.24f), true);
             bool running = session.State == RunState.Playing;
-            if (!hasPlayerPosition || session.Elapsed < 0.05f) facingLeft = false;
-            else if (running && Mathf.Abs(x - lastPlayerX) > 0.15f) facingLeft = x < lastPlayerX;
-            lastPlayerX = x;
-            hasPlayerPosition = true;
-            float bob = running && y <= 1f && !session.IsDucking ? Mathf.Sin(time * 24f) * 1.3f : 0f;
-            float width = session.IsDucking ? 109f : 99f;
-            float height = session.IsDucking ? RunnerSession.DuckHeight : RunnerSession.StandingHeight + 3f;
+            bool facingLeft = session.FacingLeft;
+            float bob = RunnerGeometry.GetPlayerBob(time, y, session.IsDucking, session.State);
+            float width = session.IsDucking ? RunnerGeometry.PlayerDuckWidth : RunnerGeometry.PlayerStandingWidth;
+            float height = session.IsDucking ? RunnerGeometry.PlayerDuckHeight : RunnerGeometry.PlayerStandingHeight;
             Rect rect = new Rect(x - width / 2f, GroundY - y - height + bob, width, height);
-            if (session.InvincibleRemaining > 0f)
+            if (lowLight) GUI.color = new Color(0.39f, 0.48f, 0.43f, lowLightAlpha);
+            else if (session.InvincibleRemaining > 0f)
             {
                 Disc(new Rect(rect.x - 14f, rect.y - 12f, rect.width + 28f, rect.height + 26f), new Color(0.65f, 1f, 0.87f, 0.3f), true);
                 GUI.color = Mathf.FloorToInt(time * 12f) % 2 == 0 ? new Color(1f, 1f, 1f, 0.42f) : Color.white;
@@ -509,14 +521,13 @@ namespace CityDino
             Texture2D texture = null;
             if (art.DinoFrames != null && art.DinoFrames.Length > 0)
             {
-                int frame = y > 3f ? Mathf.Min(2, art.DinoFrames.Length - 1) : Mathf.FloorToInt(time * (9f + session.Speed / 150f)) % art.DinoFrames.Length;
-                if (!running && y <= 3f) frame = 0;
+                int frame = RunnerGeometry.GetPlayerFrame(time, session.Speed, y, session.State) % art.DinoFrames.Length;
                 texture = art.DinoFrames[frame];
             }
             if (texture != null)
                 GUI.DrawTextureWithTexCoords(rect, texture, new Rect(facingLeft ? 1f : 0f, 0f, facingLeft ? -1f : 1f, 1f), true);
-            else Fill(rect, Hex(0x7fbd72));
-            if (running && y <= 1f && session.Elapsed > 0.5f)
+            else Fill(rect, lowLight ? new Color(0.39f, 0.48f, 0.43f, lowLightAlpha) : Hex(0x7fbd72));
+            if (!lowLight && running && y <= 1f && session.Elapsed > 0.5f)
             {
                 for (int i = 0; i < 4; i++)
                 {
@@ -557,11 +568,49 @@ namespace CityDino
                     }
                 }
             }
-            if (shownDistrict == District.Storm)
+            if (p.Skyway > 0.1f)
             {
-                float phase = Repeat(time, 11f);
-                if (phase < 0.08f || (phase > 0.19f && phase < 0.23f))
-                    Fill(new Rect(0f, 105f, Width, GroundY - 105f), new Color(0.87f, 0.94f, 1f, 0.08f));
+                for (int i = 0; i < 8; i++)
+                {
+                    float x = Repeat(i * 191f - time * 155f, Width + 220f) - 110f;
+                    float y = 205f + i % 3 * 53f;
+                    Line(new Vector2(x, y), new Vector2(x + 64f, y - 7f), WithAlpha(p.Horizon, p.Skyway * 0.24f), 2f);
+                }
+            }
+        }
+
+        private void DrawDarkness(RunnerSession session, Palette p, float time)
+        {
+            float amount = Mathf.Clamp01(session.DarknessAmount);
+            if (amount > 0f)
+            {
+                // Keep the foreground readable in silhouette rather than hiding an
+                // unavoidable obstacle. This pass uses the very same art transforms.
+                Fill(new Rect(0f, 0f, Width, Height), new Color(0.015f, 0.025f, 0.055f, amount * 0.9f));
+                DrawEntities(session, p, time, true, amount * amount);
+                DrawDino(session, time, true, amount * amount);
+                Color edge = WithAlpha(Hex(0x9baaaa), amount * 0.4f);
+                float left = 0f;
+                for (int i = 0; i < gaps.Count; i++)
+                {
+                    Vector2 gap = gaps[i];
+                    if (gap.x > left) Fill(new Rect(left, GroundY, gap.x - left, 2f), edge);
+                    DrawWarningEdge(gap.x - 14f, WithAlpha(Hex(0xffcb75), 0.5f));
+                    DrawWarningEdge(gap.y, WithAlpha(Hex(0xffcb75), 0.5f));
+                    left = Mathf.Max(left, gap.y);
+                }
+                if (left < Width) Fill(new Rect(left, GroundY, Width - left, 2f), edge);
+            }
+            if (session.State != RunState.Playing) return;
+            if (session.BlackoutWarning)
+            {
+                Fill(new Rect(399f, 130f, 482f, 39f), new Color(0.06f, 0.10f, 0.16f, 0.93f));
+                Sign(new Rect(409f, 133f, 462f, 31f), "SẮP TỐI NGẮN · GHI NHỚ VỊ TRÍ BẪY", Hex(0xffcf8b), 15);
+            }
+            else if (amount > 0.15f)
+            {
+                Fill(new Rect(445f, 130f, 390f, 36f), new Color(0.06f, 0.10f, 0.16f, 0.95f));
+                Sign(new Rect(455f, 132f, 370f, 31f), "MẤT ĐIỆN · THEO BÓNG VÀ VẠCH ĐƯỜNG", Hex(0xaabbbf), 13);
             }
         }
 

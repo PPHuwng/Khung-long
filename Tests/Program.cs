@@ -33,7 +33,12 @@ internal static class Program
         Test("fall recovery removes the gap and avoids repeated falling", FallRecovery);
         Test("fatal falling ends the run instead of falling forever", FatalFall);
         Test("hearts have a rare randomized spawn cadence", HeartCadence);
-        Test("districts progress and skyway includes real gaps", Districts);
+        Test("starting map selection supports every district and validates changes", StartingMapSelection);
+        Test("random starts cover all maps and selected starts remain repeatable", RandomStartingMaps);
+        Test("district transitions randomize without adjacent repeats", Districts);
+        Test("night and storm blackouts are brief, warned, and limited to their maps", BlackoutTimeline);
+        Test("blackouts freeze on pause and reset between maps and runs", BlackoutStateTransitions);
+        Test("skyway starts give a safe opening before real gaps", SkywayOpening);
         Test("obstacles and gaps do not form impossible overlapping hazards", SpawnSafety);
         Test("horizontal control moves left/right and respects screen bounds", HorizontalMovement);
         Test("airborne steering works in both directions", AirSteering);
@@ -45,6 +50,11 @@ internal static class Program
         Test("moving into a gap removes floor support", WalkIntoGap);
         Test("spike collisions use the triangle instead of empty corners", SpikeShape);
         Test("saw collisions use a circle instead of empty corners", SawShape);
+        Test("saw contact follows visible head and transparent neck in both directions", SawVisibleBody);
+        Test("saw teeth contact uses the visible circle and ignores diagonal empty space", SawToothEdges);
+        Test("saw contact follows jump frame, crouch and running bob", SawAnimatedPose);
+        Test("saw hits consume one life and respect temporary invulnerability", SawDamage);
+        Test("fatal saw contact freezes the exact visible animation and crouch pose", SawFatalPose);
         Test("saws rotate and floating blades leave a safe duck lane", SawMotion);
         Test("random packs cover all hazard types and composite rhythms", PatternVariety);
         Test("sampled generated packs have a real jump or duck solution", PatternReplay);
@@ -348,22 +358,174 @@ internal static class Program
         Check(times.Skip(1).Select((t,i) => Math.Round(t-times[i])).Distinct().Count() > 1, "Heart intervals are not randomized");
     }
 
+    private static void StartingMapSelection()
+    {
+        RunnerSession run = New(99);
+        Check(!run.StartingDistrict.HasValue, "New profile should default to random starting map");
+        foreach (District district in Enum.GetValues(typeof(District)))
+        {
+            Check(run.SetStartingDistrict(district), "Menu rejected " + district);
+            Check(run.StartingDistrict == district && run.CurrentDistrict == district,
+                "Selected map preview differs from requested map");
+            run.StartRun();
+            Check(run.CurrentDistrict == district && run.StageNumber == 1 && run.DistrictElapsed == 0,
+                "Run did not start cleanly on selected map");
+            Check(!run.SetStartingDistrict(null), "Active run allowed map selection changes");
+            run.TogglePause();
+            Check(!run.SetStartingDistrict(District.Day), "Paused run allowed map selection changes");
+            run.TogglePause(); run.ReturnToMenu();
+        }
+        District? before = run.StartingDistrict;
+        Check(!run.SetStartingDistrict((District)999) && run.StartingDistrict == before,
+            "Invalid map enum was accepted or altered selection");
+        Check(run.SetStartingDistrict(null) && !run.StartingDistrict.HasValue,
+            "Could not return to random starting maps");
+        run.StartRun(); World(run).Clear(); Inject(run, EntityKind.House); run.Update(1f/120);
+        Check(run.State == RunState.GameOver && run.SetStartingDistrict(District.Storm),
+            "Results screen rejected a valid next-run selection");
+        run.StartRun();
+        Check(run.CurrentDistrict == District.Storm, "Results selection did not apply to retry");
+    }
+
+    private static void RandomStartingMaps()
+    {
+        var seeds = new HashSet<District>();
+        for (int seed=0; seed<72; seed++)
+        {
+            RunnerSession run=New(seed); run.StartRun(); seeds.Add(run.CurrentDistrict);
+        }
+        Check(seeds.Count == 6, "Random starting map omitted one or more districts across seeds");
+        RunnerSession repeat=New(227);
+        var retries=new HashSet<District>();
+        for (int i=0; i<72; i++)
+        {
+            repeat.StartRun(); retries.Add(repeat.CurrentDistrict); repeat.ReturnToMenu();
+        }
+        Check(retries.Count == 6, "Random retries reused a fixed starting district");
+        foreach (District district in Enum.GetValues(typeof(District)))
+        {
+            repeat.SetStartingDistrict(district);
+            for (int i=0; i<3; i++)
+            {
+                repeat.StartRun(); Check(repeat.CurrentDistrict == district, "Retry lost explicit map selection");
+                repeat.ReturnToMenu();
+            }
+        }
+    }
+
     private static void Districts()
     {
-        RunnerSession run = New(99); run.StartRun();
-        var districts = new HashSet<District>(); bool gap = false;
-        for (int i = 0; i < 120 * 245; i++)
+        var visited = new HashSet<District>();
+        var firstTransitions = new HashSet<District>();
+        for (int seed=0; seed<12; seed++)
         {
-            ClearHazards(run); run.Update(1f / 120); districts.Add(run.CurrentDistrict);
-            if (run.Entities.Any(e => e.Kind == EntityKind.Gap && !e.Removed)) gap = true;
+            RunnerSession run = New(seed); run.SetStartingDistrict(District.Day); run.StartRun();
+            District previous=run.CurrentDistrict; int stage=run.StageNumber;
+            for (int i=0; i<120*245; i++)
+            {
+                ClearHazards(run); run.Update(1f/120); visited.Add(run.CurrentDistrict);
+                if (run.StageNumber != stage)
+                {
+                    Check(run.StageNumber == stage+1, "Transition skipped a stage");
+                    Check(run.CurrentDistrict != previous, "Adjacent stages repeated the same district");
+                    Check(run.DistrictElapsed < 0.02f && run.DarknessAmount == 0 && !run.BlackoutWarning,
+                        "A new stage retained elapsed time or blackout from its predecessor");
+                    if (stage == 1) firstTransitions.Add(run.CurrentDistrict);
+                    previous=run.CurrentDistrict; stage=run.StageNumber;
+                }
+            }
+            Check(run.StageNumber >= 7, "District clock failed to progress");
         }
-        Check(districts.Count == 6, "Not all weather/difficulty districts were visited");
-        Check(gap && run.StageNumber >= 6, "Skyway did not produce gaps/stage progression");
+        Check(visited.Count == 6, "Random stage progression omitted one or more districts across seeds");
+        Check(firstTransitions.Count > 2, "First transition still follows a fixed map order");
+    }
+
+    private static void BlackoutTimeline()
+    {
+        const float dt=1f/120;
+        foreach (District district in Enum.GetValues(typeof(District)))
+        {
+            RunnerSession run=New(332); run.SetStartingDistrict(district); run.StartRun();
+            bool darkMap=district==District.Night || district==District.Storm;
+            float firstDark=-1, firstWarning=-1, peak=0, block=0, total=0;
+            int blocks=0; bool partial=false;
+            for (int i=0; i<120*34; i++)
+            {
+                ClearHazards(run); run.Update(dt);
+                float darkness=run.DarknessAmount;
+                Check(!float.IsNaN(darkness) && darkness>=0 && darkness<=1,
+                    "Darkness escaped finite normalized bounds on " + district);
+                if (!darkMap)
+                    Check(darkness==0 && !run.BlackoutWarning, "A clear map unexpectedly blacked out: " + district);
+                if (run.BlackoutWarning && firstWarning<0) firstWarning=run.DistrictElapsed;
+                if (darkness>0)
+                {
+                    if (firstDark<0) firstDark=run.DistrictElapsed;
+                    if (block==0) blocks++;
+                    block+=dt; total+=dt;
+                    Check(block<=1.3f, "A blackout lasted too long on " + district);
+                    if (darkness>0.05f && darkness<0.95f) partial=true;
+                }
+                else block=0;
+                peak=Math.Max(peak,darkness);
+            }
+            if (darkMap)
+            {
+                Check(firstDark>=7-0.02f, "Opening blackout did not leave enough grace on " + district);
+                Check(firstWarning>=0 && firstDark-firstWarning>=1.4f,
+                    "Blackout did not provide advance warning on " + district);
+                Check(blocks>=2 && total<5 && peak>0.99f && partial,
+                    "Blackout cadence, duration or smooth fading missing on " + district);
+            }
+        }
+    }
+
+    private static void BlackoutStateTransitions()
+    {
+        foreach (District district in new[] {District.Night,District.Storm})
+        {
+            RunnerSession run=New(778); run.SetStartingDistrict(district); run.StartRun();
+            while (run.DarknessAmount<0.9f) Advance(run,1f/120);
+            float elapsed=run.DistrictElapsed, darkness=run.DarknessAmount;
+            bool warning=run.BlackoutWarning;
+            run.TogglePause(); run.Update(10);
+            Near(run.DistrictElapsed,elapsed,0,"Paused blackout advanced its clock");
+            Near(run.DarknessAmount,darkness,0,"Paused blackout changed opacity");
+            Check(run.BlackoutWarning==warning,"Paused blackout changed warning");
+            run.TogglePause(); Advance(run,1.3f);
+            Check(run.DarknessAmount==0,"Blackout failed to end after resume");
+            run.ReturnToMenu();
+            Check(run.DarknessAmount==0 && !run.BlackoutWarning,"Menu retained a blackout");
+            run.StartRun();
+            Check(run.CurrentDistrict==district && run.DistrictElapsed==0 &&
+                run.DarknessAmount==0 && !run.BlackoutWarning,"Retry retained old blackout phase");
+            Advance(run,RunnerSession.DistrictDuration+0.05f);
+            Check(run.CurrentDistrict!=district && run.DistrictElapsed<0.1f &&
+                run.DarknessAmount==0 && !run.BlackoutWarning,"Map transition retained old blackout phase");
+        }
+    }
+
+    private static void SkywayOpening()
+    {
+        for (int seed=0; seed<6; seed++)
+        {
+            RunnerSession run=New(seed); run.SetStartingDistrict(District.Skyway); run.StartRun();
+            bool gap=false;
+            for (int i=0; i<120*34; i++)
+            {
+                ClearHazards(run); run.Update(1f/120);
+                bool newGap=run.Entities.Any(e=>e.Kind==EntityKind.Gap && !e.Removed);
+                if (run.Elapsed<10-0.02f) Check(!newGap,"Skyway spawned a gap during opening grace");
+                gap|=newGap;
+            }
+            Check(gap,"Selected Skyway failed to generate a real gap after opening grace");
+        }
     }
 
     private sealed class PackSpec
     {
         public int Seed;
+        public District District;
         public int Id;
         public float Speed;
         public float Start;
@@ -390,7 +552,7 @@ internal static class Program
         catalog = new List<PackSpec>();
         for (int seed = 0; seed < 12; seed++)
         {
-            RunnerSession run = New(seed); run.StartRun();
+            RunnerSession run = New(seed); run.SetStartingDistrict((District)(seed%6)); run.StartRun();
             var seen = new HashSet<int>();
             for (int i = 0; i < 120 * 215; i++)
             {
@@ -402,7 +564,7 @@ internal static class Program
                     float start = entities.Min(e => e.X + run.Distance);
                     float end = entities.Max(e => e.X + e.Width + run.Distance);
                     foreach (WorldEntity e in entities) e.X = e.X + run.Distance - start;
-                    catalog.Add(new PackSpec { Seed=seed, Id=group.Key, Speed=run.Speed, SpawnTime=run.Elapsed,
+                    catalog.Add(new PackSpec { Seed=seed, District=run.CurrentDistrict, Id=group.Key, Speed=run.Speed, SpawnTime=run.Elapsed,
                         Start=start, End=end, Entities=entities });
                 }
                 // Generation checks remove hazards only after recording the complete
@@ -586,12 +748,128 @@ internal static class Program
     {
         RunnerSession corner = New(); corner.StartRun(); World(corner).Clear();
         World(corner).Add(new WorldEntity { Id=9105, Kind=EntityKind.Saw,
-            X=corner.PlayerX+21, Y=80, BaseY=80, Width=80, Height=80 });
+            // The original X+21/Y80 corner now legitimately overlaps the
+            // dinosaur's visible nose. This corner lies above its actual head.
+            X=corner.PlayerX+48, Y=92, BaseY=92, Width=80, Height=80 });
         corner.Update(1f/120);
         Check(corner.State==RunState.Playing, "Empty corner outside the circular blade was treated as solid");
         RunnerSession middle = New(); middle.StartRun(); World(middle).Clear();
         Inject(middle, EntityKind.Saw, 16, 80, 80); middle.Update(1f/120);
         Check(middle.State==RunState.GameOver, "Blade centre did not cause damage");
+    }
+
+    private static WorldEntity BladeAt(float localX, float localY, float diameter=4)
+    {
+        return new WorldEntity { Kind=EntityKind.Saw, X=RunnerSession.StartPlayerX+localX-diameter/2,
+            Y=localY-diameter/2, BaseY=localY-diameter/2, Width=diameter, Height=diameter };
+    }
+
+    private static bool BladeTouches(float x, float y, bool facingLeft=false, int frame=0,
+        bool duck=false, float diameter=4, float playerY=0, float bob=0)
+    {
+        return RunnerGeometry.SawTouchesPlayer(BladeAt(x,y,diameter),RunnerSession.StartPlayerX,
+            playerY,duck,facingLeft,frame,bob);
+    }
+
+    private static void SawVisibleBody()
+    {
+        foreach (bool left in new[] {false,true})
+        {
+            float sign=left ? -1 : 1;
+            Check(!BladeTouches(-15*sign,75,left), "Transparent space behind the neck caused damage");
+            Check(BladeTouches(30*sign,80,left), "Visible head was missed outside the old player rectangle");
+            RunnerSession safe=New(); safe.StartRun(); World(safe).Clear();
+            SetProperty(safe,"FacingLeft",left);
+            World(safe).Add(BladeAt(-15*sign,75)); safe.Update(1f/120);
+            Check(safe.State==RunState.Playing,"Production collision hit transparent neck space");
+            RunnerSession hit=New(); hit.StartRun(); World(hit).Clear();
+            SetProperty(hit,"FacingLeft",left);
+            World(hit).Add(BladeAt(30*sign,80)); hit.Update(1f/120);
+            Check(hit.State==RunState.GameOver,"Production collision missed the visible head");
+        }
+        RunnerSession facing=New(); facing.StartRun(); facing.SetHorizontal(-1); Advance(facing,0.1f);
+        Check(facing.FacingLeft,"Left movement did not mirror saw contact pose");
+        facing.SetHorizontal(0); Advance(facing,0.1f);
+        Check(facing.FacingLeft,"Releasing movement changed the facing pose");
+        facing.SetHorizontal(1); Advance(facing,0.1f);
+        Check(!facing.FacingLeft,"Right movement did not restore the right-facing contact pose");
+        facing.SetHorizontal(-1); Advance(facing,0.1f); facing.ReturnToMenu(); facing.StartRun();
+        Check(!facing.FacingLeft,"Restart retained the old facing pose");
+    }
+
+    private static void SawToothEdges()
+    {
+        foreach (bool left in new[] {false,true})
+        {
+            float sign=left ? -1 : 1;
+            Check(BladeTouches(70*sign,80,left,diameter:66),
+                "Visible blade teeth overlapped the head without registering contact");
+            Check(!BladeTouches(76*sign,80,left,diameter:66),
+                "Blade damaged the dinosaur with a clear gap beyond its tooth tips");
+            Check(!BladeTouches(70*sign,125,left,diameter:66),
+                "An empty diagonal corner of the blade caused damage");
+        }
+    }
+
+    private static void SawAnimatedPose()
+    {
+        Check(BladeTouches(46,80,frame:2),"Airborne sprite's visible extended nose was missed");
+        Check(!BladeTouches(46,80,frame:0),"Ground pose incorrectly used the jump frame's extended nose");
+        Check(!BladeTouches(0,75,frame:2),"Jump-frame neck transparency caused damage");
+        Check(BladeTouches(33,38,duck:true),"Crouched head was missed");
+        Check(!BladeTouches(-15,36,duck:true),"Crouched neck transparency caused damage");
+        Check(!BladeTouches(33,80,duck:true),"Crouched dinosaur retained the standing silhouette");
+        Check(BladeTouches(30,89.8f,diameter:1),"Fixture did not touch the visible top edge before bob");
+        Check(!BladeTouches(30,89.8f,diameter:1,bob:1.3f),"Saw collision ignored the rendered downward bob");
+        RunnerSession airborne=New(); airborne.StartRun(); World(airborne).Clear();
+        SetProperty(airborne,"PlayerY",40f); SetField(airborne,"grounded",false);
+        World(airborne).Add(BladeAt(46,120)); airborne.Update(1f/120);
+        Check(airborne.State==RunState.GameOver,"Production airborne collision used the wrong pose or height");
+        RunnerSession duck=New(); duck.StartRun(); World(duck).Clear(); duck.SetDucking(true);
+        World(duck).Add(BladeAt(33,38)); duck.Update(1f/120);
+        Check(duck.State==RunState.GameOver,"Production crouch collision missed the visible head");
+    }
+
+    private static void SawDamage()
+    {
+        RunnerSession run=New(upgrade:2); run.StartRun(); World(run).Clear();
+        World(run).Add(BladeAt(30,80)); run.Update(1f/120);
+        Check(run.Lives==2 && run.State==RunState.Playing && run.InvincibleRemaining>0,
+            "Saw contact did not consume exactly one life and start grace");
+        World(run).Add(BladeAt(30,80)); run.Update(1f/120);
+        Check(run.Lives==2,"Saw ignored temporary invulnerability");
+        Advance(run,2.1f); World(run).Clear();
+        int frame=RunnerGeometry.GetPlayerFrame(run.Elapsed+1f/120,run.Speed,run.PlayerY,run.State);
+        // All supplied animation frames share this solid middle-body region.
+        World(run).Add(BladeAt(5,35,12)); run.Update(1f/120);
+        Check(run.Lives==1,"Saw stayed harmless after the grace period expired (frame " + frame + ")");
+    }
+
+    private static void SawFatalPose()
+    {
+        foreach (bool duck in new[] {false,true})
+        {
+            RunnerSession run=New(); run.StartRun(); World(run).Clear();
+            SetProperty(run,"Elapsed",0.3f); SetProperty(run,"FacingLeft",true);
+            run.SetDucking(duck);
+            World(run).Add(duck ? BladeAt(-33,38,8) : BladeAt(-5,35,12));
+            run.Update(1f/120);
+            Check(run.State==RunState.GameOver,"Fatal pose fixture did not contact a solid body region");
+            Check(run.IsDucking==duck && run.FacingLeft,"Fatal contact changed crouch or facing pose");
+            int frame=RunnerGeometry.GetPlayerFrame(run.Elapsed,run.Speed,run.PlayerY,run.State);
+            int contactFrame=RunnerGeometry.GetPlayerFrame(run.Elapsed,run.Speed,run.PlayerY,RunState.Playing);
+            float bob=RunnerGeometry.GetPlayerBob(run.Elapsed,run.PlayerY,run.IsDucking,run.State);
+            float contactBob=RunnerGeometry.GetPlayerBob(run.Elapsed,run.PlayerY,run.IsDucking,RunState.Playing);
+            Check(frame==contactFrame,"Fatal contact reset the displayed animation to a different frame");
+            Near(bob,contactBob,0,"Fatal contact reset the visible running bob");
+            run.Update(10);
+            Check(RunnerGeometry.GetPlayerFrame(run.Elapsed,run.Speed,run.PlayerY,run.State)==frame,
+                "Dead animation continued advancing");
+            Near(RunnerGeometry.GetPlayerBob(run.Elapsed,run.PlayerY,run.IsDucking,run.State),bob,0,
+                "Dead bob continued advancing");
+            run.ReturnToMenu(); run.StartRun();
+            Check(!run.IsDucking && !run.FacingLeft,"New run retained the fatal pose");
+        }
     }
 
     private static void SawMotion()
@@ -690,7 +968,7 @@ internal static class Program
         for (int seed=0; seed<6; seed++)
             foreach (float x in new[] {RunnerSession.StartPlayerX,RunnerSession.MaximumPlayerX})
             {
-                RunnerSession run=New(seed); run.StartRun(); SetProperty(run,"PlayerX",x);
+                RunnerSession run=New(seed); run.SetStartingDistrict((District)(seed%6)); run.StartRun(); SetProperty(run,"PlayerX",x);
                 int current=0, solved=0;
                 bool jumped=false, second=false;
                 float jumpTime=0, jumpLead=0.28f, doubleDelay=-1;
