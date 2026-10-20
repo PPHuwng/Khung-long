@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 27
+  productGUID: 5c19935f7fdd4f99b9497fed42a4250d
+  companyName: CityDino
+  productName: City Dino
+  defaultScreenWidth: 1280
+  defaultScreenHeight: 720
+  defaultWebScreenWidth: 1280
+  defaultWebScreenHeight: 720
+  m_ActiveColorSpace: 0
+  runInBackground: 0
+  resizableWindow: 1
+  fullscreenMode: 3
+  activeInputHandler: 2
+  applicationIdentifier:
+    Standalone: com.citydino.runner
+    Android: com.citydino.runner
+    iPhone: com.citydino.runner
+  bundleVersion: 0.1.0
+  scriptingRuntimeVersion: 1
+  apiCompatibilityLevelPerPlatform: {}
+  useDeterministicCompilation: 1
+  allowUnsafeCode: 0
+  scriptingDefineSymbols: {}

@@ -1,0 +1,4 @@
+giờ tôi đang muốn làm 1 con game tựa tựa thế nhưng mà tôi muốn hình ảnh đặc sắc hơn là 1 con khủng long cổ dài đang chạy và nhảy qua các tòa nhà và cúi xuống máy bay trước tiên bạn hãy gen cho tôi hình ảnh con khung long cổ dài 2d ổn áp theo khung 48x48 px đi mô hình động cúi và di chuyển của nó nữa nhảy nữa
+cho tôi hình ảnh của mấy ngôi nhà để làm vật cản và máy bay rồi xe tăng là enemy của nó
+cho tôi cái đường đi kiểu đường thành phố cho con khủng long chạy
+đây là background rồi cái tôi cần là kiểu block cho con này đứng lên ấy kiểu như cái đường b vừa vẽ ấy sẽ có block lẻ và dduonngfw dài nó đi đường dài sẽ có chỗ trống để nó nhảy qua block lẻ kiểu vậy xong lại nhảy qua tiếp block dài cho tôi đường dài và đường ngắn đấy đi
