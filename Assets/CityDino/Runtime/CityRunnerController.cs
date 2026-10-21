@@ -23,10 +23,11 @@ namespace CityDino
         private GUIStyle label, button, panel;
         private Texture2D roundTexture;
         private AudioSource audioSource;
-        private AudioClip jumpSound, coinSound, hurtSound, buySound;
+        private AudioClip jumpSound, coinSound, hurtSound, buySound, thunderSound;
         private bool muted, showShop, showHistory, dirty;
         private float nextSave, ambientTime;
         private int bestAtStart;
+        private int thunderStage, lastThunderStrike;
         private readonly Color ink = new Color32(24, 43, 51, 255);
         private readonly Color cream = new Color32(249, 246, 233, 255);
         private readonly Color mint = new Color32(190, 231, 164, 255);
@@ -78,6 +79,7 @@ namespace CityDino
             coinSound = MakeTone("Star", 980, 1420, 0.10f);
             hurtSound = MakeTone("Hit", 180, 65, 0.20f);
             buySound = MakeTone("Upgrade", 550, 1120, 0.24f);
+            thunderSound = MakeThunder();
         }
 
         private void Update()
@@ -114,6 +116,20 @@ namespace CityDino
             RunState oldState = session.State;
             // Real-time spikes are discarded; the core subdivides normal simulation time for collision safety.
             session.Update(Mathf.Min(Time.unscaledDeltaTime, 0.1f));
+            if (session.State == RunState.Playing)
+            {
+                if (thunderStage != session.StageNumber)
+                {
+                    thunderStage = session.StageNumber;
+                    lastThunderStrike = 0;
+                }
+                LightningFrame lightning = RunnerWeather.GetLightning(session.CurrentDistrict, session.DistrictElapsed);
+                if (lightning.Amount > 0f && lightning.StrikeId > lastThunderStrike)
+                {
+                    lastThunderStrike = lightning.StrikeId;
+                    Play(thunderSound);
+                }
+            }
             if (session.RunStars > oldStars) Play(coinSound);
             if (session.Lives < oldLives) Play(hurtSound);
             if (session.Lives > oldLives && oldState == RunState.Playing) Play(buySound);
@@ -160,6 +176,7 @@ namespace CityDino
         {
             showShop = showHistory = false;
             bestAtStart = session.Save.BestScore;
+            thunderStage = lastThunderStrike = 0;
             session.StartRun();
         }
 
@@ -213,7 +230,7 @@ namespace CityDino
             if (Button(new Rect(98, 458, 418, 62), "BẮT ĐẦU CHẠY     →", mint, ink, 22)) BeginRun();
             if (Button(new Rect(98, 534, 202, 52), "Cửa hàng", ink, cream)) showShop = true;
             if (Button(new Rect(314, 534, 202, 52), "Thành tích", new Color32(231, 231, 215, 255), ink)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 04  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 05  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), "MỖI LƯỢT, MỘT THÀNH PHỐ.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -428,6 +445,7 @@ namespace CityDino
             if (coinSound != null) Destroy(coinSound);
             if (hurtSound != null) Destroy(hurtSound);
             if (buySound != null) Destroy(buySound);
+            if (thunderSound != null) Destroy(thunderSound);
         }
 
         private void EnsureStyles()
@@ -516,6 +534,27 @@ namespace CityDino
             PlayerPrefs.Save();
         }
         private void Play(AudioClip clip) { if (!muted && audioSource != null && clip != null) audioSource.PlayOneShot(clip); }
+        private static AudioClip MakeThunder()
+        {
+            const int rate = 22050;
+            var samples = new float[(int)(rate * 0.9f)];
+            uint noise = 17431;
+            float low = 0f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                noise = unchecked(noise * 1664525u + 1013904223u);
+                float random = ((noise >> 8) / 16777215f) * 2f - 1f;
+                low += (random - low) * 0.08f;
+                float seconds = (float)i / rate;
+                float attack = Mathf.Min(1f, seconds * 80f);
+                float tail = (float)Math.Exp(-seconds * 4f);
+                samples[i] = (low * 0.85f + (float)Math.Sin(seconds * 2 * Math.PI * 48) * 0.12f)
+                    * attack * tail;
+            }
+            AudioClip clip = AudioClip.Create("CityDino Thunder", samples.Length, 1, rate, false);
+            clip.SetData(samples, 0);
+            return clip;
+        }
         private static AudioClip MakeTone(string name, float from, float to, float seconds)
         {
             const int rate = 22050;

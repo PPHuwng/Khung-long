@@ -16,7 +16,7 @@ Project giữ cấu hình gốc từ `ProjectSettings.zip` và `Packages.zip`: t
 
 ### Cập nhật project đang chạy được
 
-Đóng Unity, tải bản ZIP mới từ nhánh `codex/dino-city-runner`, rồi chép thư mục **`Assets/CityDino`** trong bản mới vào đúng vị trí đó trong project đang dùng; chọn thay thế các tệp trùng tên. Mở lại project và chờ Unity import ảnh/script mới. Menu hiện **BẢN 04** khi đã cập nhật. Các thay đổi gameplay lần này nằm trong thư mục đó; dùng tiếp `Packages` và `ProjectSettings` đang chạy được trên máy bạn. Khoá lưu `CityDino.Save.v1` và định danh ứng dụng được giữ nguyên để tiếp tục ví sao và kỷ lục trên cùng thiết bị. Chi phí nâng cấp vĩnh viễn cũ được hoàn lại vào ví một lần khi chuyển sang cơ chế mua tim dùng cho từng lượt.
+Đóng Unity, tải bản ZIP mới từ nhánh `codex/dino-city-runner`, rồi chép thư mục **`Assets/CityDino`** trong bản mới vào đúng vị trí đó trong project đang dùng; chọn thay thế các tệp trùng tên. Mở lại project và chờ Unity import ảnh/script mới. Menu hiện **BẢN 05** khi đã cập nhật. Các thay đổi gameplay lần này nằm trong thư mục đó; dùng tiếp `Packages` và `ProjectSettings` đang chạy được trên máy bạn. Khoá lưu `CityDino.Save.v1` và định danh ứng dụng được giữ nguyên để tiếp tục ví sao và kỷ lục trên cùng thiết bị. Chi phí nâng cấp vĩnh viễn cũ được hoàn lại vào ví một lần khi chuyển sang cơ chế mua tim dùng cho từng lượt.
 
 | Thao tác | Bàn phím | Chuột / cảm ứng |
 |---|---|---|
@@ -35,32 +35,34 @@ Cảm ứng nhận nhiều ngón: có thể giữ hướng bằng một ngón v�
 
 ## Luật chơi đã thực hiện
 
-- **Chạy vô tận:** 13 mẫu cụm bẫy gồm nhà, vòi cứu hoả, gai đơn/đôi/ba, rào chắn, rào bậc, cưa dưới đất, cưa bay, máy bay thấp, hố trên mây, cưa tuần tra ngang và rào chắn di chuyển. Các mẫu được xáo trộn, tránh lặp ngay; bẫy nâng cao mở sau 15/30 giây và cao thêm sau 60 giây. Cụm được thiết kế cho cùng một nhịp nhảy/cúi, khoảng cách phục hồi tính cả tốc độ cuộn và khả năng di chuyển sang phải. Cưa quay có va chạm hình tròn, gai có va chạm tam giác; cưa bay dao động lên/xuống rõ hơn, đi qua bằng cách cúi hoặc nhảy.
+- **Chạy vô tận:** 14 mẫu cụm bẫy gồm nhà, vòi cứu hoả, gai đơn/đôi/ba, rào chắn, rào bậc, cưa dưới đất, cưa bay, máy bay thấp, hố trên mây, cưa tuần tra ngang, rào chắn di chuyển và máy bay lên/xuống. Các mẫu được xáo trộn, tránh lặp ngay; bẫy nâng cao mở sau 15/30 giây và cao thêm sau 60 giây. Cụm được thiết kế cho cùng một nhịp nhảy/cúi, khoảng cách phục hồi tính cả tốc độ cuộn và khả năng di chuyển sang phải. Cưa quay có va chạm hình tròn, gai có va chạm tam giác; cưa bay dao động lên/xuống rõ hơn, đi qua bằng cách cúi hoặc nhảy.
 - **Sao:** mỗi sao cộng ngay 1 vào ví và bộ đếm lượt. Sao vẫn giữ khi hết mạng. Có hàng sao hướng dẫn và cung sao trên vật cản/hố.
 - **Mua tim theo lượt:** mỗi tim giá **25 sao**, mua tối đa **3 tim** cho lượt kế tiếp. Mặc định 1 mạng; bắt đầu chạy sẽ dùng hết tim đã mua để có tối đa 4 mạng khởi đầu. Chơi lại cần mua lại; tim đã mua nhưng chưa dùng được lưu khi đóng game. Mua chỉ được ở menu/kết thúc lượt. Hồ sơ cũ được hoàn lại tổng chi phí nâng cấp **40/140/320 sao** theo cấp cũ, đúng một lần; ví và thành tích vẫn giữ.
 - **Tim hiếm:** lần đầu sinh sau khoảng 20–30 giây; các lần tiếp theo cách nhau ngẫu nhiên **18–32 giây**, không tạo thành hàng liên tục. Nhặt hồi 1 mạng, tối đa 5; khi đầy thì đổi thành 1 sao.
 - **Va chạm:** trừ 1 mạng. Nếu còn mạng, có 2 giây miễn sát thương và nhấp nháy. Hết mạng thì mô phỏng dừng, hiện kết quả và nút chơi lại/menu.
 - **Va chạm cưa:** cưa kiểm tra theo đường bao khủng long của cả 5 khung hình, tính cả hướng quay mặt, cúi và độ nhún. Không dùng hình chữ nhật chứa khoảng trống sau cổ nữa; đầu và đuôi cũng được tính theo ảnh. Vòng cưa tính gần tới đầu răng, chừa viền nhỏ để dễ chơi. Tư thế lúc chết được giữ lại để hình không đổi đột ngột sau va chạm. Trong 2 giây bất tử sau khi mất mạng, chạm cưa vẫn không mất thêm mạng như luật cũ.
 - **Sửa lỗi vẽ cưa bản 04:** ảnh cưa và collider dùng cùng tâm xoay trong toạ độ màn chơi. Phép xoay được ghép trước scale/letterbox, thay cho `GUIUtility.RotateAroundPivot` làm ảnh cưa quay lệch khỏi collider ở cửa sổ Game phóng/thu. Hàm vẽ đường/mưa cũng dùng phép biến đổi này. Bỏ nhãn CÚI/NHẢY nổi trên vật cản.
-- **Bẫy di chuyển:** từ 30 giây có cưa tuần tra ngang ±32 đơn vị và rào chắn ngang ±24 đơn vị; cưa bay dao động dọc ±16, đáy từ 56–88 nên vẫn có làn cúi. Vị trí mô phỏng thật được dùng chung cho vẽ/va chạm, dừng khi pause. Khoảng sinh tính cả toàn bộ vùng chuyển động để giữ khoảng phục hồi giữa các cụm.
+- **Bẫy di chuyển tăng dần:** từ 30 giây có cưa tuần tra, rào chắn ngang và máy bay lên/xuống. Với thời gian `t` giây lúc sinh, biên độ nhân `1 + 0,35 × √(t/120)`, tần số nhân `1 + 0,4 × √(t/120)`. Các bẫy sinh về sau đi xa và nhanh hơn liên tục; cưa cũng quay nhanh dần. Đáy thấp nhất của bẫy bay vẫn là Y56 để còn làn cúi. Khoảng sinh tính đủ vùng chuyển động, vị trí vẽ và va chạm dùng chung dữ liệu.
+- **Hoạt ảnh hành động:** ba khung nhảy bật lên/co chân/chuẩn bị đáp và ba khung cúi chạy thật, cổ hạ ngang thay vì ép thấp hình đứng. Chuyển khung theo vận tốc nhảy và nhịp chạy; vùng va chạm cưa dùng đúng đường bao của khung đang vẽ. Tư thế khi chết được giữ nguyên.
 - **Rơi xuống hố:** trừ 1 mạng và hồi về mặt đường nếu còn mạng, xoá hố sát nhân vật để không rơi lặp. Nếu hết mạng thì dừng hẳn. Không có chuyện rơi vô hạn sau khi chết.
 - **Điểm và thành tích:** 20 đơn vị thế giới = 1 mét = 1 điểm. Lưu kỷ lục, điểm lượt trước và 10 lượt gần nhất; giao diện thành tích hiển thị 5 lượt mới nhất.
-- **Tăng tốc:** bắt đầu 360 đơn vị/giây (**nhanh hơn 44%** so với bản đầu), tăng 1,6 mỗi giây, giới hạn 610 (~1,69× tốc độ đầu). Tốc độ vẫn tăng từ từ và có giới hạn.
+- **Tăng tốc không giới hạn:** bắt đầu 360 đơn vị/giây, cộng đều **2,2 đơn vị/giây mỗi giây**. Không có trần tốc độ hoặc bước tăng đột ngột theo chặng. Sau 1/5/10 phút tương ứng khoảng 1,37×/2,83×/4,67×; 20.000 điểm khoảng 3,8× và còn tăng tiếp. Bước mô phỏng va chạm tự chia nhỏ theo tốc độ để tránh xuyên qua vật cản; đồng hồ/quãng đường tích lũy bằng double để không đứng lại ở lượt rất dài.
 - **Nền mới:** hai ảnh skyline trong suốt được tạo riêng, ghép với lớp thành phố xa, trời/thời tiết và vệt sáng mặt đường. Các lớp cuộn ở tốc độ khác nhau để tạo chiều sâu; hình nền không có mặt đường vẽ sẵn che lên hố. Viền nối dùng tile phản chiếu, giữ tỉ lệ hình và căn đáy nhà vào chân trời.
 - **Chọn map đầu:** mặc định **Ngẫu nhiên mỗi lượt**, chọn trong cả 6 map. Có thể bấm một map cụ thể trên menu để lượt nào cũng bắt đầu tại đó. Lựa chọn được lưu trên thiết bị, áp dụng cả nút Chạy lại/R; chọn Ngẫu nhiên thì mỗi lượt bốc lại, vẫn có thể trùng kết quả lượt trước.
 - **Thay cảnh mỗi 35 giây:** từ lần chuyển đầu tiên, luôn chọn ngẫu nhiên một trong 5 map khác map đang chạy. Không còn vòng đầu cố định. Màu trời, nền, mưa, mặt trăng và ánh sáng chuyển theo cảnh; mỗi map ưu tiên một số cụm bẫy riêng, vẫn tuân theo thời gian mở khoá 15/30/60 giây và khoảng cách hồi phục chung.
 - **Tối hoàn toàn:** Phố đêm và Giông bão có các đợt đen kín màn chơi trong **2–3 giây**, thời lượng và khoảng nghỉ đều ngẫu nhiên. Lần đầu sau 8–13 giây ở Phố đêm hoặc 7–11 giây ở Giông bão; các khoảng nghỉ sau cũng trong khoảng đó. Có báo trước 1,5 giây và fade 0,18 giây ở mỗi đầu, ngoài thời gian đen hoàn toàn. Trong lúc tối chỉ HUD/nút điều khiển còn hiện. Pause dừng đồng hồ; chuyển map/chơi lại đặt lại lịch tối.
 - **Giao diện gọn hơn:** tiêu đề DINO CITY; bỏ thông báo giữa màn khi bắt đầu/đổi map/nhặt tim/mất mạng và chữ +SAO. Giữ HUD, kết quả lượt và một cảnh báo trước đợt tối; thời gian bảo vệ sau va chạm hiện nhỏ cạnh quãng đường.
-- **Âm thanh:** hiệu ứng nhảy, nhặt sao, va chạm và mua tim được tạo tại runtime; có nút tắt/bật.
+- **Hiệu ứng theo map:** Bình minh có lá/gió; Nắng chiều có vệt hơi nóng và bụi sáng; Phố đêm có neon; Trên mây có gió/mây chạy mạnh dần. Mưa có một đợt chớp sáng mềm kèm tia sét phân nhánh và tiếng sấm mỗi 3,4 giây; Bão mỗi 2,8 giây, từ giây thứ 2. Mỗi đợt kéo dài 0,42 giây, có khoảng nghỉ để vật cản còn rõ. Chớp và tiếng sấm dùng chung mã sự kiện; tạm dừng dừng thời gian hiệu ứng. Lớp tối đen của đêm/bão vẫn vẽ cuối cùng.
+- **Âm thanh:** hiệu ứng nhảy, nhặt sao, va chạm, mua tim và sấm được tạo tại runtime; có nút tắt/bật.
 
 | Map | Thử thách riêng |
 |---|---|
-| Bình minh | Ưu tiên nhà và vòi cứu hoả, phù hợp tập nhịp nhảy. |
-| Phố mưa | Ưu tiên rào chắn và máy bay thấp khi đã mở khoá; chú ý đổi nhảy/cúi. Có vũng nước phản chiếu. |
-| Nắng chiều | Ưu tiên gai đôi/ba và rào bậc; cần canh nhịp vượt cụm. |
-| Phố đêm | Ưu tiên cưa đất/cưa bay, thêm các đợt mất sáng ngắn. |
-| Thành phố trên mây | Có hố thật và vạch cảnh báo; nếu chọn làm map đầu thì 10 giây đầu chưa sinh hố. Có vệt gió trên nền. |
-| Giông bão | Ưu tiên cưa, gai đôi và máy bay; mưa dày và mất sáng ngắn thường hơn. |
+| Bình minh | Nhà/vòi cứu hoả, cưa tuần tra khi đã mở; lá bay và gió. |
+| Phố mưa | Ưu tiên rào chắn và máy bay thấp khi đã mở khoá; chú ý đổi nhảy/cúi. Có vũng nước phản chiếu, sấm chớp và máy bay lên/xuống. |
+| Nắng chiều | Ưu tiên gai đôi/ba và rào bậc; cần canh nhịp vượt cụm; hơi nóng và bụi sáng. |
+| Phố đêm | Ưu tiên cưa đất/cưa bay, neon và các đợt tối đen 2–3 giây. |
+| Thành phố trên mây | Có hố thật và vạch cảnh báo; nếu chọn làm map đầu thì 10 giây đầu chưa sinh hố. Gió/mây mạnh hơn khi chạy nhanh. |
+| Giông bão | Ưu tiên cưa, gai đôi và máy bay; mưa dày, sấm chớp, máy bay di chuyển và tối đen thường hơn. |
 
 Vũng nước và gió là hiệu ứng nền; không kéo nhân vật hoặc làm trượt nút điều khiển. Mỗi map vẫn có thể sinh các mẫu bẫy chung để lượt chạy đa dạng.
 
@@ -72,7 +74,7 @@ Dữ liệu dùng Unity `PlayerPrefs` với khoá `CityDino.Save.v1`. Kỷ lục
 - `Assets/CityDino/Core/RunnerGeometry.cs`: kích thước/khung hình nhân vật dùng chung cho vẽ và va chạm cưa; đường bao alpha từ ảnh khủng long gốc.
 - `Assets/CityDino/Runtime/CityRunnerController.cs`: đọc phím/cảm ứng, menu/HUD/cửa hàng/thành tích, PlayerPrefs và âm thanh.
 - `Assets/CityDino/Runtime/RunnerWorldView.cs`: vẽ thế giới, ảnh nhân vật, parallax, đường, thời tiết và hố.
-- `Assets/CityDino/Resources/CityDino`: các ảnh gốc, 5 frame khủng long cùng khung, font tiếng Việt, cùng `SkylineFar.png`, `SkylineNear.png` và `HazardAtlas.png` mới. Atlas có gai, cưa, rào chắn và khối điện; `RunnerArt.cs` lưu UV theo vùng alpha thật để hình khớp va chạm.
+- `Assets/CityDino/Resources/CityDino`: các ảnh gốc, 5 frame khủng long cùng khung, font tiếng Việt, cùng `SkylineFar.png`, `SkylineNear.png`, `HazardAtlas.png` và `DinoActionsAtlas.png` mới. Atlas có gai, cưa, rào chắn và khối điện; `RunnerArt.cs` lưu UV theo vùng alpha thật để hình khớp va chạm. Atlas hành động có sáu tư thế; mask va chạm lấy từ đúng vùng ảnh/UV, giữ nguyên năm ảnh chạy gốc.
 - `Assets/CityDino/Scenes/CityRunner.unity`: scene khởi động.
 - `Assets/Script`, `Assets/Scenes`, sprite, prefab và tài liệu trong bản zip gốc được giữ lại để đối chiếu.
 
@@ -108,6 +110,6 @@ Checklist khi mở Unity:
 4. Đủ 25 sao: mua 1 tim, đóng/mở lại để kiểm tra tim chưa dùng vẫn còn. Bắt đầu với 2 mạng; lượt sau trở về 1 mạng nếu không mua lại. Hồ sơ cấp 1/2/3 cũ được hoàn 40/140/320 sao đúng một lần.
 5. Va chạm khi còn mạng: chỉ mất 1 mạng, miễn sát thương 2 giây. Tạm dừng: mọi vật thể và điểm đứng yên; tiếp tục không nhảy thời gian.
 6. Thử chọn từng map đầu và Ngẫu nhiên; Chạy lại dùng đúng lựa chọn, các chặng tiếp theo đổi ngẫu nhiên sau 35 giây. Trên mây có hố thật sau thời gian đầu làm quen; rơi khi còn mạng hồi an toàn. Máy bay: giữ CÚI đi qua. Map đêm/bão có báo trước rồi đen hoàn toàn 2–3 giây; HUD/nút vẫn hiện; tạm dừng không làm hiệu ứng chạy tiếp.
-7. Thử chuột/cảm ứng ở tỷ lệ màn hình khác nhau: nút hướng không gây nhảy, giữ hướng bằng một ngón và nhảy bằng ngón khác, các nút không chồng và không bấm xuyên cửa sổ cửa hàng. Thử gai đôi/ba, cưa xoay/bay, rào chắn/khối điện và cụm nối tiếp ở tốc độ cao. Với cưa, thử sát sau cổ và đầu ở cả hai hướng, lúc nhảy/cúi; thay đổi scale cửa sổ Game và bật Maximize On Play để kiểm tra ảnh vẫn đúng vị trí va chạm. Thử cưa tuần tra/rào di chuyển; phân biệt lần chạm khi đang được bảo vệ.
+7. Thử chuột/cảm ứng ở tỷ lệ màn hình khác nhau: nút hướng không gây nhảy, giữ hướng bằng một ngón và nhảy bằng ngón khác, các nút không chồng và không bấm xuyên cửa sổ cửa hàng. Thử gai đôi/ba, cưa xoay/bay, rào chắn/khối điện và cụm nối tiếp ở tốc độ cao. Với cưa, thử sát sau cổ và đầu ở cả hai hướng, lúc nhảy/cúi với ảnh hành động mới; thay đổi scale cửa sổ Game và bật Maximize On Play để kiểm tra ảnh vẫn đúng vị trí va chạm. Thử cưa tuần tra/rào di chuyển; phân biệt lần chạm khi đang được bảo vệ.
 
-Các hằng số cân bằng chính (`InitialSpeed`, `SpeedAcceleration`, `MaximumSpeed`, `JumpVelocity`, `DistrictDuration`) ở đầu `RunnerSession.cs`. Game này là bản chạy vô tận hoàn chỉnh ở mức cơ chế; chưa có máy chủ, đồng bộ tài khoản hay bảng xếp hạng trực tuyến.
+Các hằng số cân bằng chính (`InitialSpeed`, `SpeedAcceleration`, `JumpVelocity`, `DistrictDuration`) ở đầu `RunnerSession.cs`. Game này là bản chạy vô tận hoàn chỉnh ở mức cơ chế; chưa có máy chủ, đồng bộ tài khoản hay bảng xếp hạng trực tuyến.

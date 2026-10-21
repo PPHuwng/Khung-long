@@ -17,6 +17,9 @@ internal static class Program
         Test("line segments preserve endpoints under canvas scale and letterboxing",LineEndpoints);
         Test("every hazard is drawn and no floating action labels remain",VisibleHazards);
         Test("peak blackout ends the world pass with fully opaque pure black",FullBlackout);
+        Test("rain lightning rendering follows the shared strike clock",LightningDraw);
+        Test("paused rain effects do not advance with ambient wall time",PausedWeather);
+        Test("jump and crouch poses draw their own atlas frames in both directions",ActionSprites);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
         Console.WriteLine("Recorded production draw calls with affine API stubs; no Unity rasterization or Editor execution.");
         return failed==0?0:1;
@@ -112,13 +115,73 @@ internal static class Program
     }
     private static void FullBlackout()
     {
-        var art=new RunnerArt(); var run=New(District.Night);
-        typeof(RunnerSession).GetProperty("DistrictElapsed").GetSetMethod(true).Invoke(run,new object[]{run.NextBlackoutAt+0.18f+run.BlackoutDuration/2});
+        foreach(District district in new[]{District.Night,District.Storm})
+        {
+        var art=new RunnerArt(); var run=New(district);
+        // Deliberately overlap the blackout plateau and a storm lightning peak.
+        Set(run,"NextBlackoutAt",2f); Set(run,"BlackoutDuration",2.5f); Set(run,"DistrictElapsed",2.21f);
         Check(run.DarknessAmount==1,"Fixture is not at fully dark plateau");
         World(run).Add(new WorldEntity { Kind=EntityKind.Saw,X=450,Y=60,Width=76,Height=76,Rotation=80 });
         using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f));
         RecordedDraw last=GUI.DrawCalls.Last();
         Check(last.Kind=="Texture"&&last.Texture==Texture2D.whiteTexture&&last.Position.x==0&&last.Position.y==0&&last.Position.width==1280&&last.Position.height==720,"World was drawn over blackout");
         Check(last.Color.r==0&&last.Color.g==0&&last.Color.b==0&&last.Color.a==1,"Blackout is not opaque pure black");
+        }
+    }
+    private static void Set(RunnerSession run,string property,float value)
+    { typeof(RunnerSession).GetProperty(property).GetSetMethod(true).Invoke(run,new object[]{value}); }
+    private static void LightningDraw()
+    {
+        foreach(District district in new[]{District.Day,District.Rain,District.Sunset,District.Night,District.Skyway,District.Storm})
+        {
+            var art=new RunnerArt(); var run=New(district); Set(run,"DistrictElapsed",2.21f);
+            using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f,150,0));
+            var flashes=GUI.DrawCalls.Where(d=>d.Kind=="Texture"&&d.Position.width==1280&&d.Position.height==720&&d.Color.b>d.Color.r&&d.Color.a>0).ToList();
+            bool wet=district==District.Rain||district==District.Storm;
+            Check(flashes.Count==(wet?1:0),"Lightning appeared on the wrong map or pulse duplicated");
+            if(wet)
+                Near(flashes[0].Color.a,RunnerWeather.GetLightning(district,2.21f).Amount*0.23f,"Flash uses a different clock from thunder");
+        }
+    }
+    private static void PausedWeather()
+    {
+        var art=new RunnerArt(); var run=New(District.Rain); Set(run,"Elapsed",6f); Set(run,"DistrictElapsed",2.21f);
+        run.TogglePause();
+        using(var view=new RunnerWorldView(art))
+        {
+            Draw(view,run,Canvas(1));
+            string first=DrawSnapshot();
+            GUI.DrawCalls.Clear(); view.Draw(run,50f);
+            Check(DrawSnapshot()==first,"Rain or lightning advanced while paused");
+        }
+    }
+    private static string DrawSnapshot()
+    {
+        return string.Join(";",GUI.DrawCalls.Select(d=>d.Kind+":"+d.Position.x+":"+d.Position.y+":"+
+            d.Position.width+":"+d.Position.height+":"+d.Centre.x+":"+d.Centre.y+":"+d.Color.a));
+    }
+    private static void ActionSprites()
+    {
+        var art=new RunnerArt(); Check(art.DinoActionsAtlas!=null,"Action atlas is missing from resources");
+        foreach(bool left in new[]{false,true})
+        for(int frame=5;frame<=10;frame++)
+        {
+            var run=New();
+            bool duck=frame<8;
+            Set(run,"Elapsed",duck?(frame-5+0.1f)/10f:0.5f);
+            Set(run,"PlayerY",duck?0:80);
+            Set(run,"AnimationVelocityY",frame==8?500:frame==10?-500:0);
+            typeof(RunnerSession).GetProperty("IsDucking").GetSetMethod(true).Invoke(run,new object[]{duck});
+            typeof(RunnerSession).GetProperty("FacingLeft").GetSetMethod(true).Invoke(run,new object[]{left});
+            Check(RunnerGeometry.GetPlayerFrame(run)==frame,"Shared pose selection did not choose action frame "+frame);
+            using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f,100,0));
+            RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.DinoActionsAtlas);
+            Rect source=art.GetDinoActionUV(frame);
+            Near(draw.UV.x,left?source.x+source.width:source.x,"Action frame source X mismatch");
+            Near(draw.UV.y,source.y,"Action frame source Y mismatch");
+            Near(draw.UV.width,left?-source.width:source.width,"Action frame was not mirrored correctly");
+            Near(draw.Position.width,duck?109:99,"Action draw width differs from collision layout");
+            Near(draw.Position.height,duck?44:91,"Action draw height differs from collision layout");
+        }
     }
 }

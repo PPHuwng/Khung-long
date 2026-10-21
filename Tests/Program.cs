@@ -20,7 +20,9 @@ internal static class Program
         Test("coyote jumping and walking off ledges preserve jump limits", CoyoteJump);
         Test("opening hydrant can be cleared by one normal jump", OpeningJump);
         Test("ducking avoids planes while standing collides", DuckPlane);
-        Test("speed rises gradually, caps, and score follows distance", Progression);
+        Test("speed rises smoothly without a ceiling and score follows distance", Progression);
+        Test("high speed steps still hit thin hazards and collect small stars", HighSpeedContacts);
+        Test("hour-long and ten-hour clocks keep advancing without float drift", LongRunClocks);
         Test("same seed produces the same endless world", Determinism);
         Test("different seeds vary the world", SeedVariation);
         Test("stars credit the wallet once and notify persistence", StarCollection);
@@ -39,6 +41,7 @@ internal static class Program
         Test("district transitions randomize without adjacent repeats", Districts);
         Test("night and storm blackouts are brief, warned, and limited to their maps", BlackoutTimeline);
         Test("blackouts freeze on pause and reset between maps and runs", BlackoutStateTransitions);
+        Test("rain and storm lightning uses spaced single pulses with matching strike identities", LightningCadence);
         Test("skyway starts give a safe opening before real gaps", SkywayOpening);
         Test("obstacles and gaps do not form impossible overlapping hazards", SpawnSafety);
         Test("horizontal control moves left/right and respects screen bounds", HorizontalMovement);
@@ -54,6 +57,8 @@ internal static class Program
         Test("saw contact follows visible head and transparent neck in both directions", SawVisibleBody);
         Test("saw teeth contact uses the visible circle and ignores diagonal empty space", SawToothEdges);
         Test("saw contact follows jump frame, crouch and running bob", SawAnimatedPose);
+        Test("six action silhouettes follow opaque head and body while excluding clear space", ActionSilhouettes);
+        Test("jump and crouch animation selects the correct phase and pauses consistently", ActionPoseTransitions);
         Test("saw hits consume one life and respect temporary invulnerability", SawDamage);
         Test("fatal saw contact freezes the exact visible animation and crouch pose", SawFatalPose);
         Test("saws rotate and floating blades leave a safe duck lane", SawMotion);
@@ -63,7 +68,9 @@ internal static class Program
         Test("moving hazard integration is independent of frame partition", MovingFrameStep);
         Test("random packs cover all hazard types and composite rhythms", PatternVariety);
         Test("sampled generated packs have a real jump or duck solution", PatternReplay);
-        Test("faster start and speed ceiling exceed the previous version", FasterPacing);
+        Test("late motion grows in range and frequency without blocking duck lanes", LateMotionGrowth);
+        Test("late generated motion packs retain a real jump or duck solution", LatePatternReplay);
+        Test("faster pace keeps increasing beyond the old ceiling", FasterPacing);
         Test("seeded full runs can traverse successive packs without taking damage", SequentialRunner);
         Test("save input is sanitized without discarding valid progress", SaveValidation);
         Test("long frame updates behave like fixed small steps", FrameStep);
@@ -221,13 +228,55 @@ internal static class Program
 
     private static void Progression()
     {
-        RunnerSession run = New(); run.StartRun();
-        Advance(run, 10);
-        Near(run.Speed, RunnerSession.InitialSpeed + 10 * RunnerSession.SpeedAcceleration, 0.1f, "Acceleration must be small and time based");
-        Check(run.Score == (int)(run.Distance / 20), "Score does not follow distance");
-        Advance(run, 590);
-        Near(run.Speed, RunnerSession.MaximumSpeed, 0.01f, "Speed did not cap");
-        Check(run.State == RunState.Playing && run.Score > 10000, "Long run did not progress");
+        RunnerSession run=New(); run.StartRun(); Advance(run,10);
+        Near(run.Speed,RunnerSession.InitialSpeed+run.Elapsed*RunnerSession.SpeedAcceleration,0.02f,"Acceleration must be smooth and time based");
+        Check(run.Score==(int)(run.Distance/20),"Score does not follow distance");
+        Advance(run,590);
+        Check(run.State==RunState.Playing&&run.Score>20000&&run.Speed>1500,"Long run retained the old speed ceiling");
+        float before=run.Speed; run.Update(0.1f);
+        Near(run.Speed-before,RunnerSession.SpeedAcceleration*0.1f,0.01f,"Speed jumped suddenly after a long run");
+        foreach(float elapsed in new[]{0f,60f,300f,1000f,3600f})
+        {
+            RunnerSession sample=New(); sample.StartRun(); World(sample).Clear(); StopSpawns(sample);
+            SetProperty(sample,"Elapsed",elapsed); SetProperty(sample,"Speed",RunnerSession.InitialSpeed+elapsed*RunnerSession.SpeedAcceleration);
+            float old=sample.Speed; sample.Update(0.1f);
+            Near(sample.Speed-old,0.1f*RunnerSession.SpeedAcceleration,0.01f,"Late acceleration changed or stopped at "+elapsed+"s");
+            Check(sample.Speed>old,"Speed capped at "+elapsed+"s");
+        }
+    }
+
+    private static void HighSpeedContacts()
+    {
+        foreach(float speed in new[]{8280f,79560f})
+        {
+            RunnerSession hit=New(); hit.StartRun(); World(hit).Clear(); StopSpawns(hit);
+            SetProperty(hit,"Elapsed",(speed-RunnerSession.InitialSpeed)/RunnerSession.SpeedAcceleration);
+            SetProperty(hit,"Speed",speed);
+            World(hit).Add(new WorldEntity{Id=9970,Kind=EntityKind.Barrier,X=hit.PlayerX+35,Y=0,Width=8,Height=64});
+            hit.Update(1f/120);
+            Check(hit.State==RunState.GameOver,"High-speed update tunnelled through an 8px hazard at "+speed);
+            RunnerSession pickup=New(); pickup.StartRun(); World(pickup).Clear(); StopSpawns(pickup);
+            SetProperty(pickup,"Elapsed",(speed-RunnerSession.InitialSpeed)/RunnerSession.SpeedAcceleration);
+            SetProperty(pickup,"Speed",speed);
+            World(pickup).Add(new WorldEntity{Id=9971,Kind=EntityKind.Star,X=pickup.PlayerX+35,Y=22,Width=8,Height=8});
+            pickup.Update(1f/120);
+            Check(pickup.RunStars==1&&pickup.Save.Wallet==1,"High-speed update skipped a small star at "+speed);
+        }
+    }
+
+    private static void LongRunClocks()
+    {
+        foreach(float elapsed in new[]{3600f,36000f})
+        {
+            RunnerSession run=New(); run.StartRun(); World(run).Clear(); StopSpawns(run);
+            float speed=RunnerSession.InitialSpeed+elapsed*RunnerSession.SpeedAcceleration;
+            SetProperty(run,"Elapsed",elapsed); SetProperty(run,"Distance",0f); SetProperty(run,"Speed",speed);
+            run.Update(0.1f);
+            Near(run.Elapsed-elapsed,0.1f,elapsed<10000?0.001f:0.005f,"Long-run elapsed clock drifted or froze");
+            Near(run.Speed-speed,RunnerSession.SpeedAcceleration*0.1f,0.02f,"Long-run speed stopped increasing");
+            Near(run.Distance,speed*0.1f+0.5f*RunnerSession.SpeedAcceleration*0.01f,0.05f,"Long-run distance lost adaptive substeps");
+            Check(run.Score==(int)(run.Distance/20),"Long-run score lost distance progress");
+        }
     }
 
     private static void Determinism()
@@ -532,6 +581,38 @@ internal static class Program
         }
     }
 
+    private static void LightningCadence()
+    {
+        foreach(District district in Enum.GetValues(typeof(District)))
+        {
+            bool active=district==District.Rain||district==District.Storm;
+            float previousPulse=-100,block=0; int pulseCount=0,lastStrike=0;
+            for(int i=0;i<3000;i++)
+            {
+                float time=i/100f; LightningFrame frame=RunnerWeather.GetLightning(district,time);
+                Check(frame.Amount>=0&&frame.Amount<=1&&!float.IsNaN(frame.Amount),"Lightning amount outside finite bounds");
+                if(!active) Check(frame.Amount==0&&frame.StrikeId==0,"Lightning appeared on a clear map");
+                if(time<2) Check(frame.Amount==0,"Lightning skipped opening grace");
+                if(frame.Amount>0.001f)
+                {
+                    if(block==0)
+                    {
+                        Check(time-previousPulse>=2.7f,"Lightning became a rapid strobe");
+                        Check(frame.StrikeId>lastStrike,"A new flash reused its thunder identity");
+                        previousPulse=time; lastStrike=frame.StrikeId; pulseCount++;
+                    }
+                    block+=0.01f;
+                    Check(block<=0.44f,"Lightning stayed continuously white");
+                    Check(frame.BoltX>=180&&frame.BoltX<=1100,"Lightning bolt position escaped the canvas");
+                }
+                else block=0;
+            }
+            Check(active?pulseCount>=8:pulseCount==0,"Unexpected lightning cadence on "+district);
+        }
+        foreach(float invalid in new[]{float.NaN,float.PositiveInfinity,-1f})
+            Check(RunnerWeather.GetLightning(District.Rain,invalid).Amount==0,"Invalid lightning clock produced a flash");
+    }
+
     private static void SkywayOpening()
     {
         for (int seed=0; seed<6; seed++)
@@ -758,6 +839,8 @@ internal static class Program
     private static void SetProperty(RunnerSession run, string name, object value)
     {
         SetField(run, "<" + name + ">k__BackingField", value);
+        string clock=name=="Elapsed"?"elapsedClock":name=="Distance"?"distanceClock":name=="DistrictElapsed"?"districtClock":null;
+        if(clock!=null) SetField(run,clock,(double)(float)value);
     }
 
     private static void SpikeShape()
@@ -853,10 +936,12 @@ internal static class Program
         Check(!BladeTouches(30,89.8f,diameter:1,bob:1.3f),"Saw collision ignored the rendered downward bob");
         RunnerSession airborne=New(); airborne.StartRun(); World(airborne).Clear();
         SetProperty(airborne,"PlayerY",40f); SetField(airborne,"grounded",false);
-        World(airborne).Add(BladeAt(46,120)); airborne.Update(1f/120);
+        // New hang pose has a lower, tucked head; use a PNG-alpha-confirmed
+        // opaque point rather than the old running sprite nose location.
+        World(airborne).Add(BladeAt(34,112,8)); airborne.Update(1f/120);
         Check(airborne.State==RunState.GameOver,"Production airborne collision used the wrong pose or height");
         RunnerSession duck=New(); duck.StartRun(); World(duck).Clear(); duck.SetDucking(true);
-        World(duck).Add(BladeAt(33,38)); duck.Update(1f/120);
+        World(duck).Add(BladeAt(40,24,8)); duck.Update(1f/120);
         Check(duck.State==RunState.GameOver,"Production crouch collision missed the visible head");
     }
 
@@ -875,30 +960,86 @@ internal static class Program
         Check(run.Lives==1,"Saw stayed harmless after the grace period expired (frame " + frame + ")");
     }
 
+    private static void ActionSilhouettes()
+    {
+        // Coordinates were inspected against actual action-atlas alpha, not
+        // copied from the collision bands. Check both mirrored orientations.
+        foreach(bool left in new[]{false,true})
+        {
+            float sign=left?-1:1;
+            foreach(int frame in new[]{5,6,7})
+            {
+                Check(BladeTouches(40*sign,24,left,frame,true),"Action crouch head missed in frame "+frame);
+                Check(BladeTouches(0,22,left,frame,true),"Action crouch body missed in frame "+frame);
+                Check(!BladeTouches(-45*sign,42,left,frame,true),"Action crouch transparency was solid in frame "+frame);
+            }
+            foreach(int frame in new[]{8,9,10})
+            {
+                Check(BladeTouches(34*sign,72,left,frame),"Action jump head missed in frame "+frame);
+                Check(BladeTouches(0,35,left,frame),"Action jump body missed in frame "+frame);
+                Check(!BladeTouches(-15*sign,75,left,frame),"Action jump neck transparency was solid in frame "+frame);
+            }
+        }
+    }
+
+    private static void ActionPoseTransitions()
+    {
+        RunnerSession run=New(); run.StartRun(); World(run).Clear(); StopSpawns(run);
+        Check(RunnerGeometry.GetPlayerFrame(run)<5,"Running selected an action-atlas frame");
+        run.SetDucking(true);
+        for(int i=0;i<3;i++)
+        {
+            SetProperty(run,"Elapsed",i*0.1f);
+            Check(RunnerGeometry.GetPlayerFrame(run)==5+i,"Crouch did not cycle through three dedicated frames");
+        }
+        run.SetDucking(false); Check(run.Jump(),"Jump pose fixture could not launch"); run.Update(0.02f);
+        Check(RunnerGeometry.GetPlayerFrame(run)==8,"Rising jump did not select the launch pose");
+        while(run.AnimationVelocityY>200) run.Update(1f/120);
+        Check(run.PlayerY>3&&RunnerGeometry.GetPlayerFrame(run)==9,"Jump apex did not select the tucked pose");
+        while(run.AnimationVelocityY>=-230) run.Update(1f/120);
+        Check(run.PlayerY>3&&RunnerGeometry.GetPlayerFrame(run)==10,"Falling jump did not select the landing pose");
+        run.TogglePause(); int paused=RunnerGeometry.GetPlayerFrame(run); run.Update(10);
+        Check(RunnerGeometry.GetPlayerFrame(run)==paused,"Paused airborne action frame advanced");
+        run.TogglePause(); Check(run.Jump(),"Second jump pose fixture was rejected");
+        Check(RunnerGeometry.GetPlayerFrame(run)==8,"Double jump did not return to the launch pose");
+    }
+
     private static void SawFatalPose()
     {
-        foreach (bool duck in new[] {false,true})
+        foreach(string pose in new[]{"run","crouch","rising","apex","falling"})
         {
-            RunnerSession run=New(); run.StartRun(); World(run).Clear();
+            RunnerSession run=New(); run.StartRun(); World(run).Clear(); StopSpawns(run);
             SetProperty(run,"Elapsed",0.3f); SetProperty(run,"FacingLeft",true);
+            bool duck=pose=="crouch";
+            bool airborne=pose=="rising"||pose=="apex"||pose=="falling";
             run.SetDucking(duck);
-            World(run).Add(duck ? BladeAt(-33,38,8) : BladeAt(-5,35,12));
+            if(airborne)
+            {
+                SetProperty(run,"PlayerY",40f); SetField(run,"grounded",false);
+                SetProperty(run,"VelocityY",pose=="rising"?500f:pose=="falling"?-500f:0f);
+            }
+            World(run).Add(duck?BladeAt(-40,24,12):BladeAt(0,airborne?75:35,16));
             run.Update(1f/120);
-            Check(run.State==RunState.GameOver,"Fatal pose fixture did not contact a solid body region");
-            Check(run.IsDucking==duck && run.FacingLeft,"Fatal contact changed crouch or facing pose");
-            int frame=RunnerGeometry.GetPlayerFrame(run.Elapsed,run.Speed,run.PlayerY,run.State);
-            int contactFrame=RunnerGeometry.GetPlayerFrame(run.Elapsed,run.Speed,run.PlayerY,RunState.Playing);
+            Check(run.State==RunState.GameOver,"Fatal "+pose+" fixture did not contact a solid body region");
+            Check(run.IsDucking==duck&&run.FacingLeft,"Fatal contact changed crouch or facing pose");
+            int frame=RunnerGeometry.GetPlayerFrame(run);
+            int expected=duck?5+(int)(Math.Floor((double)run.Elapsed*10)%3)
+                :pose=="rising"?8:pose=="apex"?9:pose=="falling"?10
+                :RunnerGeometry.GetPlayerFrame(run.Elapsed,run.Speed,run.PlayerY,RunState.Playing);
+            Check(frame==expected,"Fatal contact reset the displayed "+pose+" frame");
+            if(airborne)
+            {
+                Check(run.VelocityY==0,"Fatal airborne contact did not stop physics");
+                if(pose!="apex") Check(Math.Abs(run.AnimationVelocityY)>220,"Fatal airborne contact lost its animation velocity snapshot");
+            }
             float bob=RunnerGeometry.GetPlayerBob(run.Elapsed,run.PlayerY,run.IsDucking,run.State);
             float contactBob=RunnerGeometry.GetPlayerBob(run.Elapsed,run.PlayerY,run.IsDucking,RunState.Playing);
-            Check(frame==contactFrame,"Fatal contact reset the displayed animation to a different frame");
-            Near(bob,contactBob,0,"Fatal contact reset the visible running bob");
+            Near(bob,contactBob,0,"Fatal contact reset the visible bob");
             run.Update(10);
-            Check(RunnerGeometry.GetPlayerFrame(run.Elapsed,run.Speed,run.PlayerY,run.State)==frame,
-                "Dead animation continued advancing");
-            Near(RunnerGeometry.GetPlayerBob(run.Elapsed,run.PlayerY,run.IsDucking,run.State),bob,0,
-                "Dead bob continued advancing");
+            Check(RunnerGeometry.GetPlayerFrame(run)==frame,"Dead action animation continued advancing");
+            Near(RunnerGeometry.GetPlayerBob(run.Elapsed,run.PlayerY,run.IsDucking,run.State),bob,0,"Dead bob continued advancing");
             run.ReturnToMenu(); run.StartRun();
-            Check(!run.IsDucking && !run.FacingLeft,"New run retained the fatal pose");
+            Check(!run.IsDucking&&!run.FacingLeft&&run.AnimationVelocityY==0,"New run retained the fatal action pose");
         }
     }
 
@@ -998,8 +1139,8 @@ internal static class Program
     private static string PackSignature(PackSpec pack)
     {
         return string.Join(";", pack.Entities.Select(e => e.Kind + ":" +
-            Math.Ceiling(e.X/10) + ":" + Math.Ceiling(e.Width/10) + ":" + Math.Ceiling(e.Height/10) + ":" + e.BaseY +
-            ":motion=" + e.MotionAmplitudeX + "," + e.MotionAmplitude + "," + e.MotionSpeed));
+            Math.Ceiling(e.X/10) + ":" + Math.Ceiling(e.Width/10) + ":" + Math.Ceiling(e.Height/10) + ":" + Math.Ceiling(e.BaseY/8f) +
+            ":motion=" + Math.Ceiling(e.MotionAmplitudeX/16f) + "," + Math.Ceiling(e.MotionAmplitude/8f) + "," + Math.Ceiling(e.MotionSpeed*2f)));
     }
 
     private static bool ReplayPack(PackSpec pack, float speed, float playerX, float lead, float secondJumpDelay, float phaseShift=0)
@@ -1047,7 +1188,7 @@ internal static class Program
         var samples = Packs().GroupBy(PackSignature).Select(g => g.OrderByDescending(p => p.End-p.Start).First()).ToList();
         int replayed = 0;
         foreach (PackSpec pack in samples)
-            foreach (float speed in new[] {RunnerSession.InitialSpeed, RunnerSession.MaximumSpeed})
+            foreach (float speed in new[] {RunnerSession.InitialSpeed,900f,1800f,3600f})
                 foreach (float x in new[] {RunnerSession.MinimumPlayerX, RunnerSession.MaximumPlayerX})
                 {
                     bool pass = false;
@@ -1062,7 +1203,7 @@ internal static class Program
                     replayed++;
                 }
         Check(samples.Count>=20 && replayed>=80, "Traversability replay had too few distinct real pack geometries");
-        Console.WriteLine("  Replayed " + samples.Count + " sampled geometries at both speed limits and both screen bounds.");
+        Console.WriteLine("  Replayed " + samples.Count + " sampled geometries at four speed samples and both screen bounds.");
     }
 
     private static bool RobustReplay(PackSpec pack,float speed,float x,float lead,float delay)
@@ -1100,7 +1241,7 @@ internal static class Program
                             var livePack=new PackSpec { Entities=copies, SpawnTime=run.Elapsed };
                             description=PackSignature(livePack);
                             float arrival=Math.Max(0,(left-run.PlayerX)/run.Speed);
-                            float approach=Math.Min(RunnerSession.MaximumSpeed,run.Speed+arrival*RunnerSession.SpeedAcceleration);
+                            float approach=run.Speed+arrival*RunnerSession.SpeedAcceleration;
                             bool found=false;
                             foreach (float lead in new[] {0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
                             {
@@ -1132,17 +1273,113 @@ internal static class Program
                         " hazards="+string.Join(";",run.Entities.Where(e=>Hazard(e)&&e.X<run.PlayerX+180&&e.X+e.Width>run.PlayerX-100)
                             .Select(e=>e.PatternId+":"+e.Kind+"@"+e.X+","+e.Y+" size="+e.Width+","+e.Height))+" reason="+run.EndReason);
                 }
-                Check(solved>=70 && run.Score>4000 && run.Speed==RunnerSession.MaximumSpeed,
-                    "Sequential run did not cover enough authored packs and capped-speed play");
+                Check(solved>=70 && run.Score>4000 && run.Speed>800f,
+                    "Sequential run did not cover enough authored packs and accelerating play");
             }
+    }
+
+    private static List<PackSpec> lateCatalog;
+    private static List<PackSpec> LatePacks()
+    {
+        if(lateCatalog!=null) return lateCatalog;
+        lateCatalog=new List<PackSpec>(); int runId=100;
+        foreach(float elapsed in new[]{600f,1200f,3600f})
+        foreach(District district in Enum.GetValues(typeof(District)))
+        {
+            RunnerSession run=New(runId); run.SetStartingDistrict(district); run.StartRun(); World(run).Clear();
+            SetProperty(run,"Elapsed",elapsed); SetProperty(run,"Speed",RunnerSession.InitialSpeed+elapsed*RunnerSession.SpeedAcceleration);
+            SetField(run,"distanceToPattern",0f); SetField(run,"nextHeartAt",float.MaxValue);
+            var seen=new HashSet<int>();
+            for(int step=0;step<120*20;step++)
+            {
+                foreach(var group in run.Entities.Where(e=>!e.Removed&&Hazard(e)).GroupBy(e=>e.PatternId))
+                {
+                    if(!seen.Add(group.Key)) continue;
+                    var entities=group.Select(CopyEntity).ToList();
+                    float start=entities.Min(e=>e.X+run.Distance-MotionOffset(e,run.Elapsed)-e.MotionAmplitudeX);
+                    float end=entities.Max(e=>e.X+e.Width+run.Distance-MotionOffset(e,run.Elapsed)+e.MotionAmplitudeX);
+                    foreach(WorldEntity e in entities) e.X=e.X+run.Distance-start;
+                    lateCatalog.Add(new PackSpec{Seed=runId,District=district,Id=group.Key,Speed=run.Speed,SpawnTime=run.Elapsed,Start=start,End=end,Entities=entities});
+                }
+                ClearHazards(run); run.Update(1f/120);
+            }
+            Check(seen.Count>=10,"Late run did not generate enough real packs at "+elapsed+"s on "+district);
+            runId++;
+        }
+        return lateCatalog;
+    }
+
+    private static void LateMotionGrowth()
+    {
+        float previousRange=0,previousFrequency=0;
+        foreach(float time in new[]{0f,60f,300f,1000f,3600f})
+        {
+            RunnerSession run=New(); run.StartRun(); SetProperty(run,"Elapsed",time);
+            Check(run.MotionRangeScale>=previousRange&&run.MotionFrequencyScale>=previousFrequency,"Difficulty motion scaling decreased with elapsed time");
+            previousRange=run.MotionRangeScale; previousFrequency=run.MotionFrequencyScale;
+        }
+        Check(previousRange>2.5f&&previousFrequency>2.5f,"Late motion remained as slow and narrow as the beginning");
+        bool horizontal=false,verticalSaw=false,movingPlane=false;
+        foreach(var grouped in LatePacks().GroupBy(p=>p.Seed))
+        {
+            PackSpec previous=null;
+            foreach(PackSpec pack in grouped.OrderBy(p=>p.Id))
+            {
+                if(previous!=null)
+                    Check((pack.Start-previous.End)/(previous.Speed+RunnerSession.HorizontalSpeed)>=0.699f,
+                        "Late swept envelopes overlap their recovery interval at "+pack.SpawnTime);
+                foreach(WorldEntity e in pack.Entities)
+                {
+                    if(e.MotionAmplitudeX>0)
+                    {
+                        horizontal=true;
+                        Check(e.MotionAmplitudeX>40&&e.MotionSpeed>2,"Late patrol did not move wider and faster");
+                        Check(e.Width+e.MotionAmplitudeX*2<=pack.End-pack.Start+2,"Spawn width omitted a moving hazard's swept envelope");
+                    }
+                    if(e.MotionAmplitude>0)
+                    {
+                        Check(e.BaseY-e.MotionAmplitude>=55.99f,"Growing vertical motion invaded the crouch lane");
+                        verticalSaw|=e.Kind==EntityKind.Saw;
+                        movingPlane|=e.Kind==EntityKind.Plane;
+                    }
+                }
+                previous=pack;
+            }
+        }
+        Check(horizontal&&verticalSaw&&movingPlane,"Late samples missed patrol, moving saw or moving plane challenges");
+    }
+
+    private static void LatePatternReplay()
+    {
+        var samples=LatePacks().Where(p=>p.Entities.Any(e=>e.MotionAmplitudeX>0||e.MotionAmplitude>0))
+            .GroupBy(p=>((int)(p.SpawnTime/600))+":"+string.Join(";",p.Entities.Select(e=>e.Kind+":"+e.Variant+":"+(e.MotionAmplitudeX>0))))
+            .Select(g=>g.OrderByDescending(p=>p.End-p.Start).First()).ToList();
+        int cases=0;
+        foreach(PackSpec pack in samples)
+        foreach(float x in new[]{RunnerSession.MinimumPlayerX,RunnerSession.MaximumPlayerX})
+        foreach(float phase in new[]{0f,1.5707963f,3.1415927f,4.712389f})
+        {
+            bool pass=false;
+            foreach(float lead in new[]{0.1f,0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
+            {
+                foreach(float second in new[]{-1f,0.28f,0.4f,0.52f,0.64f})
+                    if(ReplayPack(pack,pack.Speed,x,lead,second,phase)){pass=true;break;}
+                if(pass) break;
+            }
+            Check(pass,"Late moving pack has no jump/duck path at "+pack.Speed+" X="+x+" phase="+phase+" "+PackSignature(pack));
+            cases++;
+        }
+        Check(samples.Count>=9&&cases>=72,"Late replay omitted motion variants or long-run stages");
+        Console.WriteLine("  Replayed "+samples.Count+" late moving geometries across both screen bounds and four phases ("+cases+" cases).");
     }
 
     private static void FasterPacing()
     {
-        Check(RunnerSession.InitialSpeed>=350 && RunnerSession.InitialSpeed>250*1.3f,
-            "Starting pace was not materially faster than the previous version");
-        Check(RunnerSession.MaximumSpeed>430 && RunnerSession.MaximumSpeed<RunnerSession.InitialSpeed*2,
-            "Top speed did not increase with a controlled ceiling");
+        Check(RunnerSession.InitialSpeed>=350&&RunnerSession.SpeedAcceleration>0&&RunnerSession.SpeedAcceleration<3,
+            "Pace no longer starts briskly and accelerates gradually");
+        RunnerSession run=New(); run.StartRun(); World(run).Clear(); StopSpawns(run);
+        SetProperty(run,"Elapsed",600f); SetProperty(run,"Speed",1680f); run.Update(0.1f);
+        Check(run.Speed>1680&&run.Speed>610,"Speed retained the old upper limit");
     }
 
     private static void SaveValidation()

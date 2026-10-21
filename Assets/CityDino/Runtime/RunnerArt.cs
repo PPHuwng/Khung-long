@@ -21,6 +21,7 @@ namespace CityDino
         public readonly Texture2D SkylineFar;
         public readonly Texture2D SkylineNear;
         public readonly Texture2D HazardAtlas;
+        public readonly Texture2D DinoActionsAtlas;
         public readonly Rect SkylineFarUV = new Rect(0f, 0f, 1f, 0.7651934f);
         public readonly Rect SkylineNearUV = new Rect(0f, 0.0441989f, 1f, 0.730663f);
         public readonly Texture2D[] DinoFrames;
@@ -34,6 +35,18 @@ namespace CityDino
             new Rect(0.2587477f, 0.1685083f, 0.230663f, 0.6878453f),
             new Rect(0.5105893f, 0.25f, 0.2302026f, 0.4226519f),
             new Rect(0.7767035f, 0.2251381f, 0.1970534f, 0.5939227f)
+        };
+
+        // Crouch frames 5..7, then jump launch/tuck/landing frames 8..10.
+        // Common-size, feet-aligned sampling rectangles preserve proportions.
+        private static readonly Rect[] DinoActionUvs =
+        {
+            new Rect(0.012369792f, 0.083984375f, 0.322265625f, 0.181640625f),
+            new Rect(0.346354167f, 0.082031250f, 0.322265625f, 0.181640625f),
+            new Rect(0.673828125f, 0.082031250f, 0.322265625f, 0.181640625f),
+            new Rect(0.020833333f, 0.430664062f, 0.292317708f, 0.435546875f),
+            new Rect(0.350260417f, 0.549804688f, 0.292317708f, 0.435546875f),
+            new Rect(0.684244792f, 0.440429688f, 0.292317708f, 0.435546875f),
         };
 
         public RunnerArt()
@@ -54,6 +67,7 @@ namespace CityDino
             SkylineFar = Load("SkylineFar");
             SkylineNear = Load("SkylineNear");
             HazardAtlas = Load("HazardAtlas");
+            DinoActionsAtlas = Load("DinoActionsAtlas");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
@@ -67,6 +81,12 @@ namespace CityDino
         {
             int index = System.Math.Max(0, System.Math.Min(HazardUvs.Length - 1, cell));
             return HazardUvs[index];
+        }
+
+        public Rect GetDinoActionUV(int frame)
+        {
+            int index = System.Math.Max(0, System.Math.Min(DinoActionUvs.Length - 1, frame - 5));
+            return DinoActionUvs[index];
         }
 
         private static Texture2D Load(string name)

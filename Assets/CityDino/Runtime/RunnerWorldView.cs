@@ -53,8 +53,10 @@ namespace CityDino
                 bool menu = session.State == RunState.Menu;
                 float scroll = menu ? ambientTime * 75f : session.Distance;
                 float clock = menu ? ambientTime : session.Elapsed;
-                DrawSky(palette, scroll, ambientTime);
-                DrawCity(palette, scroll, ambientTime);
+                DrawSky(palette, scroll, clock);
+                DrawCity(palette, scroll, clock);
+                DrawDistrictAtmosphere(session.CurrentDistrict, palette, scroll, clock,
+                    session.Speed / RunnerSession.InitialSpeed);
                 ReadGaps(session);
                 DrawRoad(palette, scroll, session.Speed / RunnerSession.InitialSpeed);
                 if (!menu)
@@ -62,7 +64,8 @@ namespace CityDino
                     DrawEntities(session, palette, clock);
                     DrawDino(session, clock);
                 }
-                DrawWeather(palette, scroll, ambientTime);
+                DrawWeather(palette, scroll, clock);
+                if (!menu) DrawLightning(session);
                 if (!menu) DrawDarkness(session);
             }
             finally
@@ -502,14 +505,22 @@ namespace CityDino
                 GUI.color = Mathf.FloorToInt(time * 12f) % 2 == 0 ? new Color(1f, 1f, 1f, 0.42f) : Color.white;
             }
             else GUI.color = Color.white;
+            int frame = RunnerGeometry.GetPlayerFrame(session);
             Texture2D texture = null;
-            if (art.DinoFrames != null && art.DinoFrames.Length > 0)
+            Rect uv = new Rect(0f, 0f, 1f, 1f);
+            if (frame >= 5 && art.DinoActionsAtlas != null)
             {
-                int frame = RunnerGeometry.GetPlayerFrame(time, session.Speed, y, session.State) % art.DinoFrames.Length;
-                texture = art.DinoFrames[frame];
+                texture = art.DinoActionsAtlas;
+                uv = art.GetDinoActionUV(frame);
             }
+            else if (art.DinoFrames != null && art.DinoFrames.Length > 0)
+            {
+                int runningFrame = frame < 5 ? frame : RunnerGeometry.GetPlayerFrame(time, session.Speed, y, session.State);
+                texture = art.DinoFrames[runningFrame % art.DinoFrames.Length];
+            }
+            if (facingLeft) uv = new Rect(uv.x + uv.width, uv.y, -uv.width, uv.height);
             if (texture != null)
-                GUI.DrawTextureWithTexCoords(rect, texture, new Rect(facingLeft ? 1f : 0f, 0f, facingLeft ? -1f : 1f, 1f), true);
+                GUI.DrawTextureWithTexCoords(rect, texture, uv, true);
             else Fill(rect, Hex(0x7fbd72));
             if (running && y <= 1f && session.Elapsed > 0.5f)
             {
@@ -521,6 +532,74 @@ namespace CityDino
                 }
             }
             GUI.color = Color.white;
+        }
+
+        private void DrawDistrictAtmosphere(District district, Palette p, float scroll, float time, float speedRatio)
+        {
+            // These effects sit behind the road/player/hazards. Stronger late-run
+            // wind reinforces speed without shifting any collision geometry.
+            float rush = 1f + Mathf.Sqrt(Mathf.Max(0f, speedRatio - 1f)) * 0.45f;
+            switch (district)
+            {
+                case District.Day:
+                    for (int i = 0; i < 14; i++)
+                    {
+                        float x = Repeat(i * 137.3f - scroll * 0.35f - time * 54f * rush, Width + 90f) - 45f;
+                        float y = 275f + Repeat(i * 49.7f, 240f) + Mathf.Sin(time * 1.7f + i) * 11f;
+                        Color leaf = WithAlpha(i % 3 == 0 ? Hex(0xb98e54) : Hex(0x9fc47b), 0.42f);
+                        Line(new Vector2(x, y), new Vector2(x + 7f, y - 3f), leaf, 3f);
+                        if (i % 3 == 0)
+                            Line(new Vector2(x + 17f, y + 5f), new Vector2(x + 52f * rush, y + 3f), WithAlpha(p.Horizon, 0.18f), 1f);
+                    }
+                    break;
+                case District.Sunset:
+                    // Heat is suggested by wavering highlights in the backdrop,
+                    // never by warping the foreground or moving a hitbox.
+                    for (int i = 0; i < 7; i++)
+                    {
+                        float y = 431f + i * 14f;
+                        float offset = Mathf.Sin(time * 1.2f + i * 0.8f) * 24f;
+                        Fill(new Rect(offset - 30f, y, Width + 60f, 2f), WithAlpha(Hex(0xffd7aa), 0.045f + i * 0.006f));
+                    }
+                    for (int i = 0; i < 18; i++)
+                    {
+                        float phase = Repeat(time * (0.11f + i % 4 * 0.02f) + i * 0.171f, 1f);
+                        float x = Repeat(i * 91.7f - scroll * 0.12f - phase * 95f, Width);
+                        float y = 539f - phase * 270f;
+                        float alpha = Mathf.Sin(phase * 3.1415927f) * 0.38f;
+                        Fill(new Rect(x, y, 2f + i % 2, 3f), WithAlpha(Hex(0xffd28b), alpha));
+                    }
+                    break;
+                case District.Night:
+                    for (int i = 0; i < 7; i++)
+                    {
+                        float x = Repeat(i * 223f - scroll * 0.17f, Width + 210f) - 100f;
+                        float y = 259f + i % 3 * 67f;
+                        float pulse = 0.5f + Mathf.Sin(time * 1.25f + i * 1.9f) * 0.18f;
+                        Color neon = i % 2 == 0 ? Hex(0x73f8db) : Hex(0xb4a3ff);
+                        Disc(new Rect(x - 15f, y - 15f, 120f, 51f), WithAlpha(neon, pulse * 0.14f), true);
+                        Fill(new Rect(x, y, 78f, 2f), WithAlpha(neon, pulse * 0.5f));
+                    }
+                    break;
+                case District.Skyway:
+                    for (int i = 0; i < 11; i++)
+                    {
+                        float x = Repeat(i * 181.3f - time * 150f * rush - scroll * 0.08f, Width + 300f) - 150f;
+                        float y = 163f + Repeat(i * 57f, 315f);
+                        float span = (70f + i % 3 * 24f) * Mathf.Min(rush, 2.5f);
+                        Line(new Vector2(x, y), new Vector2(x + span, y - 5f), WithAlpha(Hex(0xf4fcff), 0.22f), 2f);
+                        Line(new Vector2(x + 15f, y + 9f), new Vector2(x + span * 0.65f, y + 5f), WithAlpha(p.Horizon, 0.14f), 1f);
+                    }
+                    break;
+                case District.Storm:
+                    for (int i = 0; i < 10; i++)
+                    {
+                        float x = Repeat(i * 173f - time * 190f * rush, Width + 180f) - 90f;
+                        float y = 180f + Repeat(i * 43f, 290f);
+                        Line(new Vector2(x, y), new Vector2(x + 64f, y - 14f), WithAlpha(p.Horizon, 0.13f), 2f);
+                    }
+                    break;
+            }
         }
 
         private void DrawWeather(Palette p, float scroll, float time)
@@ -560,6 +639,37 @@ namespace CityDino
                     float y = 205f + i % 3 * 53f;
                     Line(new Vector2(x, y), new Vector2(x + 64f, y - 7f), WithAlpha(p.Horizon, p.Skyway * 0.24f), 2f);
                 }
+            }
+        }
+
+        private static void DrawLightning(RunnerSession session)
+        {
+            var lightning = RunnerWeather.GetLightning(session.CurrentDistrict, session.DistrictElapsed);
+            float strength = Mathf.Clamp01(lightning.Amount);
+            if (strength <= 0f) return;
+            // A single soft pulse per strike: the foreground remains readable,
+            // and the later blackout pass can still cover this completely.
+            Fill(new Rect(0f, 0f, Width, Height), new Color(0.75f, 0.87f, 1f, strength * 0.23f));
+            float boltX = Mathf.Clamp(lightning.BoltX, 100f, Width - 100f);
+            Vector2 from = new Vector2(boltX, 124f);
+            Color halo = new Color(0.56f, 0.77f, 1f, strength * 0.35f);
+            Color core = new Color(0.92f, 0.97f, 1f, strength * 0.9f);
+            for (int i = 1; i <= 6; i++)
+            {
+                float zigzag = ((lightning.StrikeId + i * 17) % 5 - 2) * 15f;
+                Vector2 to = new Vector2(boltX + zigzag, 124f + i * 39f);
+                Line(from, to, halo, 9f);
+                Line(from, to, core, 2.5f);
+                if (i == 3 || i == 5)
+                {
+                    float side = i == 3 ? -1f : 1f;
+                    Vector2 branch = new Vector2(to.x + side * 38f, to.y + 20f);
+                    Vector2 tip = new Vector2(branch.x - side * 11f, branch.y + 29f);
+                    Line(to, branch, halo, 5f);
+                    Line(to, branch, core, 1.5f);
+                    Line(branch, tip, core, 1.5f);
+                }
+                from = to;
             }
         }
 

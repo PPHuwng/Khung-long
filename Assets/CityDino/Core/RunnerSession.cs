@@ -69,8 +69,7 @@ namespace CityDino
         public const float StandingHeight = 88f;
         public const float DuckHeight = 44f;
         public const float InitialSpeed = 360f;
-        public const float SpeedAcceleration = 1.6f;
-        public const float MaximumSpeed = 610f;
+        public const float SpeedAcceleration = 2.2f;
         public const float Gravity = 1800f;
         public const float JumpVelocity = 780f;
         public const float DistrictDuration = 35f;
@@ -96,7 +95,8 @@ namespace CityDino
         private enum PatternType
         {
             Hydrant, House, SingleSpike, DoubleSpike, TripleSpike, Barrier,
-            BarrierSteps, GroundSaw, FloatingSaw, Plane, Gap, PatrolSaw, MovingBarrier
+            BarrierSteps, GroundSaw, FloatingSaw, Plane, Gap, PatrolSaw, MovingBarrier,
+            MovingPlane
         }
         private bool grounded;
         private bool duckRequested;
@@ -107,6 +107,11 @@ namespace CityDino
         private float distanceToPattern;
         private float nextHeartAt;
         private float horizontalAxis;
+        // Long runs use double accumulation: a tiny adaptive substep must not
+        // disappear when the public float clock has reached a large value.
+        private double elapsedClock;
+        private double distanceClock;
+        private double districtClock;
         private int nextPatternId;
         private int activePatternId;
         private int bagTier = -1;
@@ -137,9 +142,22 @@ namespace CityDino
         public float PlayerX { get; private set; }
         public float PlayerY { get; private set; }
         public float VelocityY { get; private set; }
+        // Rendering keeps the last physical pose even when a fatal hit stops
+        // VelocityY, so the death frame cannot switch from falling to rising.
+        public float AnimationVelocityY { get; private set; }
         public float Distance { get; private set; }
         public float Elapsed { get; private set; }
         public float Speed { get; private set; }
+        // A spawned pack keeps its exact envelope. Later packs gradually move
+        // farther and faster; there is no discontinuous stage-based multiplier.
+        public float MotionRangeScale
+        {
+            get { return 1f + 0.35f * (float)Math.Sqrt(Math.Max(0f, Elapsed) / 120f); }
+        }
+        public float MotionFrequencyScale
+        {
+            get { return 1f + 0.4f * (float)Math.Sqrt(Math.Max(0f, Elapsed) / 120f); }
+        }
         public float InvincibleRemaining { get; private set; }
         public float DistrictElapsed { get; private set; }
         public float NextBlackoutAt { get; private set; }
@@ -208,13 +226,16 @@ namespace CityDino
             State = RunState.Playing;
             CurrentDistrict = StartingDistrict ?? AllDistricts[random.Next(AllDistricts.Length)];
             DistrictElapsed = 0f;
+            districtClock = 0d;
             ScheduleBlackout();
             StageNumber = 1;
             PlayerX = StartPlayerX;
             PlayerY = 0f;
             VelocityY = 0f;
+            AnimationVelocityY = 0f;
             Distance = 0f;
             Elapsed = 0f;
+            distanceClock = elapsedClock = 0d;
             Speed = InitialSpeed;
             Score = 0;
             RunStars = 0;
@@ -247,13 +268,32 @@ namespace CityDino
                 return;
 
             // A suspended tab does not fast-forward the runner into an unseen hit.
-            float remaining = Math.Min(deltaTime, MaximumFrameDelta);
-            while (remaining > 0.000001f && State == RunState.Playing)
+            double remaining = Math.Min((double)deltaTime, MaximumFrameDelta);
+            while (remaining > 0.00000001d && State == RunState.Playing)
             {
-                float step = Math.Min(remaining, PhysicsStep);
+                float step = (float)Math.Min(remaining, CollisionStep());
                 Step(step);
                 remaining -= step;
             }
+        }
+
+        private float CollisionStep()
+        {
+            float motionX = 0f;
+            float motionY = 0f;
+            for (int i = 0; i < entities.Count; i++)
+            {
+                WorldEntity entity = entities[i];
+                if (entity.Removed) continue;
+                motionX = Math.Max(motionX, Math.Abs(entity.MotionAmplitudeX * entity.MotionSpeed));
+                motionY = Math.Max(motionY, Math.Abs(entity.MotionAmplitude * entity.MotionSpeed));
+            }
+            // Bound displacement, not speed. At high runner/moving-hazard speeds
+            // smaller physics steps still detect thin spikes, pickups and ledges.
+            float currentSpeed = (float)(InitialSpeed + elapsedClock * SpeedAcceleration);
+            float horizontal = currentSpeed + SpeedAcceleration * PhysicsStep + HorizontalSpeed + motionX;
+            float vertical = Math.Abs(VelocityY) + Gravity * PhysicsStep + motionY;
+            return Math.Min(PhysicsStep, 6f / Math.Max(1f, Math.Max(horizontal, vertical)));
         }
 
         public bool Jump()
@@ -269,6 +309,7 @@ namespace CityDino
                 return false;
 
             VelocityY = JumpVelocity;
+            AnimationVelocityY = JumpVelocity;
             grounded = false;
             coyoteRemaining = 0f;
             duckRequested = false;
@@ -326,11 +367,13 @@ namespace CityDino
 
         private void Step(float dt)
         {
-            Elapsed += dt;
-            Speed = Math.Min(MaximumSpeed, InitialSpeed + Elapsed * SpeedAcceleration);
+            elapsedClock += dt;
+            Elapsed = (float)elapsedClock;
+            Speed = (float)(InitialSpeed + elapsedClock * SpeedAcceleration);
             float travel = Speed * dt;
-            Distance += travel;
-            Score = (int)Math.Min(int.MaxValue, Math.Floor(Distance / 20d));
+            distanceClock += travel;
+            Distance = (float)distanceClock;
+            Score = (int)Math.Min(int.MaxValue, Math.Floor(distanceClock / 20d));
             InvincibleRemaining = Math.Max(0f, InvincibleRemaining - dt);
             float previousPlayerX = PlayerX;
             PlayerX = Math.Max(MinimumPlayerX, Math.Min(MaximumPlayerX,
@@ -338,10 +381,12 @@ namespace CityDino
             if (Math.Abs(PlayerX - previousPlayerX) > 0.0001f)
                 FacingLeft = PlayerX < previousPlayerX;
 
-            DistrictElapsed += dt;
-            if (DistrictElapsed >= DistrictDuration)
+            districtClock += dt;
+            DistrictElapsed = (float)districtClock;
+            if (districtClock >= DistrictDuration)
             {
-                DistrictElapsed -= DistrictDuration;
+                districtClock -= DistrictDuration;
+                DistrictElapsed = (float)districtClock;
                 StageNumber++;
                 District previous = CurrentDistrict;
                 // Select uniformly from the other districts, starting with
@@ -361,15 +406,15 @@ namespace CityDino
                 WorldEntity entity = entities[i];
                 entity.X -= travel;
                 if (entity.Kind == EntityKind.Saw)
-                    entity.Rotation = (entity.Rotation + dt * 280f) % 360f;
+                    entity.Rotation = (entity.Rotation + dt * 280f * MotionFrequencyScale) % 360f;
                 if (entity.MotionAmplitudeX > 0f || entity.MotionAmplitude > 0f)
                 {
-                    float motion = (float)Math.Sin(Elapsed * entity.MotionSpeed + entity.MotionPhase);
+                    float motion = (float)Math.Sin(elapsedClock * entity.MotionSpeed + entity.MotionPhase);
                     if (entity.MotionAmplitudeX > 0f)
                     {
                         // Apply only this substep's offset difference. The road
                         // scroll remains the anchor, without cumulative sine drift.
-                        float previousMotion = (float)Math.Sin((Elapsed - dt) * entity.MotionSpeed + entity.MotionPhase);
+                        float previousMotion = (float)Math.Sin((elapsedClock - dt) * entity.MotionSpeed + entity.MotionPhase);
                         entity.X += (motion - previousMotion) * entity.MotionAmplitudeX;
                     }
                     if (entity.MotionAmplitude > 0f)
@@ -395,6 +440,7 @@ namespace CityDino
             }
 
             IntegratePlayer(dt);
+            AnimationVelocityY = VelocityY;
             if (PlayerY < -180f)
             {
                 if (InvincibleRemaining <= 0f)
@@ -473,7 +519,7 @@ namespace CityDino
                 // pose and facing as the renderer instead.
                 bool touches = e.Kind == EntityKind.Saw
                     ? RunnerGeometry.SawTouchesPlayer(e, PlayerX, PlayerY, IsDucking, FacingLeft,
-                        RunnerGeometry.GetPlayerFrame(Elapsed, Speed, PlayerY, State),
+                        RunnerGeometry.GetPlayerFrame(this),
                         RunnerGeometry.GetPlayerBob(Elapsed, PlayerY, IsDucking, State))
                     : IntersectsPlayer(e, playerLeft, playerRight, playerBottom, playerTop);
                 if (!touches)
@@ -619,6 +665,7 @@ namespace CityDino
                     patternBag.Add(PatternType.Plane);
                     patternBag.Add(PatternType.PatrolSaw);
                     patternBag.Add(PatternType.MovingBarrier);
+                    patternBag.Add(PatternType.MovingPlane);
                 }
                 if (skyway)
                 {
@@ -667,6 +714,7 @@ namespace CityDino
                 case District.Day:
                     patternBag.Add(PatternType.House);
                     patternBag.Add(PatternType.Hydrant);
+                    if (tier >= 2) patternBag.Add(PatternType.PatrolSaw);
                     break;
                 case District.Rain:
                     if (tier >= 1) patternBag.Add(PatternType.Barrier);
@@ -674,6 +722,8 @@ namespace CityDino
                     {
                         patternBag.Add(PatternType.Plane);
                         patternBag.Add(PatternType.Plane);
+                        patternBag.Add(PatternType.MovingPlane);
+                        patternBag.Add(PatternType.MovingPlane);
                     }
                     break;
                 case District.Sunset:
@@ -705,6 +755,7 @@ namespace CityDino
                         patternBag.Add(PatternType.FloatingSaw);
                         patternBag.Add(PatternType.Plane);
                         patternBag.Add(PatternType.MovingBarrier);
+                        patternBag.Add(PatternType.MovingPlane);
                     }
                     break;
             }
@@ -739,14 +790,19 @@ namespace CityDino
                 Add(EntityKind.Gap, SpawnX, 0f, width, 160f);
                 starBase = 95f;
             }
-            else if (kind == PatternType.Plane || kind == PatternType.FloatingSaw)
+            else if (kind == PatternType.Plane || kind == PatternType.FloatingSaw || kind == PatternType.MovingPlane)
             {
-                width = kind == PatternType.Plane ? 110f : 76f;
+                width = kind == PatternType.FloatingSaw ? 76f : 110f;
                 if (kind == PatternType.Plane)
                     Add(EntityKind.Plane, SpawnX, 57f, width, 42f, random.Next(3));
+                else if (kind == PatternType.MovingPlane)
+                {
+                    WorldEntity plane = Add(EntityKind.Plane, SpawnX, 56f, width, 42f, random.Next(3));
+                    SetMotion(plane, 0f, 10f, 1.5f);
+                }
                 else
                 {
-                    WorldEntity saw = Add(EntityKind.Saw, SpawnX, 72f, width, 76f, 1);
+                    WorldEntity saw = Add(EntityKind.Saw, SpawnX, 56f, width, 76f, 1);
                     SetMotion(saw, 0f, 16f, 1.8f);
                 }
                 // No floor hazard occupies this pack: the low star lane tells
@@ -781,9 +837,9 @@ namespace CityDino
                 const float objectWidth = 70f;
                 const float amplitude = 24f;
                 height = 76f;
-                width = objectWidth + amplitude * 2f;
                 WorldEntity barrier = Add(EntityKind.Barrier, SpawnX, 0f, objectWidth, height, 1);
                 SetMotion(barrier, amplitude, 0f, 1.3f);
+                width = objectWidth + barrier.MotionAmplitudeX * 2f;
                 starBase = height + 28f;
             }
             else if (kind == PatternType.Barrier)
@@ -798,9 +854,9 @@ namespace CityDino
                 const float objectWidth = 66f;
                 const float amplitude = 32f;
                 height = 66f;
-                width = objectWidth + amplitude * 2f;
                 WorldEntity saw = Add(EntityKind.Saw, SpawnX, 0f, objectWidth, height, 2);
                 SetMotion(saw, amplitude, 0f, 1.5f);
+                width = objectWidth + saw.MotionAmplitudeX * 2f;
                 starBase = 94f;
             }
             else if (kind == PatternType.GroundSaw)
@@ -838,15 +894,17 @@ namespace CityDino
         private void SetMotion(WorldEntity entity, float horizontalAmplitude,
             float verticalAmplitude, float speed)
         {
-            entity.MotionAmplitudeX = horizontalAmplitude;
-            entity.MotionAmplitude = verticalAmplitude;
-            entity.MotionSpeed = speed;
+            entity.MotionAmplitudeX = horizontalAmplitude * MotionRangeScale;
+            entity.MotionAmplitude = verticalAmplitude * MotionRangeScale;
+            entity.MotionSpeed = speed * MotionFrequencyScale;
+            if (entity.MotionAmplitude > 0f)
+                entity.BaseY = 56f + entity.MotionAmplitude;
             entity.MotionPhase = Range(0f, (float)Math.PI * 2f);
-            float motion = (float)Math.Sin(Elapsed * speed + entity.MotionPhase);
+            float motion = (float)Math.Sin(elapsedClock * entity.MotionSpeed + entity.MotionPhase);
             // All phases stay inside a known spawn envelope. AddPattern returns
             // its full swept width, so the next pack retains recovery space.
-            entity.X += horizontalAmplitude * (1f + motion);
-            entity.Y = entity.BaseY + verticalAmplitude * motion;
+            entity.X += entity.MotionAmplitudeX * (1f + motion);
+            entity.Y = entity.BaseY + entity.MotionAmplitude * motion;
         }
 
         private float NextPatternSpacing(float previousWidth)
@@ -856,7 +914,7 @@ namespace CityDino
             // Separate packs retain recovery room even while moving right into
             // the scroll. The small speed look-ahead covers travel from spawn
             // to the player; short clusters still feel rhythmic rather than sparse.
-            float approachSpeed = Math.Min(MaximumSpeed, Speed + SpeedAcceleration * 4f);
+            float approachSpeed = Speed + SpeedAcceleration * 4f;
             float recoveryGap = Math.Max((approachSpeed + HorizontalSpeed) * 0.72f,
                 approachSpeed * 1.05f);
             return previousWidth + recoveryGap + Range(25f, 120f);
