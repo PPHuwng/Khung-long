@@ -25,14 +25,11 @@ namespace CityDino
         private AudioSource audioSource;
         private AudioClip jumpSound, coinSound, hurtSound, buySound;
         private bool muted, showShop, showHistory, dirty;
-        private float nextSave, ambientTime, collectedFlash;
+        private float nextSave, ambientTime;
         private int bestAtStart;
-        private string notice;
-        private float noticeUntil;
         private readonly Color ink = new Color32(24, 43, 51, 255);
         private readonly Color cream = new Color32(249, 246, 233, 255);
         private readonly Color mint = new Color32(190, 231, 164, 255);
-        private readonly Color orange = new Color32(255, 155, 82, 255);
         private readonly Color soft = new Color32(103, 119, 118, 255);
 
         // Opening the supplied SampleScene also starts the new game, without editing the old scene.
@@ -65,9 +62,11 @@ namespace CityDino
                 catch (Exception) { Debug.LogWarning("City Dino: không đọc được dữ liệu lưu; tạo hồ sơ mới."); }
             }
             if (save == null) save = new RunnerSave();
+            bool migrateSave = save.Version < 2;
             save.BestScore = Math.Max(save.BestScore, PlayerPrefs.GetInt("HighScore", 0));
             session = new RunnerSession(save, Environment.TickCount);
             session.SaveChanged += SaveProgress;
+            if (migrateSave) { SaveProgress(); FlushSave(); }
             int startingDistrict = PlayerPrefs.GetInt(StartingDistrictKey, -1);
             session.SetStartingDistrict(Enum.IsDefined(typeof(District), startingDistrict)
                 ? (District?)startingDistrict : null);
@@ -115,11 +114,10 @@ namespace CityDino
             RunState oldState = session.State;
             // Real-time spikes are discarded; the core subdivides normal simulation time for collision safety.
             session.Update(Mathf.Min(Time.unscaledDeltaTime, 0.1f));
-            if (session.RunStars > oldStars) { Play(coinSound); collectedFlash = 0.65f; }
+            if (session.RunStars > oldStars) Play(coinSound);
             if (session.Lives < oldLives) Play(hurtSound);
             if (session.Lives > oldLives && oldState == RunState.Playing) Play(buySound);
             if (oldState != RunState.GameOver && session.State == RunState.GameOver) FlushSave();
-            collectedFlash = Mathf.Max(0, collectedFlash - Time.unscaledDeltaTime);
             if (dirty && Time.unscaledTime >= nextSave) FlushSave();
         }
 
@@ -199,8 +197,6 @@ namespace CityDino
             }
             if (showShop) DrawShop();
             if (showHistory) DrawHistory();
-            if (Time.unscaledTime < noticeUntil) DrawNotice(notice);
-            else if (session.ToastRemaining > 0 && !string.IsNullOrEmpty(session.Toast) && session.State == RunState.Playing) DrawNotice(session.Toast);
             GUI.matrix = previous;
             GUI.color = Color.white;
         }
@@ -208,16 +204,16 @@ namespace CityDino
         private void DrawMenu()
         {
             Box(new Rect(64, 56, 486, 602), cream);
-            Text(new Rect(98, 85, 390, 24), "●  DINO CITY  /  ENDLESS RUNNER", 15, soft, FontStyle.Bold);
-            Text(new Rect(94, 128, 420, 148), "CHẠY QUA\nTHÀNH PHỐ.", 58, ink, FontStyle.Bold);
-            Text(new Rect(98, 292, 392, 56), "Đổi vị trí, vượt bẫy và làm chủ nhịp chạy.\nThành phố mới, tốc độ mới, thử thách mới.", 18, soft);
+            Text(new Rect(98, 85, 390, 24), "●  ENDLESS RUNNER", 15, soft, FontStyle.Bold);
+            Text(new Rect(94, 151, 420, 88), "DINO CITY", 64, ink, FontStyle.Bold);
+            Text(new Rect(98, 268, 402, 70), "Chọn thành phố. Gom sao. Vượt kỷ lục.\nMỗi lượt chạy là một thử thách mới.", 18, soft);
             Stat(new Rect(98, 366, 124, 64), "KỶ LỤC", session.Save.BestScore.ToString("N0"));
             Stat(new Rect(238, 366, 124, 64), "LƯỢT TRƯỚC", session.Save.LastScore.ToString("N0"));
             Stat(new Rect(378, 366, 124, 64), "VÍ SAO", session.Save.Wallet.ToString("N0"));
             if (Button(new Rect(98, 458, 418, 62), "BẮT ĐẦU CHẠY     →", mint, ink, 22)) BeginRun();
             if (Button(new Rect(98, 534, 202, 52), "Cửa hàng", ink, cream)) showShop = true;
             if (Button(new Rect(314, 534, 202, 52), "Thành tích", new Color32(231, 231, 215, 255), ink)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 03  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 04  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), "MỖI LƯỢT, MỘT THÀNH PHỐ.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -230,7 +226,7 @@ namespace CityDino
             DrawMapSelection();
             Box(new Rect(806, 586, 376, 62), ink);
             Icon(art.Heart, new Rect(824, 602, 28, 26));
-            Text(new Rect(866, 598, 304, 36), "Khởi đầu với " + (1 + session.Save.ExtraHeartsLevel) + " mạng mỗi lượt", 17, cream, FontStyle.Bold, TextAnchor.MiddleLeft);
+            Text(new Rect(866, 598, 304, 36), "Lượt tới: " + (1 + session.Save.PurchasedHearts) + " mạng", 17, cream, FontStyle.Bold, TextAnchor.MiddleLeft);
             if (Button(new Rect(1152, 654, 72, 36), muted ? "Âm: tắt" : "Âm: bật", cream, ink, 13)) ToggleSound();
         }
 
@@ -300,8 +296,8 @@ namespace CityDino
             Box(JumpButton, mint);
             Text(JumpButton, "NHẢY ↑", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             Text(new Rect(38, 592, 430, 28), Mathf.FloorToInt(session.Distance / 20f) + " m  ·  " + (session.Speed / RunnerSession.InitialSpeed).ToString("0.00") + "×  ·  Chặng " + session.StageNumber, 15, cream, FontStyle.Bold);
-            if (collectedFlash > 0)
-                Text(new Rect(session.PlayerX - 20, 398 - (0.65f - collectedFlash) * 50 - session.PlayerY, 90, 40), "+ SAO", 20, orange, FontStyle.Bold);
+            if (session.InvincibleRemaining > 0)
+                Text(new Rect(495, 592, 420, 28), "Bảo vệ: " + session.InvincibleRemaining.ToString("0.0") + " s", 14, mint, FontStyle.Bold);
         }
 
         private void DrawPaused()
@@ -330,7 +326,7 @@ namespace CityDino
             Text(new Rect(748, 377, 120, 20), "Đã cộng vào ví", 13, soft);
             Text(new Rect(416, 421, 448, 27), "Quãng đường: " + Mathf.FloorToInt(session.Distance / 20f) + " m   ·   Chặng " + session.StageNumber, 16, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
             if (Button(new Rect(414, 475, 452, 60), "CHẠY LẠI    →", mint, ink, 21)) BeginRun();
-            if (Button(new Rect(414, 550, 452, 50), "Về menu & nâng cấp", ink, cream, 18)) GoToMenu();
+            if (Button(new Rect(414, 550, 452, 50), "Về menu & mua tim", ink, cream, 18)) GoToMenu();
             Text(new Rect(414, 613, 452, 22), "R: chơi lại · Map đầu: " + (session.StartingDistrict.HasValue
                 ? DistrictName(session.StartingDistrict.Value) : "ngẫu nhiên"), 13, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
         }
@@ -341,30 +337,30 @@ namespace CityDino
                 return "Lỡ một nhịp nhảy. Thử lại nhé!";
             if (session.EndReason != null && session.EndReason.IndexOf("máy bay", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "Máy bay bay thấp: giữ ↓ hoặc nút CÚI để tránh.";
-            return "Hết mạng rồi. Gom thêm sao để khởi đầu tốt hơn!";
+            return "Hết mạng rồi. Mua thêm tim cho lượt tiếp nhé!";
         }
 
         private void DrawShop()
         {
             Scrim();
             Box(new Rect(342, 112, 596, 536), cream);
-            Text(new Rect(380, 139, 440, 25), "TRẠM NÂNG CẤP", 15, soft, FontStyle.Bold);
+            Text(new Rect(380, 139, 440, 25), "CỬA HÀNG TIM", 15, soft, FontStyle.Bold);
             if (Button(new Rect(858, 134, 45, 38), "×", new Color32(231, 231, 215, 255), ink, 23)) showShop = false;
-            Text(new Rect(378, 183, 500, 53), "Đi xa hơn một chút.", 35, ink, FontStyle.Bold);
+            Text(new Rect(378, 183, 500, 53), "Thêm một cơ hội.", 35, ink, FontStyle.Bold);
             Icon(art.Star, new Rect(380, 253, 32, 32));
             Text(new Rect(425, 251, 420, 34), session.Save.Wallet + " sao trong ví", 23, ink, FontStyle.Bold);
             Box(new Rect(378, 309, 524, 146), new Color32(232, 237, 217, 255));
             Icon(art.Heart, new Rect(398, 335, 64, 62));
-            Text(new Rect(483, 328, 390, 32), "Thêm mạng khởi đầu", 23, ink, FontStyle.Bold);
-            Text(new Rect(483, 370, 380, 53), "Nâng cấp vĩnh viễn · Cấp " + session.Save.ExtraHeartsLevel + "/3\nMỗi lượt bắt đầu với " + (1 + session.Save.ExtraHeartsLevel) + " mạng.", 17, soft);
+            Text(new Rect(483, 328, 390, 32), "Tim cho lượt kế tiếp", 23, ink, FontStyle.Bold);
+            Text(new Rect(483, 370, 380, 53), "Đã mua: " + session.Save.PurchasedHearts + "/3 tim\nLượt tới: " + (1 + session.Save.PurchasedHearts) + " mạng · Dùng một lượt.", 17, soft);
             int price = session.NextHeartCost;
             bool canBuy = price > 0 && session.Save.Wallet >= price;
-            string text = price <= 0 ? "ĐÃ NÂNG CẤP TỐI ĐA" : "THÊM 1 MẠNG    ·    " + price + " SAO";
+            string text = price <= 0 ? "ĐÃ CHUẨN BỊ ĐỦ 3 TIM" : "MUA 1 TIM    ·    " + price + " SAO";
             if (Button(new Rect(378, 481, 524, 61), text, canBuy ? mint : new Color32(221, 223, 211, 255), ink, 21, canBuy))
             {
-                if (session.BuyExtraHeart()) { Play(buySound); Notify("Đã nâng cấp! Mạng mới có từ lượt chơi tiếp theo."); FlushSave(); }
+                if (session.BuyExtraHeart()) { Play(buySound); FlushSave(); }
             }
-            Text(new Rect(382, 562, 516, 51), price <= 0 ? "Bạn đã có 4 mạng khởi đầu. Tim nhặt trong màn hồi tối đa 5 mạng." : (canBuy ? "Sao đã nhặt luôn được giữ lại, kể cả khi hết mạng." : "Cần thêm " + Math.Max(0, price - session.Save.Wallet) + " sao. Chơi thêm một lượt nhé!"), 16, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+            Text(new Rect(382, 562, 516, 59), "Tim mua được dùng khi bắt đầu lượt kế tiếp.\nLượt sau mua lại · Tim nhặt trong màn hồi tối đa 5 mạng.", 15, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
         }
 
         private void DrawHistory()
@@ -393,7 +389,7 @@ namespace CityDino
                     Text(new Rect(856, y + 9, 75, 24), "+" + record.Stars, 16, ink, FontStyle.Bold);
                 }
             }
-            Text(new Rect(350, 598, 580, 23), "Điểm, sao và nâng cấp được lưu tự động trên thiết bị này.", 15, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+            Text(new Rect(350, 598, 580, 23), "Điểm, sao và tim đã mua được lưu tự động trên thiết bị này.", 15, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
         }
 
         private void GoToMenu()
@@ -512,12 +508,6 @@ namespace CityDino
             GUI.color = new Color(0.03f, 0.09f, 0.14f, 0.74f);
             GUI.DrawTexture(new Rect(0, 0, CanvasWidth, CanvasHeight), Texture2D.whiteTexture);
             GUI.color = old;
-        }
-        private void Notify(string text) { notice = text; noticeUntil = Time.unscaledTime + 3f; }
-        private void DrawNotice(string text)
-        {
-            Box(new Rect(330, 127, 620, 49), ink);
-            Text(new Rect(344, 135, 592, 30), text, 16, cream, FontStyle.Bold, TextAnchor.MiddleCenter);
         }
         private void ToggleSound()
         {

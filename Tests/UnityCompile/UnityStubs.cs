@@ -1,8 +1,7 @@
 // Compile-only surface of Unity APIs referenced by this repository.
-// These signatures catch C# integration/type errors. Vector2/Rect arithmetic
-// and explicit fake device values also support focused input-coordinate checks.
-// They do not emulate Unity events, execute rendering, validate serialization,
-// or replace an Editor play test.
+// Signatures catch C# integration errors; affine math and recorded draw calls
+// support coordinate-contract tests. No Unity events, rasterization, asset import,
+// serialization or actual Editor execution is emulated.
 using System;
 using System.Collections.Generic;
 namespace UnityEngine
@@ -89,15 +88,16 @@ namespace UnityEngine
     public static class Debug { public static void LogWarning(object value) { } public static void LogError(object value) { } }
     public static class Resources
     {
-        public static T Load<T>(string path) where T : Object { return default(T); }
+        public static readonly Dictionary<string,Object> TestAssets = new Dictionary<string,Object>();
+        public static T Load<T>(string path) where T : Object { Object value; return TestAssets.TryGetValue(path,out value) ? value as T : null; }
         public static T GetBuiltinResource<T>(string path) where T : Object { return default(T); }
     }
     public class Font : Object { }
     public class Texture : Object { public virtual int width { get; set; } public virtual int height { get; set; } }
     public class Texture2D : Texture
     {
-        public Texture2D(int width, int height, TextureFormat format, bool mipChain) { }
-        public static Texture2D whiteTexture;
+        public Texture2D(int width, int height, TextureFormat format, bool mipChain) { this.width=width; this.height=height; }
+        public static Texture2D whiteTexture = new Texture2D(1,1,TextureFormat.RGBA32,false);
         public FilterMode filterMode;
         public TextureWrapMode wrapMode;
         public void SetPixel(int x, int y, Color color) { }
@@ -108,37 +108,64 @@ namespace UnityEngine
     {
         public float r, g, b, a;
         public Color(float r, float g, float b, float a = 1f) { this.r = r; this.g = g; this.b = b; this.a = a; }
-        public static Color white, red, clear;
-        public static Color Lerp(Color a, Color b, float t) { return default(Color); }
+        public static Color white=new Color(1,1,1,1), red=new Color(1,0,0,1), clear=new Color(0,0,0,0);
+        public static Color Lerp(Color a, Color b, float t) { t=Mathf.Clamp01(t); return new Color(a.r+(b.r-a.r)*t,a.g+(b.g-a.g)*t,a.b+(b.b-a.b)*t,a.a+(b.a-a.a)*t); }
     }
     public struct Color32
     {
-        public Color32(byte r, byte g, byte b, byte a) { }
-        public static implicit operator Color(Color32 color) { return default(Color); }
+        private byte r,g,b,a;
+        public Color32(byte r, byte g, byte b, byte a) { this.r=r;this.g=g;this.b=b;this.a=a; }
+        public static implicit operator Color(Color32 color) { return new Color(color.r/255f,color.g/255f,color.b/255f,color.a/255f); }
     }
     public struct Vector2
     {
         public float x, y;
         public Vector2(float x, float y) { this.x = x; this.y = y; }
-        public float magnitude { get { return 0; } }
-        public float sqrMagnitude { get { return 0; } }
+        public float magnitude { get { return (float)Math.Sqrt(x*x+y*y); } }
+        public float sqrMagnitude { get { return x*x+y*y; } }
         public static Vector2 zero;
         public static Vector2 operator +(Vector2 a, Vector2 b) { return new Vector2(a.x+b.x, a.y+b.y); }
         public static Vector2 operator -(Vector2 a, Vector2 b) { return new Vector2(a.x-b.x, a.y-b.y); }
         public static Vector2 operator /(Vector2 a, float scale) { return new Vector2(a.x/scale, a.y/scale); }
-        public static implicit operator Vector3(Vector2 value) { return default(Vector3); }
+        public static implicit operator Vector3(Vector2 value) { return new Vector3(value.x,value.y,0); }
     }
     public struct Vector3
     {
         public float x, y, z;
         public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
-        public static Vector3 left, right, up, one;
-        public static Vector3 operator +(Vector3 a, Vector3 b) { return default(Vector3); }
-        public static Vector3 operator *(Vector3 a, float scale) { return default(Vector3); }
-        public static implicit operator Vector2(Vector3 value) { return default(Vector2); }
+        public static Vector3 left=new Vector3(-1,0,0),right=new Vector3(1,0,0),up=new Vector3(0,1,0),one=new Vector3(1,1,1);
+        public static Vector3 operator +(Vector3 a, Vector3 b) { return new Vector3(a.x+b.x,a.y+b.y,a.z+b.z); }
+        public static Vector3 operator *(Vector3 a, float scale) { return new Vector3(a.x*scale,a.y*scale,a.z*scale); }
+        public static implicit operator Vector2(Vector3 value) { return new Vector2(value.x,value.y); }
     }
-    public struct Quaternion { public static Quaternion identity; }
-    public struct Matrix4x4 { public static Matrix4x4 TRS(Vector3 position, Quaternion rotation, Vector3 scale) { return default(Matrix4x4); } }
+    public struct Quaternion
+    {
+        internal System.Numerics.Quaternion Value;
+        public static Quaternion identity = new Quaternion { Value=System.Numerics.Quaternion.Identity };
+        public static Quaternion Euler(float x,float y,float z)
+        {
+            const float radians=(float)Math.PI/180;
+            return new Quaternion { Value=System.Numerics.Quaternion.CreateFromYawPitchRoll(y*radians,x*radians,z*radians) };
+        }
+    }
+    public struct Matrix4x4
+    {
+        private System.Numerics.Matrix4x4 value;
+        public static Matrix4x4 identity = new Matrix4x4 { value=System.Numerics.Matrix4x4.Identity };
+        public static Matrix4x4 TRS(Vector3 position,Quaternion rotation,Vector3 scale)
+        {
+            return new Matrix4x4 { value=System.Numerics.Matrix4x4.CreateScale(scale.x,scale.y,scale.z)
+                *System.Numerics.Matrix4x4.CreateFromQuaternion(rotation.Value)
+                *System.Numerics.Matrix4x4.CreateTranslation(position.x,position.y,position.z) };
+        }
+        // System.Numerics uses row vectors; Unity uses column vectors.
+        public static Matrix4x4 operator *(Matrix4x4 a,Matrix4x4 b) { return new Matrix4x4 { value=b.value*a.value }; }
+        public Vector3 MultiplyPoint3x4(Vector3 point)
+        {
+            var transformed=System.Numerics.Vector3.Transform(new System.Numerics.Vector3(point.x,point.y,point.z),value);
+            return new Vector3(transformed.X,transformed.Y,transformed.Z);
+        }
+    }
     public struct Rect
     {
         public float x, y, width, height;
@@ -167,24 +194,48 @@ namespace UnityEngine
         public static float Clamp(float x,float lo,float hi) { return Math.Min(hi,Math.Max(lo,x)); }
         public static float Clamp01(float x) { return Clamp(x,0,1); }
         public static float Lerp(float a,float b,float t) { return a+(b-a)*Clamp01(t); }
-        public static float SmoothStep(float a,float b,float t) { return Lerp(a,b,t); }
+        public static float SmoothStep(float a,float b,float t) { t=Clamp01(t); return a+(b-a)*t*t*(3-2*t); }
         public static float Atan2(float y,float x) { return (float)Math.Atan2(y,x); }
+    }
+    public sealed class RecordedDraw
+    {
+        public string Kind,Text;
+        public Texture Texture;
+        public Rect Position,UV;
+        public Color Color;
+        public Matrix4x4 Matrix;
+        public Vector3 Centre { get { return Matrix.MultiplyPoint3x4(Position.center); } }
     }
     public static class GUI
     {
-        public static Color color, backgroundColor;
-        public static Matrix4x4 matrix;
-        public static bool enabled;
-        public static GUISkin skin;
-        public static void DrawTexture(Rect position, Texture texture, ScaleMode scaleMode = ScaleMode.StretchToFill, bool alphaBlend = true) { }
-        public static void DrawTextureWithTexCoords(Rect position, Texture texture, Rect texCoords, bool alphaBlend = true) { }
-        public static void BeginGroup(Rect rect) { }
-        public static void EndGroup() { }
-        public static void Label(Rect rect,string text,GUIStyle style) { }
+        public static Color color=Color.white,backgroundColor=Color.white;
+        public static Matrix4x4 matrix=Matrix4x4.identity;
+        public static bool enabled=true;
+        public static GUISkin skin=new GUISkin { label=new GUIStyle(),button=new GUIStyle() };
+        public static readonly List<RecordedDraw> DrawCalls=new List<RecordedDraw>();
+        private static readonly Stack<Matrix4x4> groups=new Stack<Matrix4x4>();
+        public static void DrawTexture(Rect position,Texture texture,ScaleMode scaleMode=ScaleMode.StretchToFill,bool alphaBlend=true)
+        { DrawCalls.Add(new RecordedDraw { Kind="Texture",Position=position,Texture=texture,Color=color,Matrix=matrix }); }
+        public static void DrawTextureWithTexCoords(Rect position,Texture texture,Rect texCoords,bool alphaBlend=true)
+        { DrawCalls.Add(new RecordedDraw { Kind="UV",Position=position,Texture=texture,UV=texCoords,Color=color,Matrix=matrix }); }
+        public static void BeginGroup(Rect rect) { groups.Push(matrix); matrix=matrix*Matrix4x4.TRS(new Vector3(rect.x,rect.y,0),Quaternion.identity,Vector3.one); }
+        public static void EndGroup() { matrix=groups.Pop(); }
+        public static void Label(Rect rect,string text,GUIStyle style)
+        { DrawCalls.Add(new RecordedDraw { Kind="Label",Position=rect,Text=text,Color=color,Matrix=matrix }); }
         public static void Box(Rect rect,GUIContent content,GUIStyle style) { }
         public static bool Button(Rect rect,string text,GUIStyle style) { return false; }
     }
-    public static class GUIUtility { public static void RotateAroundPivot(float angle,Vector2 pivot) { } }
+    public static class GUIUtility
+    {
+        // Model the legacy prepend used in Unity 6000.4. Raw virtual pivots are
+        // not transformed by the canvas matrix. Regression tests reproduce why
+        // this API displaced sprites when called under a scaled GUI.matrix.
+        public static void RotateAroundPivot(float angle,Vector2 pivot)
+        {
+            GUI.matrix=Matrix4x4.TRS(pivot,Quaternion.Euler(0,0,angle),Vector3.one)
+                *Matrix4x4.TRS(new Vector3(-pivot.x,-pivot.y,0),Quaternion.identity,Vector3.one)*GUI.matrix;
+        }
+    }
     public class GUISkin { public GUIStyle label, button; }
     public class GUIStyle
     {

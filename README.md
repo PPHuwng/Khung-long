@@ -1,6 +1,6 @@
-# Dino City — Khủng long chạy trong thành phố
+# DINO CITY
 
-Game Unity 2D dùng hình ảnh từ `Assets.zip` và bộ nền/vật cản pixel art mới: khủng long chạy vô tận, di chuyển trái/phải, nhảy qua các cụm bẫy, gom sao và mở thêm mạng khởi đầu. Có menu tiếng Việt, cửa hàng, lịch sử thành tích và màn hình kết thúc lượt.
+Game Unity 2D dùng hình ảnh từ `Assets.zip` và bộ nền/vật cản pixel art mới: khủng long chạy vô tận, di chuyển trái/phải, nhảy qua các cụm bẫy, gom sao và mua tim cho từng lượt. Có menu tiếng Việt, cửa hàng, lịch sử thành tích và màn hình kết thúc lượt.
 
 ## Mở và chơi
 
@@ -16,7 +16,7 @@ Project giữ cấu hình gốc từ `ProjectSettings.zip` và `Packages.zip`: t
 
 ### Cập nhật project đang chạy được
 
-Đóng Unity, tải bản ZIP mới từ nhánh `codex/dino-city-runner`, rồi chép thư mục **`Assets/CityDino`** trong bản mới vào đúng vị trí đó trong project đang dùng; chọn thay thế các tệp trùng tên. Mở lại project và chờ Unity import ảnh/script mới. Menu hiện **BẢN 03** khi đã cập nhật. Các thay đổi gameplay lần này nằm trong thư mục đó; dùng tiếp `Packages` và `ProjectSettings` đang chạy được trên máy bạn. Khoá lưu `CityDino.Save.v1` và định danh ứng dụng được giữ nguyên để tiếp tục ví sao, nâng cấp và kỷ lục trên cùng thiết bị.
+Đóng Unity, tải bản ZIP mới từ nhánh `codex/dino-city-runner`, rồi chép thư mục **`Assets/CityDino`** trong bản mới vào đúng vị trí đó trong project đang dùng; chọn thay thế các tệp trùng tên. Mở lại project và chờ Unity import ảnh/script mới. Menu hiện **BẢN 04** khi đã cập nhật. Các thay đổi gameplay lần này nằm trong thư mục đó; dùng tiếp `Packages` và `ProjectSettings` đang chạy được trên máy bạn. Khoá lưu `CityDino.Save.v1` và định danh ứng dụng được giữ nguyên để tiếp tục ví sao và kỷ lục trên cùng thiết bị. Chi phí nâng cấp vĩnh viễn cũ được hoàn lại vào ví một lần khi chuyển sang cơ chế mua tim dùng cho từng lượt.
 
 | Thao tác | Bàn phím | Chuột / cảm ứng |
 |---|---|---|
@@ -35,20 +35,23 @@ Cảm ứng nhận nhiều ngón: có thể giữ hướng bằng một ngón v�
 
 ## Luật chơi đã thực hiện
 
-- **Chạy vô tận:** 11 mẫu cụm bẫy gồm nhà, vòi cứu hoả, gai đơn/đôi/ba, rào chắn, rào bậc, cưa dưới đất, cưa bay, máy bay thấp và hố trên mây. Các mẫu được xáo trộn, tránh lặp ngay; bẫy nâng cao mở sau 15/30 giây và cao thêm sau 60 giây. Cụm được thiết kế cho cùng một nhịp nhảy/cúi, khoảng cách phục hồi tính cả tốc độ cuộn và khả năng di chuyển sang phải. Cưa quay có va chạm hình tròn, gai có va chạm tam giác; cưa bay dao động nhẹ, đi qua bằng cách cúi hoặc nhảy.
+- **Chạy vô tận:** 13 mẫu cụm bẫy gồm nhà, vòi cứu hoả, gai đơn/đôi/ba, rào chắn, rào bậc, cưa dưới đất, cưa bay, máy bay thấp, hố trên mây, cưa tuần tra ngang và rào chắn di chuyển. Các mẫu được xáo trộn, tránh lặp ngay; bẫy nâng cao mở sau 15/30 giây và cao thêm sau 60 giây. Cụm được thiết kế cho cùng một nhịp nhảy/cúi, khoảng cách phục hồi tính cả tốc độ cuộn và khả năng di chuyển sang phải. Cưa quay có va chạm hình tròn, gai có va chạm tam giác; cưa bay dao động lên/xuống rõ hơn, đi qua bằng cách cúi hoặc nhảy.
 - **Sao:** mỗi sao cộng ngay 1 vào ví và bộ đếm lượt. Sao vẫn giữ khi hết mạng. Có hàng sao hướng dẫn và cung sao trên vật cản/hố.
-- **Nâng cấp vĩnh viễn:** bắt đầu với 1 mạng; mua lần lượt **40 → 100 → 180 sao** để có 2, 3, rồi 4 mạng ở mỗi lượt sau. Không dùng được khi đang chạy.
+- **Mua tim theo lượt:** mỗi tim giá **25 sao**, mua tối đa **3 tim** cho lượt kế tiếp. Mặc định 1 mạng; bắt đầu chạy sẽ dùng hết tim đã mua để có tối đa 4 mạng khởi đầu. Chơi lại cần mua lại; tim đã mua nhưng chưa dùng được lưu khi đóng game. Mua chỉ được ở menu/kết thúc lượt. Hồ sơ cũ được hoàn lại tổng chi phí nâng cấp **40/140/320 sao** theo cấp cũ, đúng một lần; ví và thành tích vẫn giữ.
 - **Tim hiếm:** lần đầu sinh sau khoảng 20–30 giây; các lần tiếp theo cách nhau ngẫu nhiên **18–32 giây**, không tạo thành hàng liên tục. Nhặt hồi 1 mạng, tối đa 5; khi đầy thì đổi thành 1 sao.
 - **Va chạm:** trừ 1 mạng. Nếu còn mạng, có 2 giây miễn sát thương và nhấp nháy. Hết mạng thì mô phỏng dừng, hiện kết quả và nút chơi lại/menu.
-- **Sửa va chạm cưa ở bản 03:** cưa kiểm tra theo đường bao khủng long của cả 5 khung hình, tính cả hướng quay mặt, cúi và độ nhún. Không dùng hình chữ nhật chứa khoảng trống sau cổ nữa; đầu và đuôi cũng được tính theo ảnh. Vòng cưa tính gần tới đầu răng, chừa viền nhỏ để dễ chơi. Tư thế lúc chết được giữ lại để hình không đổi đột ngột sau va chạm. Trong 2 giây bất tử sau khi mất mạng, chạm cưa vẫn không mất thêm mạng như luật cũ.
+- **Va chạm cưa:** cưa kiểm tra theo đường bao khủng long của cả 5 khung hình, tính cả hướng quay mặt, cúi và độ nhún. Không dùng hình chữ nhật chứa khoảng trống sau cổ nữa; đầu và đuôi cũng được tính theo ảnh. Vòng cưa tính gần tới đầu răng, chừa viền nhỏ để dễ chơi. Tư thế lúc chết được giữ lại để hình không đổi đột ngột sau va chạm. Trong 2 giây bất tử sau khi mất mạng, chạm cưa vẫn không mất thêm mạng như luật cũ.
+- **Sửa lỗi vẽ cưa bản 04:** ảnh cưa và collider dùng cùng tâm xoay trong toạ độ màn chơi. Phép xoay được ghép trước scale/letterbox, thay cho `GUIUtility.RotateAroundPivot` làm ảnh cưa quay lệch khỏi collider ở cửa sổ Game phóng/thu. Hàm vẽ đường/mưa cũng dùng phép biến đổi này. Bỏ nhãn CÚI/NHẢY nổi trên vật cản.
+- **Bẫy di chuyển:** từ 30 giây có cưa tuần tra ngang ±32 đơn vị và rào chắn ngang ±24 đơn vị; cưa bay dao động dọc ±16, đáy từ 56–88 nên vẫn có làn cúi. Vị trí mô phỏng thật được dùng chung cho vẽ/va chạm, dừng khi pause. Khoảng sinh tính cả toàn bộ vùng chuyển động để giữ khoảng phục hồi giữa các cụm.
 - **Rơi xuống hố:** trừ 1 mạng và hồi về mặt đường nếu còn mạng, xoá hố sát nhân vật để không rơi lặp. Nếu hết mạng thì dừng hẳn. Không có chuyện rơi vô hạn sau khi chết.
 - **Điểm và thành tích:** 20 đơn vị thế giới = 1 mét = 1 điểm. Lưu kỷ lục, điểm lượt trước và 10 lượt gần nhất; giao diện thành tích hiển thị 5 lượt mới nhất.
 - **Tăng tốc:** bắt đầu 360 đơn vị/giây (**nhanh hơn 44%** so với bản đầu), tăng 1,6 mỗi giây, giới hạn 610 (~1,69× tốc độ đầu). Tốc độ vẫn tăng từ từ và có giới hạn.
 - **Nền mới:** hai ảnh skyline trong suốt được tạo riêng, ghép với lớp thành phố xa, trời/thời tiết và vệt sáng mặt đường. Các lớp cuộn ở tốc độ khác nhau để tạo chiều sâu; hình nền không có mặt đường vẽ sẵn che lên hố. Viền nối dùng tile phản chiếu, giữ tỉ lệ hình và căn đáy nhà vào chân trời.
 - **Chọn map đầu:** mặc định **Ngẫu nhiên mỗi lượt**, chọn trong cả 6 map. Có thể bấm một map cụ thể trên menu để lượt nào cũng bắt đầu tại đó. Lựa chọn được lưu trên thiết bị, áp dụng cả nút Chạy lại/R; chọn Ngẫu nhiên thì mỗi lượt bốc lại, vẫn có thể trùng kết quả lượt trước.
 - **Thay cảnh mỗi 35 giây:** từ lần chuyển đầu tiên, luôn chọn ngẫu nhiên một trong 5 map khác map đang chạy. Không còn vòng đầu cố định. Màu trời, nền, mưa, mặt trăng và ánh sáng chuyển theo cảnh; mỗi map ưu tiên một số cụm bẫy riêng, vẫn tuân theo thời gian mở khoá 15/30/60 giây và khoảng cách hồi phục chung.
-- **Tối ngắn:** Phố đêm tối 0,8 giây mỗi 10,5 giây, lần đầu sau 9 giây trong map. Giông bão tối 1 giây mỗi 8,5 giây, lần đầu sau 7 giây. Có cảnh báo trước 1,5 giây và chuyển sáng/tối mềm; bóng nhân vật, vật cản, mép đường và HUD còn nhìn được. Hiệu ứng dừng theo tạm dừng và đặt lại khi chuyển map. Không dùng chớp trắng nhanh.
-- **Âm thanh:** hiệu ứng nhảy, nhặt sao, va chạm và nâng cấp được tạo tại runtime; có nút tắt/bật.
+- **Tối hoàn toàn:** Phố đêm và Giông bão có các đợt đen kín màn chơi trong **2–3 giây**, thời lượng và khoảng nghỉ đều ngẫu nhiên. Lần đầu sau 8–13 giây ở Phố đêm hoặc 7–11 giây ở Giông bão; các khoảng nghỉ sau cũng trong khoảng đó. Có báo trước 1,5 giây và fade 0,18 giây ở mỗi đầu, ngoài thời gian đen hoàn toàn. Trong lúc tối chỉ HUD/nút điều khiển còn hiện. Pause dừng đồng hồ; chuyển map/chơi lại đặt lại lịch tối.
+- **Giao diện gọn hơn:** tiêu đề DINO CITY; bỏ thông báo giữa màn khi bắt đầu/đổi map/nhặt tim/mất mạng và chữ +SAO. Giữ HUD, kết quả lượt và một cảnh báo trước đợt tối; thời gian bảo vệ sau va chạm hiện nhỏ cạnh quãng đường.
+- **Âm thanh:** hiệu ứng nhảy, nhặt sao, va chạm và mua tim được tạo tại runtime; có nút tắt/bật.
 
 | Map | Thử thách riêng |
 |---|---|
@@ -61,7 +64,7 @@ Cảm ứng nhận nhiều ngón: có thể giữ hướng bằng một ngón v�
 
 Vũng nước và gió là hiệu ứng nền; không kéo nhân vật hoặc làm trượt nút điều khiển. Mỗi map vẫn có thể sinh các mẫu bẫy chung để lượt chạy đa dạng.
 
-Dữ liệu dùng Unity `PlayerPrefs` với khoá `CityDino.Save.v1`. Kỷ lục `HighScore` của bản cũ được chuyển sang hồ sơ mới. Ví, nâng cấp và lịch sử lưu trên **thiết bị hiện tại**, không phải tài khoản trực tuyến. Tắt tiếng dùng `CityDino.Muted`; lựa chọn map đầu dùng `CityDino.StartDistrict`.
+Dữ liệu dùng Unity `PlayerPrefs` với khoá `CityDino.Save.v1`. Kỷ lục `HighScore` của bản cũ được chuyển sang hồ sơ mới. Ví, tim đã mua và lịch sử lưu trên **thiết bị hiện tại**, không phải tài khoản trực tuyến. Tắt tiếng dùng `CityDino.Muted`; lựa chọn map đầu dùng `CityDino.StartDistrict`.
 
 ## Cấu trúc và lỗi bản cũ
 
@@ -89,9 +92,9 @@ Hoặc trên Windows / máy có .NET SDK:
 dotnet run --project Tests/RunnerCore.Tests.csproj --configuration Release
 ```
 
-Bộ kiểm tra chạy trực tiếp mã `RunnerSession.cs`, không cần Unity hay package NuGet. Nó kiểm tra nhảy/nhảy kép/cúi, va chạm và bất tử, rơi/hồi vị trí/chết dừng, sao/ví/nâng cấp, lưu thành tích, tạm dừng, giới hạn tốc độ, thời tiết, khoảng cách sinh và độ hiếm tim. Mã trong `Tests` nằm ngoài `Assets`, nên Unity không đưa bộ kiểm tra console vào bản game.
+Bộ kiểm tra chạy trực tiếp mã `RunnerSession.cs`, không cần Unity hay package NuGet. Nó kiểm tra nhảy/nhảy kép/cúi, va chạm và bất tử, rơi/hồi vị trí/chết dừng, sao/ví/mua tim/hoàn tiền hồ sơ cũ, lưu thành tích, tạm dừng, giới hạn tốc độ, thời tiết, khoảng cách sinh và độ hiếm tim. Mã trong `Tests` nằm ngoài `Assets`, nên Unity không đưa bộ kiểm tra console vào bản game.
 
-Kết quả kiểm tra và giới hạn của bộ kiểm thử được ghi tại `Tests/README.md`. Có thêm kiểm tra di chuyển, va chạm theo vị trí thật, hình dạng gai/cưa, các cụm bẫy, khoảng phục hồi và vùng nút cảm ứng. `./scripts/test-core.sh --compile-unity` biên dịch lớp runtime mới và 7 script cũ với stub API; `./scripts/test-core.sh --input-mapping` chạy kiểm tra ánh xạ toạ độ/đa chạm bằng thiết bị giả lập. Các kiểm tra này không chạy Unity Editor. 172 tệp gốc trong Assets.zip được giữ nguyên.
+Kết quả kiểm tra và giới hạn của bộ kiểm thử được ghi tại `Tests/README.md`. Có thêm kiểm tra di chuyển, va chạm theo vị trí thật, hình dạng gai/cưa, các cụm bẫy, khoảng phục hồi và vùng nút cảm ứng. `./scripts/test-core.sh --compile-unity` biên dịch lớp runtime mới và 7 script cũ với stub API; `./scripts/test-core.sh --input-mapping` chạy kiểm tra ánh xạ toạ độ/đa chạm bằng thiết bị giả lập. `./scripts/test-core.sh --render-contracts` ghi nhận lệnh vẽ production với phép toán ma trận thật để kiểm tra cưa/đường đúng vị trí ở nhiều scale, bỏ nhãn và lớp phủ đen hoàn toàn. Các kiểm tra này không chạy Unity Editor. 172 tệp gốc trong Assets.zip được giữ nguyên.
 
 ### Cần xác nhận bằng Unity Editor
 
@@ -102,9 +105,9 @@ Checklist khi mở Unity:
 1. Package Manager hoàn tất, Console không có lỗi biên dịch hoặc missing script; mở scene mới và nhấn Play.
 2. Menu hiển thị tiếng Việt và hình khủng long; Play vào game, giữ A/D hoặc ←/→ để đổi vị trí cả khi nhảy. Va chạm/nhặt sao theo đúng vị trí nhân vật. Nền có chiều sâu và vật cản nổi rõ.
 3. Va chạm khi còn 1 mạng: hiện kết quả và điểm không tăng thêm. Chơi lại: điểm/sao lượt về 0, ví/kỷ lục giữ nguyên.
-4. Đủ 40 sao: mở cửa hàng, mua nâng cấp; lượt sau bắt đầu với 2 mạng. Đóng/mở game: ví/nâng cấp/kỷ lục giữ nguyên.
+4. Đủ 25 sao: mua 1 tim, đóng/mở lại để kiểm tra tim chưa dùng vẫn còn. Bắt đầu với 2 mạng; lượt sau trở về 1 mạng nếu không mua lại. Hồ sơ cấp 1/2/3 cũ được hoàn 40/140/320 sao đúng một lần.
 5. Va chạm khi còn mạng: chỉ mất 1 mạng, miễn sát thương 2 giây. Tạm dừng: mọi vật thể và điểm đứng yên; tiếp tục không nhảy thời gian.
-6. Thử chọn từng map đầu và Ngẫu nhiên; Chạy lại dùng đúng lựa chọn, các chặng tiếp theo đổi ngẫu nhiên sau 35 giây. Trên mây có hố thật sau thời gian đầu làm quen; rơi khi còn mạng hồi an toàn. Máy bay: giữ CÚI đi qua. Map đêm/bão có báo trước khi tối ngắn, vẫn nhìn thấy bóng bẫy và HUD; tạm dừng không làm hiệu ứng chạy tiếp.
-7. Thử chuột/cảm ứng ở tỷ lệ màn hình khác nhau: nút hướng không gây nhảy, giữ hướng bằng một ngón và nhảy bằng ngón khác, các nút không chồng và không bấm xuyên cửa sổ cửa hàng. Thử gai đôi/ba, cưa xoay/bay, rào chắn/khối điện và cụm nối tiếp ở tốc độ cao. Với cưa, thử sát sau cổ và đầu ở cả hai hướng, lúc nhảy/cúi; phân biệt lần chạm khi có hiệu ứng bất tử.
+6. Thử chọn từng map đầu và Ngẫu nhiên; Chạy lại dùng đúng lựa chọn, các chặng tiếp theo đổi ngẫu nhiên sau 35 giây. Trên mây có hố thật sau thời gian đầu làm quen; rơi khi còn mạng hồi an toàn. Máy bay: giữ CÚI đi qua. Map đêm/bão có báo trước rồi đen hoàn toàn 2–3 giây; HUD/nút vẫn hiện; tạm dừng không làm hiệu ứng chạy tiếp.
+7. Thử chuột/cảm ứng ở tỷ lệ màn hình khác nhau: nút hướng không gây nhảy, giữ hướng bằng một ngón và nhảy bằng ngón khác, các nút không chồng và không bấm xuyên cửa sổ cửa hàng. Thử gai đôi/ba, cưa xoay/bay, rào chắn/khối điện và cụm nối tiếp ở tốc độ cao. Với cưa, thử sát sau cổ và đầu ở cả hai hướng, lúc nhảy/cúi; thay đổi scale cửa sổ Game và bật Maximize On Play để kiểm tra ảnh vẫn đúng vị trí va chạm. Thử cưa tuần tra/rào di chuyển; phân biệt lần chạm khi đang được bảo vệ.
 
 Các hằng số cân bằng chính (`InitialSpeed`, `SpeedAcceleration`, `MaximumSpeed`, `JumpVelocity`, `DistrictDuration`) ở đầu `RunnerSession.cs`. Game này là bản chạy vô tận hoàn chỉnh ở mức cơ chế; chưa có máy chủ, đồng bộ tài khoản hay bảng xếp hạng trực tuyến.

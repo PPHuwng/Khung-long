@@ -25,8 +25,9 @@ internal static class Program
         Test("different seeds vary the world", SeedVariation);
         Test("stars credit the wallet once and notify persistence", StarCollection);
         Test("hearts restore one life without exceeding the cap", HeartCollection);
-        Test("upgrades require funds and apply to the next run", Upgrade);
-        Test("upgrade prices and maximum level are enforced", UpgradeCap);
+        Test("heart purchases require funds and apply to the next run", Upgrade);
+        Test("purchased hearts are capped and consumed for one run only", UpgradeCap);
+        Test("legacy permanent hearts refund once while preserving progress", LegacyHeartRefund);
         Test("collisions consume one life with invulnerability", Damage);
         Test("fatal collision records once and freezes gameplay", FatalCollision);
         Test("restart retains money and high score but resets the run", Restart);
@@ -56,6 +57,10 @@ internal static class Program
         Test("saw hits consume one life and respect temporary invulnerability", SawDamage);
         Test("fatal saw contact freezes the exact visible animation and crouch pose", SawFatalPose);
         Test("saws rotate and floating blades leave a safe duck lane", SawMotion);
+        Test("moving hazards oscillate without drift and pause or restart cleanly", HazardMotion);
+        Test("moving hazards use their live position for contact without spending stars", HazardMotionCollision);
+        Test("vertical hazard motion preserves a safe duck lane through every phase", MovingDuckLane);
+        Test("moving hazard integration is independent of frame partition", MovingFrameStep);
         Test("random packs cover all hazard types and composite rhythms", PatternVariety);
         Test("sampled generated packs have a real jump or duck solution", PatternReplay);
         Test("faster start and speed ceiling exceed the previous version", FasterPacing);
@@ -89,7 +94,7 @@ internal static class Program
 
     private static RunnerSession New(int seed = 123, int upgrade = 0)
     {
-        return new RunnerSession(new RunnerSave { ExtraHeartsLevel = upgrade }, seed);
+        return new RunnerSession(new RunnerSave { PurchasedHearts = upgrade }, seed);
     }
 
     private static IList<WorldEntity> World(RunnerSession run)
@@ -143,7 +148,7 @@ internal static class Program
         Near(run.Distance, 0, 0, "Menu changed distance");
         Check(!run.Jump(), "Menu accepted jump");
         run.StartRun();
-        Check(run.State == RunState.Playing && run.Lives == 3, "Start did not apply permanent extra lives");
+        Check(run.State == RunState.Playing && run.Lives == 3, "Start did not consume purchased extra lives");
         Check(run.Score == 0 && run.RunStars == 0 && run.PlayerY == 0, "New run was not clean");
         Near(run.Speed, RunnerSession.InitialSpeed, 0.01f, "Unexpected initial speed");
     }
@@ -261,28 +266,48 @@ internal static class Program
 
     private static void Upgrade()
     {
-        RunnerSession run = New();
-        Check(!run.BuyExtraHeart() && run.Save.Wallet == 0 && run.Save.ExtraHeartsLevel == 0, "Insufficient funds changed progress");
-        run.Save.Wallet = 40;
-        Check(run.NextHeartCost == 40 && run.BuyExtraHeart(), "First upgrade rejected");
-        Check(run.Save.Wallet == 0 && run.Save.ExtraHeartsLevel == 1, "Upgrade did not charge exact price");
+        RunnerSession run=New();
+        Check(!run.BuyExtraHeart() && run.Save.Wallet==0 && run.Save.PurchasedHearts==0,"Unfunded purchase changed progress");
+        run.Save.Wallet=25; int saved=0; run.SaveChanged+=()=>saved++;
+        Check(run.NextHeartCost==25 && run.BuyExtraHeart(),"Funded heart purchase rejected");
+        Check(run.Save.Wallet==0 && run.Save.PurchasedHearts==1 && saved==1,"Heart purchase not persisted at exact price");
         run.StartRun();
-        Check(run.Lives == 2, "Upgrade did not add starting life");
-        run.Save.Wallet = 100;
-        Check(!run.BuyExtraHeart(), "Shop purchase allowed during run");
+        Check(run.Lives==2 && run.Save.PurchasedHearts==0 && saved==2,"Starting did not consume and persist the reserved heart");
+        run.Save.Wallet=100;
+        Check(!run.BuyExtraHeart(),"Shop allowed purchase while playing");
+        run.TogglePause(); Check(!run.BuyExtraHeart(),"Shop allowed purchase while paused");
     }
 
     private static void UpgradeCap()
     {
-        RunnerSession run = New(); run.Save.Wallet = 1000;
-        foreach (int cost in new[] {40, 100, 180})
+        RunnerSession run=New(); run.Save.Wallet=1000;
+        for(int i=0;i<3;i++) Check(run.NextHeartCost==25 && run.BuyExtraHeart(),"Repeatable heart purchase failed");
+        Check(run.Save.Wallet==925 && run.Save.PurchasedHearts==3,"Heart total/price incorrect");
+        Check(!run.BuyExtraHeart() && run.NextHeartCost==0 && run.Save.Wallet==925,"Reserved-heart cap was not enforced");
+        RunnerSession reloaded=new RunnerSession(run.Save,9);
+        Check(reloaded.Save.PurchasedHearts==3,"Reload lost unspent reserved hearts");
+        reloaded.StartRun(); Check(reloaded.Lives==4 && reloaded.Save.PurchasedHearts==0,"Run did not use all reserved hearts once");
+        reloaded.ReturnToMenu(); reloaded.StartRun();
+        Check(reloaded.Lives==1,"Consumed hearts became permanent");
+        reloaded.ReturnToMenu(); Check(reloaded.BuyExtraHeart(),"Heart could not be bought again after use");
+        reloaded.StartRun(); Check(reloaded.Lives==2,"Repeated purchase did not apply to the following run");
+    }
+
+    private static void LegacyHeartRefund()
+    {
+        foreach(int level in new[]{0,1,2,3})
         {
-            Check(run.NextHeartCost == cost, "Wrong next upgrade cost");
-            Check(run.BuyExtraHeart(), "Funded upgrade failed");
+            int[] refunds={0,40,140,320};
+            var old=new RunnerSave { Version=1,Wallet=57,ExtraHeartsLevel=level,BestScore=900,LastScore=700,
+                History=new List<RunRecord>{new RunRecord{Score=700,Stars=5,EndReason="test"}} };
+            RunnerSession migrated=new RunnerSession(old,7);
+            Check(migrated.Save.Version==2 && migrated.Save.ExtraHeartsLevel==0,"Legacy upgrade not migrated");
+            Check(migrated.Save.Wallet==57+refunds[level] && migrated.Save.PurchasedHearts==0,"Legacy spending not refunded correctly");
+            Check(migrated.Save.BestScore==900 && migrated.Save.LastScore==700 && migrated.Save.History.Count==1,"Migration lost achievements");
+            RunnerSession twice=new RunnerSession(migrated.Save,8);
+            Check(twice.Save.Wallet==57+refunds[level],"Migration refunded twice");
+            twice.StartRun(); Check(twice.Lives==1,"Legacy permanent hearts still apply");
         }
-        Check(run.Save.Wallet == 680 && run.Save.ExtraHeartsLevel == 3, "Upgrade totals incorrect");
-        Check(!run.BuyExtraHeart() && run.Save.Wallet == 680, "Upgrade maximum not enforced");
-        run.StartRun(); Check(run.Lives == 4, "Maximum upgrade should start with four lives");
     }
 
     private static void Damage()
@@ -443,41 +468,43 @@ internal static class Program
     private static void BlackoutTimeline()
     {
         const float dt=1f/120;
-        foreach (District district in Enum.GetValues(typeof(District)))
+        var starts=new HashSet<int>(); var durations=new HashSet<int>();
+        foreach(District district in Enum.GetValues(typeof(District)))
+        for(int seed=0;seed<8;seed++)
         {
-            RunnerSession run=New(332); run.SetStartingDistrict(district); run.StartRun();
+            RunnerSession run=New(seed); run.SetStartingDistrict(district); run.StartRun();
             bool darkMap=district==District.Night || district==District.Storm;
-            float firstDark=-1, firstWarning=-1, peak=0, block=0, total=0;
-            int blocks=0; bool partial=false;
-            for (int i=0; i<120*34; i++)
+            float firstDark=-1,firstWarning=-1,full=0,block=0,peak=0;
+            int completed=0; bool partial=false;
+            starts.Add((int)(run.NextBlackoutAt*100)); durations.Add((int)(run.BlackoutDuration*100));
+            for(int i=0;i<120*34;i++)
             {
-                ClearHazards(run); run.Update(dt);
-                float darkness=run.DarknessAmount;
-                Check(!float.IsNaN(darkness) && darkness>=0 && darkness<=1,
-                    "Darkness escaped finite normalized bounds on " + district);
-                if (!darkMap)
-                    Check(darkness==0 && !run.BlackoutWarning, "A clear map unexpectedly blacked out: " + district);
-                if (run.BlackoutWarning && firstWarning<0) firstWarning=run.DistrictElapsed;
-                if (darkness>0)
+                ClearHazards(run); run.Update(dt); float amount=run.DarknessAmount;
+                Check(!float.IsNaN(amount)&&amount>=0&&amount<=1,"Blackout opacity outside normalized bounds");
+                if(!darkMap) Check(amount==0&&!run.BlackoutWarning,"Unexpected blackout on "+district);
+                if(run.BlackoutWarning&&firstWarning<0) firstWarning=run.DistrictElapsed;
+                if(amount>0)
                 {
-                    if (firstDark<0) firstDark=run.DistrictElapsed;
-                    if (block==0) blocks++;
-                    block+=dt; total+=dt;
-                    Check(block<=1.3f, "A blackout lasted too long on " + district);
-                    if (darkness>0.05f && darkness<0.95f) partial=true;
+                    if(firstDark<0) firstDark=run.DistrictElapsed;
+                    block+=dt; if(amount>=0.99999f) full+=dt;
+                    Check(block<=3.4f,"Blackout exceeded 3 seconds plus soft fades");
+                    partial|=amount>0.05f&&amount<0.95f;
                 }
-                else block=0;
-                peak=Math.Max(peak,darkness);
+                else if(block>0)
+                {
+                    Check(full>=1.98f&&full<=3.02f,"Fully opaque blackout did not last 2-3 seconds: "+full);
+                    completed++; block=full=0;
+                }
+                peak=Math.Max(peak,amount);
             }
-            if (darkMap)
+            if(darkMap)
             {
-                Check(firstDark>=7-0.02f, "Opening blackout did not leave enough grace on " + district);
-                Check(firstWarning>=0 && firstDark-firstWarning>=1.4f,
-                    "Blackout did not provide advance warning on " + district);
-                Check(blocks>=2 && total<5 && peak>0.99f && partial,
-                    "Blackout cadence, duration or smooth fading missing on " + district);
+                Check(firstDark>=6.98f&&firstDark<=13.02f,"Opening blackout grace outside intended range");
+                Check(firstWarning>=0&&firstDark-firstWarning>=1.4f,"Blackout missing advance warning");
+                Check(completed>=1&&peak==1&&partial,"No complete opaque/faded blackout");
             }
         }
+        Check(starts.Count>8&&durations.Count>8,"Blackout timing and duration were not randomized");
     }
 
     private static void BlackoutStateTransitions()
@@ -492,7 +519,7 @@ internal static class Program
             Near(run.DistrictElapsed,elapsed,0,"Paused blackout advanced its clock");
             Near(run.DarknessAmount,darkness,0,"Paused blackout changed opacity");
             Check(run.BlackoutWarning==warning,"Paused blackout changed warning");
-            run.TogglePause(); Advance(run,1.3f);
+            run.TogglePause(); Advance(run,3.4f);
             Check(run.DarknessAmount==0,"Blackout failed to end after resume");
             run.ReturnToMenu();
             Check(run.DarknessAmount==0 && !run.BlackoutWarning,"Menu retained a blackout");
@@ -542,7 +569,8 @@ internal static class Program
         {
             Id = source.Id, PatternId = source.PatternId, Kind = source.Kind, Variant = source.Variant,
             X = source.X, Y = source.Y, BaseY = source.BaseY, Width = source.Width, Height = source.Height,
-            Rotation = source.Rotation, MotionPhase = source.MotionPhase, MotionAmplitude = source.MotionAmplitude
+            Rotation = source.Rotation, MotionPhase = source.MotionPhase, MotionAmplitude = source.MotionAmplitude,
+            MotionAmplitudeX = source.MotionAmplitudeX, MotionSpeed = source.MotionSpeed
         };
     }
 
@@ -561,8 +589,10 @@ internal static class Program
                     if (!seen.Add(group.Key)) continue;
                     Check(group.Key > 0, "Generated hazard pack lacks a shared identity");
                     var entities = group.Select(CopyEntity).ToList();
-                    float start = entities.Min(e => e.X + run.Distance);
-                    float end = entities.Max(e => e.X + e.Width + run.Distance);
+                    // Audit the complete swept envelope, not only the current
+                    // sine position, so opposing motion cannot hide an unsafe gap.
+                    float start = entities.Min(e => e.X + run.Distance - MotionOffset(e,run.Elapsed) - e.MotionAmplitudeX);
+                    float end = entities.Max(e => e.X + e.Width + run.Distance - MotionOffset(e,run.Elapsed) + e.MotionAmplitudeX);
                     foreach (WorldEntity e in entities) e.X = e.X + run.Distance - start;
                     catalog.Add(new PackSpec { Seed=seed, District=run.CurrentDistrict, Id=group.Key, Speed=run.Speed, SpawnTime=run.Elapsed,
                         Start=start, End=end, Entities=entities });
@@ -888,6 +918,68 @@ internal static class Program
         Check(saw.Rotation != 0 && saw.Y != saw.BaseY, "Saw did not rotate and bob");
     }
 
+    private static float MotionOffset(WorldEntity e,float time)
+    { return (float)Math.Sin(time*e.MotionSpeed+e.MotionPhase)*e.MotionAmplitudeX; }
+
+    private static void StopSpawns(RunnerSession run)
+    { SetField(run,"distanceToPattern",1000000f); SetField(run,"nextHeartAt",float.MaxValue); }
+
+    private static WorldEntity MotionFixture(RunnerSession run)
+    {
+        World(run).Clear(); StopSpawns(run);
+        var e=new WorldEntity { Id=9981,Kind=EntityKind.Barrier,X=10000,Width=70,Height=76,
+            MotionAmplitudeX=24,MotionSpeed=1.3f,MotionPhase=0.7f };
+        World(run).Add(e); return e;
+    }
+
+    private static void HazardMotion()
+    {
+        RunnerSession run=New(); run.StartRun(); WorldEntity e=MotionFixture(run);
+        float anchor=e.X-MotionOffset(e,run.Elapsed);
+        for(int i=0;i<120*12;i++)
+        {
+            run.Update(1f/120);
+            Near(e.X+run.Distance-MotionOffset(e,run.Elapsed),anchor,0.15f,"Moving hazard accumulated sine drift");
+        }
+        run.TogglePause(); float x=e.X; run.Update(20); Near(e.X,x,0,"Paused hazard moved");
+        run.ReturnToMenu(); run.StartRun(); Check(!run.Entities.Contains(e),"Restart retained old moving obstacle");
+    }
+
+    private static void HazardMotionCollision()
+    {
+        RunnerSession run=New(); run.StartRun(); World(run).Clear(); StopSpawns(run); run.Save.Wallet=80;
+        var e=new WorldEntity { Id=9982,Kind=EntityKind.Barrier,X=run.PlayerX+150,Width=30,Height=70,
+            MotionAmplitudeX=100,MotionSpeed=10,MotionPhase=(float)Math.PI/2 };
+        World(run).Add(e); Advance(run,0.16f,false);
+        Check(run.State==RunState.GameOver,"Moving obstacle did not hit at its live position");
+        Check(run.Save.Wallet==80,"Hazard collision spent collected stars");
+    }
+
+    private static void MovingDuckLane()
+    {
+        foreach(EntityKind kind in new[]{EntityKind.Saw,EntityKind.Plane})
+        {
+            RunnerSession run=New(); run.StartRun(); World(run).Clear(); StopSpawns(run); run.SetDucking(true);
+            var e=new WorldEntity { Id=9983,Kind=kind,Width=76,Height=76,BaseY=72,Y=72,MotionAmplitude=16,MotionSpeed=1.8f };
+            World(run).Add(e);
+            for(int i=0;i<120*4;i++)
+            {
+                e.X=run.PlayerX-e.Width/2; run.Update(1f/120);
+                Check(run.State==RunState.Playing,"Vertical moving hazard invaded duck lane");
+                Check(e.Y>=55.99f&&e.Y<=88.01f,"Vertical hazard left its authored envelope");
+            }
+        }
+    }
+
+    private static void MovingFrameStep()
+    {
+        RunnerSession a=New(),b=New(); a.StartRun(); b.StartRun();
+        WorldEntity ea=MotionFixture(a),eb=MotionFixture(b);
+        a.Update(0.2f); Advance(b,0.2f,false);
+        Near(ea.X,eb.X,0.02f,"Frame partition changed horizontal hazard motion");
+        Near(ea.Y,eb.Y,0.01f,"Frame partition changed vertical hazard motion");
+    }
+
     private static void PatternVariety()
     {
         HashSet<EntityKind> kinds = new HashSet<EntityKind>(Packs().SelectMany(p => p.Entities).Select(e => e.Kind));
@@ -897,15 +989,20 @@ internal static class Program
         Check(Packs().Any(p => p.Entities.Count(e => e.Kind==EntityKind.Spike)==3), "No triple spike rhythm appeared");
         Check(Packs().Any(p => p.Entities.Count(e => e.Kind==EntityKind.Barrier)==2), "No stepped barrier rhythm appeared");
         Check(Packs().Any(p => p.Entities.Any(e => e.Kind==EntityKind.Saw && e.MotionAmplitude>0)), "No floating moving blade appeared");
+        Check(Packs().Any(p => p.Entities.Any(e => e.Kind==EntityKind.Saw && e.MotionAmplitudeX>0)), "No horizontally patrolling saw appeared");
+        Check(Packs().Any(p => p.Entities.Any(e => e.Kind==EntityKind.Barrier && e.MotionAmplitudeX>0)), "No moving barrier appeared");
+        Check(Packs().Where(p=>p.SpawnTime<30).All(p=>p.Entities.All(e=>e.MotionAmplitudeX==0)),
+            "Advanced moving packs appeared before their unlock time");
     }
 
     private static string PackSignature(PackSpec pack)
     {
         return string.Join(";", pack.Entities.Select(e => e.Kind + ":" +
-            Math.Ceiling(e.X/10) + ":" + Math.Ceiling(e.Width/10) + ":" + Math.Ceiling(e.Height/10) + ":" + e.BaseY));
+            Math.Ceiling(e.X/10) + ":" + Math.Ceiling(e.Width/10) + ":" + Math.Ceiling(e.Height/10) + ":" + e.BaseY +
+            ":motion=" + e.MotionAmplitudeX + "," + e.MotionAmplitude + "," + e.MotionSpeed));
     }
 
-    private static bool ReplayPack(PackSpec pack, float speed, float playerX, float lead, float secondJumpDelay)
+    private static bool ReplayPack(PackSpec pack, float speed, float playerX, float lead, float secondJumpDelay, float phaseShift=0)
     {
         RunnerSession run = New(991); run.StartRun(); World(run).Clear();
         SetProperty(run, "Elapsed", (speed-RunnerSession.InitialSpeed)/RunnerSession.SpeedAcceleration);
@@ -915,6 +1012,11 @@ internal static class Program
         foreach (WorldEntity e in pack.Entities)
         {
             WorldEntity clone = CopyEntity(e);
+            float oldPhase=pack.SpawnTime*e.MotionSpeed+e.MotionPhase;
+            clone.X += e.MotionAmplitudeX*((float)Math.Sin(oldPhase+phaseShift)-(float)Math.Sin(oldPhase));
+            // Preserve the recorded motion phase even when testing another speed
+            // whose elapsed clock differs from the original generated pack.
+            clone.MotionPhase += (pack.SpawnTime-run.Elapsed)*e.MotionSpeed + phaseShift;
             clone.X += playerX + speed*0.65f;
             obstacles.Add(clone); World(run).Add(clone);
         }
@@ -963,6 +1065,14 @@ internal static class Program
         Console.WriteLine("  Replayed " + samples.Count + " sampled geometries at both speed limits and both screen bounds.");
     }
 
+    private static bool RobustReplay(PackSpec pack,float speed,float x,float lead,float delay)
+    {
+        bool moving=pack.Entities.Any(e=>e.MotionAmplitudeX>0);
+        foreach(float phase in moving?new[]{0f,1.5707963f,3.1415927f,4.712389f}:new[]{0f})
+            if(!ReplayPack(pack,speed,x,lead-0.025f,delay,phase)||!ReplayPack(pack,speed,x,lead+0.025f,delay,phase)) return false;
+        return true;
+    }
+
     private static void SequentialRunner()
     {
         for (int seed=0; seed<6; seed++)
@@ -987,7 +1097,7 @@ internal static class Program
                             var copies=group.Select(CopyEntity).ToList();
                             float left=copies.Min(e=>e.X);
                             foreach (WorldEntity e in copies) e.X-=left;
-                            var livePack=new PackSpec { Entities=copies };
+                            var livePack=new PackSpec { Entities=copies, SpawnTime=run.Elapsed };
                             description=PackSignature(livePack);
                             float arrival=Math.Max(0,(left-run.PlayerX)/run.Speed);
                             float approach=Math.Min(RunnerSession.MaximumSpeed,run.Speed+arrival*RunnerSession.SpeedAcceleration);
@@ -995,8 +1105,7 @@ internal static class Program
                             foreach (float lead in new[] {0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
                             {
                                 foreach (float delay in new[] {-1f,0.28f,0.4f,0.52f,0.64f})
-                                    if (ReplayPack(livePack,approach,run.PlayerX,lead-0.025f,delay) &&
-                                        ReplayPack(livePack,approach,run.PlayerX,lead+0.025f,delay))
+                                    if (RobustReplay(livePack,approach,run.PlayerX,lead,delay))
                                     { jumpLead=lead; doubleDelay=delay; found=true; break; }
                                 if (found) break;
                             }
@@ -1038,15 +1147,15 @@ internal static class Program
 
     private static void SaveValidation()
     {
-        var save = new RunnerSave { Wallet = -100, BestScore = -10, LastScore = -7, ExtraHeartsLevel = 100, History = null };
+        var save = new RunnerSave { Wallet = -100, BestScore = -10, LastScore = -7, PurchasedHearts = 100, History = null };
         RunnerSession run = new RunnerSession(save, 1);
         Check(run.Save.Wallet >= 0 && run.Save.BestScore >= 0 && run.Save.LastScore >= 0, "Negative saved values remain");
-        Check(run.Save.ExtraHeartsLevel == 3 && run.Save.History != null, "Invalid upgrade/history not sanitized");
+        Check(run.Save.PurchasedHearts == 3 && run.Save.History != null, "Invalid upgrade/history not sanitized");
         RunnerSession fresh = new RunnerSession(null, 1); fresh.StartRun();
         Check(fresh.Lives == 1, "Missing save did not use safe defaults");
-        var valid = new RunnerSave { Wallet = 43, BestScore = 900, LastScore = 500, ExtraHeartsLevel = 1 };
+        var valid = new RunnerSave { Wallet = 43, BestScore = 900, LastScore = 500, PurchasedHearts = 1 };
         RunnerSession retained = new RunnerSession(valid, 1);
-        Check(retained.Save.Wallet == 43 && retained.Save.BestScore == 900 && retained.Save.LastScore == 500 && retained.Save.ExtraHeartsLevel == 1, "Valid progress was discarded");
+        Check(retained.Save.Wallet == 43 && retained.Save.BestScore == 900 && retained.Save.LastScore == 500 && retained.Save.PurchasedHearts == 1, "Valid progress was discarded");
     }
 
     private static void FrameStep()
