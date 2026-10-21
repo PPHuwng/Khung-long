@@ -7,62 +7,67 @@ Cần **.NET SDK 8**. Từ thư mục gốc dự án:
 ```
 
 Console chạy trực tiếp các file trong `Assets/CityDino/Core/` bằng C# 9,
-không dùng bản sao của logic game và không cần thư viện kiểm thử bên ngoài.
-Bộ kiểm tra có **60 kiểm tra hành vi**, bao gồm:
+không dùng bản sao logic game, không cần thư viện kiểm thử bên ngoài.
+Bộ kiểm tra có **76 nhóm hành vi**, gồm:
 
-- Nhảy kép, coyote time, vượt vật cản mở đầu, cúi tránh máy bay.
-- Di chuyển trái/phải khi đứng hoặc trên không; giới hạn màn hình; axis không hợp lệ.
-- Va chạm, nhặt sao/tim, kiểm tra mặt đường và hồi sau khi rơi đều dùng vị trí X hiện tại.
-- Tạm dừng/kết thúc/menu/chơi lại dừng input ngang và giữ hoặc đặt lại vị trí đúng lúc.
-- Tốc độ tăng đều không giới hạn, kiểm tra qua 20.000 điểm và các mốc 1/10 giờ; đồng hồ/quãng đường tích lũy bằng double để không đứng lại ở tốc độ cao.
-- Vật cản mỏng 8px và sao nhỏ vẫn được kiểm tra ở tốc độ 8.280/79.560 nhờ bước va chạm thích ứng.
-- Sinh ngẫu nhiên có seed; toàn bộ loại vật cản và cụm gai/bậc chắn.
-- Va chạm gai theo tam giác và cưa theo hình tròn, không tính góc trống là vật cản.
-- Cưa quay/dao động nhưng giữ làn cúi an toàn.
-- Cưa/rào tuần tra ngang và máy bay lên xuống, dùng vị trí thật cho va chạm, không trôi sai sau nhiều chu kỳ; pause/reset và frame partition nhất quán.
-- Biên độ/tần số bẫy tăng theo thời gian sinh; vùng chuyển động đầy đủ được tính vào khoảng cách cụm, làn cúi vẫn còn ở giai đoạn muộn.
-- Cưa chạm vào phần đầu hiện rõ, bỏ qua vùng cổ trong suốt, theo đúng hướng nhìn,
-  khung hình nhảy, cúi và độ nhấp nhô; rìa răng cưa và góc trống được kiểm tra riêng.
-- Sáu khung cúi/nhảy mới theo alpha thật ở cả hai hướng; chọn đúng khung đạp đất/thu chân/rơi, nhảy kép và ba nhịp cúi.
-- Va chạm cưa tôn trọng thời gian miễn thương; pose chạy/cúi/nhảy được giữ nguyên lúc chết nhờ vận tốc ảnh riêng, dù vận tốc vật lý đã dừng.
-- Nhặt sao một lần, ví, mua tim dùng một lượt, hoàn tiền nâng cấp cũ đúng một lần, hồi tim và nhịp sinh tim hiếm.
-- Chọn đủ sáu map khởi đầu, mặc định ngẫu nhiên và đổi map ngẫu nhiên không lặp liền nhau.
-- Đêm/giông bão có báo trước, đen hoàn toàn 2–3 giây, thời lượng/lịch ngẫu nhiên, chuyển độ tối mượt; dừng đồng hồ lúc pause,
-  đặt lại hiệu ứng khi đổi map/chơi lại; bốn map còn lại không bị tối.
-- Mưa/bão có một xung sấm chớp mỗi chu kỳ, danh tính tia chớp dùng chung với âm thanh; bốn map khác không chớp.
-- Map trên mây không có hố trong 10 giây đầu; sau đó sinh khe đường thật,
-  hồi phục sau rơi và dừng khi hết mạng.
-- Lưu kỷ lục/lịch sử đúng một lần, chơi lại và chuẩn hóa dữ liệu lưu.
+- Nhảy kép, coyote time, cúi, di chuyển trái/phải trên đất/trên không, giới hạn màn hình và input không hợp lệ.
+- Va chạm, nhặt đồ, mặt đường và hồi sau rơi dùng vị trí X hiện tại; chết chỉ ghi kết quả một lần và đóng băng tư thế.
+- Tốc độ tăng từ từ không giới hạn, vượt 20.000 điểm, đồng hồ 1/10 giờ và va chạm thích ứng ở tốc độ 8.280/79.560.
+- Ngẫu nhiên có seed, khoảng nghỉ giữa các cụm tính cả vùng quét chuyển động; không ghép làn cúi và làn nhảy bất khả thi.
+- Gai dùng tam giác; cưa dùng vòng tròn và bóng dáng theo alpha nhân vật, bỏ qua góc/cổ trong suốt; cả hai hướng, sáu khung nhảy/cúi và độ nhấp nhô.
+- Cưa/rào tuần tra và máy bay dao động; biên độ/tần số tăng theo thời gian, vẫn giữ làn cúi; không trôi sai, pause/reset và bước thời gian nhất quán.
+- Tim hiếm, nhặt sao một lần, giới hạn ví/mạng; tim mua dùng một lượt giá **100/300/600**; hoàn nâng cấp v1 đúng một lần và chuyển lưu v2 sang v3 giữ ví/kỷ lục/lịch sử/tim dự trữ.
+- Chọn map khởi đầu hoặc ngẫu nhiên; túi sáu map đi đủ sáu map trước khi lặp, không lặp liền nhau ở ranh giới hai túi.
+- Đêm có cảnh báo và tối đen hoàn toàn ngẫu nhiên 2–3 giây; chỉ đêm dùng blackout này, pause giữ nguyên và đổi map/chơi lại đặt lại.
+- Bão mưa có chớp mỗi 1,8 giây sau mở đầu 1 giây, pha chớp/tia sét dùng chung danh tính sấm; mức tối thay đổi liên tục; tuyết và các map khác không sấm chớp.
+- Tuyết có quán tính khi thả/phanh/đổi hướng; gió trên mây đẩy mạnh hơn trên không và có thể điều khiển ngược để giữ X.
+- Map mây có 10 giây mở đầu an toàn, sinh nhiều hố, hố kép và nền nứt/sập; nền sập là hố thật và hồi sau rơi không lặp vô hạn.
+- Nhiệt/nước có 2 giây nghỉ đầu map, hao đúng tốc độ, nhặt đồ nóng/nước để hồi; cạn mất một mạng, hồi ngắn khi còn sống và không hồi giả sau khi chết.
+- Bình nước/gói ấm dùng một lần giá **150**, khiên dùng một lần giá **200**; mua lưu vào lượt sau, tiêu kho khi bắt đầu, không trở thành nâng cấp vĩnh viễn.
+- Khiên chặn đúng một va chạm vật lý, có khoảng miễn thương ngắn; không cứu rơi hố.
+- ×2 chỉ nhân quãng đường ghi điểm trong thời gian hiệu lực, gồm bước hết hạn lẻ; không nhân điểm cũ, quãng đường thật hoặc ví sao.
+- Nam châm chỉ hút sao trong bán kính, không hút tim/nước; thời gian hết hạn lẻ, gia hạn có giới hạn, pause/chơi lại đúng trạng thái.
+- Hai nâng cấp thời lượng **200/400/700/1.100**, từ 8 lên tối đa 16 giây; ba loại powerup sinh ngẫu nhiên trong làn trống.
 
-Các bài kiểm tra va chạm tạo một tình huống cụ thể trong danh sách thực thể của
-core; sau đó chạy chính bước mô phỏng sản xuất để kiểm tra kết quả.
+Các bài va chạm tạo tình huống cụ thể trong danh sách thực thể rồi chạy bước
+mô phỏng production. Fixture cơ bản chọn map ngày để tách điều kiện thời tiết.
+Các bài đo sinh cụm loại vật cản sau khi ghi đủ cụm, loại powerup và giữ đầy
+thanh sinh tồn để chỉ đo generator; chúng không được dùng làm bằng chứng sống sót.
 
-Kiểm tra sinh map ghi lại các cụm trên **12 seed × 215 giây mô phỏng**, với hai seed khởi đầu trên mỗi map. Nó chỉ
-loại vật cản sau khi ghi nhận cụm đầy đủ để quan sát sinh map suốt lượt; bài
-kiểm tra riêng phát lại **81 hình học cụm thực tế** ở bốn tốc độ
-**360/900/1.800/3.600** và hai biên X (**648 tình huống**), tìm cách nhảy/nhảy kép/cúi qua bằng va chạm thật.
-Bài chạy liên tục dùng **6 seed × 2 vị trí X × 215 giây**, mỗi seed mở đầu ở một map khác nhau, không xoá vật cản hoặc
-bật bất tử, để kiểm tra chuyển tiếp giữa các cụm. Bộ điều khiển mô phỏng tìm
-nhịp nhảy có dung sai ±25 ms và bốn pha chuyển động ngang; đây là kiểm tra đường vượt tồn tại, không thay
-thế đánh giá độ khó bằng người chơi. Kiểm tra đổi map ngẫu nhiên chạy thêm
-**12 seed × 245 giây**, không yêu cầu một lượt ngẫu nhiên phải đi qua đủ mọi map.
+Kiểm tra cụm ghi **12 seed × 215 giây**, mở đầu trên đủ sáu map. Phát lại
+**108 hình học thực tế × 4 tốc độ 360/900/1.800/3.600 × 2 biên X = 864 tình huống**,
+tìm nhịp nhảy/nhảy kép/cúi bằng va chạm thật. Mẫu muộn sinh trên **6 map × 3 mốc
+600/1.200/3.600 giây × 20 giây**, phát lại 18 hình học chuyển động ở tốc độ
+thực, hai biên X và bốn pha (**144 tình huống**).
 
-Mẫu giai đoạn muộn dùng **6 map × 3 mốc 600/1.200/3.600 giây**, mỗi mẫu sinh
-thực trong 20 giây. **18 hình học bẫy chuyển động** được phát lại ở tốc độ thực
-của thời điểm sinh, hai biên X và bốn pha (**144 tình huống**). Khi gom mẫu,
-chữ ký làm tròn biên độ/tần số thành nhóm để tránh lặp lại hàng trăm mẫu gần
-nhau; mẫu có vùng quét rộng nhất trong nhóm được giữ lại. Đây là kiểm tra
-đường vượt bằng mô phỏng; không khẳng định người chơi có đủ thời gian phản
-ứng ở mọi tốc độ lớn tùy ý.
+Bài chạy liên tục dùng **6 seed × 2 vị trí X × 215 giây**, mỗi seed bắt đầu ở
+một map, giữ vật cản và nguồn nước/đồ ấm production, không bất tử hoặc hồi thanh
+miễn phí. Powerup khiên/nam châm/×2 được loại khỏi bài này để tránh che lỗi.
+Bot bù gió theo X mục tiêu, tìm nhịp nhảy có dung sai ±25 ms và bốn pha chuyển
+động ngang. Có **37.154 khung hình đồ tiếp tế hiện trong màn hình** được kiểm tra
+không giao vật cản/hố thật trong suốt đường đi, kể cả sau thời điểm sinh. Đây là kiểm tra đường vượt tồn tại, không thay đánh giá độ khó bởi
+người chơi và không khẳng định mọi tốc độ lớn tùy ý đều dễ phản ứng.
 
-Có thể chỉ chạy một nhóm khi đang chẩn đoán lỗi:
+Bài sinh tồn riêng chạy **12 seed × 2 map tuyết/nắng × 34 giây**, giữ hao thanh,
+nhịp sinh, quãng đường di chuyển và va chạm nhặt đồ thật; chỉ bỏ vật cản để tách
+độ đủ của nguồn tiếp tế. Nó ghi nhận **206 lần sinh và 190 lần nhặt hồi thanh**,
+không tự hồi tài nguyên. Bài tiếp cận muộn thử vị trí sinh production trước/sau
+các cụm thật tại 600/1.200/3.600 giây, kiểm tra vùng quét và thời gian tiếp cận;
+đây là kiểm tra bố trí, không phải lượt chơi muộn hoàn chỉnh. Có 222 vị trí
+sinh được thử, thời gian tiếp cận bằng cuộn đường dài nhất là 0,38 giây.
+
+Đo mây trên **12 seed × 2 mốc 0/90 giây × 34 giây** có **258/427 cụm thuộc nhóm
+hố (60,4%)**, gồm 58 hố kép và 84 nền sập. Túi map được kiểm tra thêm ba vòng
+sáu map cho cả sáu lựa chọn khởi đầu và chế độ ngẫu nhiên.
+
+Có thể chỉ chạy một nhóm khi chẩn đoán lỗi:
 
 ```bash
 ./scripts/test-core.sh --only 'seeded full'
 ```
 
-Console ghi rõ những bài không được chọn chưa chạy; chạy không có tham số sẽ
-thực hiện toàn bộ 60 kiểm tra.
+Console ghi rõ những bài không được chọn chưa chạy; không truyền tham số sẽ
+chạy toàn bộ 76 nhóm.
 
 ## Ánh xạ input và đa điểm chạm
 
@@ -70,13 +75,10 @@ thực hiện toàn bộ 60 kiểm tra.
 ./scripts/test-core.sh --input-mapping
 ```
 
-Bộ này có **14 kiểm tra** gọi trực tiếp `ApplyPointer`/`ReadPointers` trong
-controller production bằng fixture tọa độ và thiết bị giả. Nó kiểm tra nút
-trái/phải không kích hoạt nhảy, trái+phải triệt tiêu, di chuyển cùng nhảy bằng
-hai ngón, crouch, vùng HUD, letterbox và scale màn hình.
-
-Đây là kiểm tra logic ánh xạ với phép toán/API tối thiểu. Nó **không kiểm tra
-sự kiện Unity, cảm ứng thật hoặc việc hệ điều hành cung cấp input**.
+**14 kiểm tra** gọi trực tiếp `ApplyPointer`/`ReadPointers` controller production
+bằng tọa độ và thiết bị giả: trái/phải, hai hướng triệt tiêu, hai ngón di chuyển
+cùng nhảy, crouch, HUD, letterbox và scale màn hình. Đây là kiểm tra logic/API
+tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc input từ hệ điều hành.
 
 ## Hợp đồng toạ độ vẽ
 
@@ -84,17 +86,18 @@ sự kiện Unity, cảm ứng thật hoặc việc hệ điều hành cung cấ
 ./scripts/test-core.sh --render-contracts
 ```
 
-**7 nhóm kiểm tra** gọi trực tiếp `RunnerWorldView.Draw` và ghi lại lệnh vẽ:
+**11 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
 
-- Tâm cưa giữ đúng tâm va chạm qua 5 góc xoay × 5 scale/offset màn hình.
-- Vệt mưa/đường giữ đúng hai đầu khi scale và letterbox.
-- Mỗi vật cản có lệnh vẽ ảnh, không còn nhãn CÚI/NHẢY nổi trên map.
-- Lệnh cuối của thế giới khi tối là phủ đen RGB=0, alpha=1; không vẽ bóng vật thể đè lên.
-- Tia chớp có lệnh vẽ đúng pha dùng chung với mô hình sấm.
-- Hiệu ứng thời tiết giữ nguyên khi tạm dừng, không chạy theo đồng hồ ambient.
-- Sáu khung cúi/nhảy dùng đúng UV atlas và hướng lật ở cả hai phía; ảnh và hình va chạm cùng một tư thế.
+- Tâm cưa đúng tâm va chạm qua 5 góc xoay × 5 scale/offset; đầu đường không lệch khi letterbox.
+- Mỗi loại vật cản có ảnh, không nhãn CÚI/NHẢY nổi; nền sập/hố cắt mặt đường đúng vùng clip.
+- Tuyết có mặt đường phủ tuyết và bông tuyết; mưa bão vẽ trên lớp tối và chớp theo đúng pha.
+- Blackout đêm phủ RGB=0, alpha=1, không có vật thể thế giới vẽ đè sau.
+- Năm pickup mới dùng vùng ảnh atlas riêng, đúng vị trí/UV; gió giữ nguyên khi pause.
+- Sáu khung nhảy/cúi đúng UV và hướng lật; ảnh/va chạm dùng cùng tư thế.
 
-Stub dùng phép toán affine thực bằng `System.Numerics`, texture giả lấy kích thước từ PNG gốc và ghi lệnh draw; **không raster hoá ảnh hoặc chạy Unity**. Phép xoay cũ của Unity 6000.4 đã được mô hình hoá và tái hiện lỗi ở bản sao tạm: kiểm tra tâm cưa/đầu đường thất bại; cùng bộ kiểm tra đạt với phép xoay mới. Tham chiếu: [UnityCsReference GUIUtility.cs](https://github.com/Unity-Technologies/UnityCsReference/blob/6000.4/Modules/IMGUI/GUIUtility.cs#L404).
+Stub dùng phép toán affine `System.Numerics`, texture giả lấy kích thước từ
+PNG thật và ghi lệnh draw, **không raster hoá ảnh hoặc chạy Unity**. Hợp đồng
+xoay tham chiếu [UnityCsReference GUIUtility.cs](https://github.com/Unity-Technologies/UnityCsReference/blob/6000.4/Modules/IMGUI/GUIUtility.cs#L404).
 
 ## Kiểm tra biên dịch tích hợp
 
@@ -102,9 +105,8 @@ Stub dùng phép toán affine thực bằng `System.Numerics`, texture giả l�
 ./scripts/test-core.sh --compile-unity
 ```
 
-Lệnh này chỉ biên dịch toàn bộ script runtime mới và script cũ bằng bộ chữ ký
-API Unity tối thiểu tại `UnityCompile/UnityStubs.cs`. Nó giúp phát hiện lỗi cú
-pháp hoặc liên kết C#, **không chạy Unity**, không chứng minh import/serialize,
-input thực tế, đồ họa, âm thanh hoặc build Unity hoạt động. Vẫn cần kiểm tra
-Play Mode trong Unity Editor theo README chính. Bộ stub và console test nằm
-ngoài `Assets`, nên Unity không nhập chúng vào trò chơi.
+Lệnh chỉ biên dịch toàn bộ script runtime mới và script cũ bằng chữ ký API Unity
+ở `UnityCompile/UnityStubs.cs`; không chạy Unity Editor, không chứng minh import,
+serialize, input thật, đồ họa, âm thanh hoặc build Unity hoạt động. Vẫn cần kiểm
+tra Play Mode theo README chính. Stub và console test ở ngoài `Assets` nên Unity
+không nhập chúng vào trò chơi.

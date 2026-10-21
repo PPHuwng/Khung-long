@@ -12,25 +12,35 @@ namespace CityDino
     /// <summary>One shared clock for the rendered lightning and its thunder cue.</summary>
     public static class RunnerWeather
     {
+        public const float StormFirstStrike = 1f;
+        public const float StormStrikeInterval = 1.8f;
+        public const float LightningPulseDuration = 0.32f;
+
         public static LightningFrame GetLightning(District district, float districtElapsed)
         {
-            if ((district != District.Rain && district != District.Storm) ||
-                float.IsNaN(districtElapsed) || float.IsInfinity(districtElapsed) || districtElapsed < 2f)
+            if (district != District.Storm || !ValidTime(districtElapsed) || districtElapsed < StormFirstStrike)
                 return new LightningFrame();
-
-            float interval = district == District.Rain ? 3.4f : 2.8f;
-            float sinceFirst = districtElapsed - 2f;
-            int strike = (int)Math.Floor(sinceFirst / interval) + 1;
-            float phase = sinceFirst - (strike - 1) * interval;
-            const float pulse = 0.42f;
-            float amount = phase < pulse ? (float)Math.Sin(Math.PI * phase / pulse) : 0f;
+            float sinceFirst = districtElapsed - StormFirstStrike;
+            int strike = (int)Math.Floor(sinceFirst / StormStrikeInterval) + 1;
+            float phase = sinceFirst - (strike - 1) * StormStrikeInterval;
+            float amount = phase < LightningPulseDuration
+                ? (float)Math.Sin(Math.PI * phase / LightningPulseDuration) : 0f;
             uint hash = unchecked((uint)strike * 2654435761u + (uint)district * 374761393u);
-            return new LightningFrame
-            {
-                Amount = Math.Max(0f, amount),
-                StrikeId = strike,
-                BoltX = 180f + (hash % 920u)
-            };
+            return new LightningFrame { Amount = Math.Max(0f, amount), StrikeId = strike, BoltX = 180f + hash % 920u };
         }
+
+        public static float GetStormDarkness(float districtElapsed)
+        {
+            if (!ValidTime(districtElapsed)) return 0f;
+            double phase = (districtElapsed - StormFirstStrike) % StormStrikeInterval;
+            if (phase < 0) phase += StormStrikeInterval;
+            float wave = (float)(0.5d + 0.5d * Math.Cos(phase * Math.PI * 2d / StormStrikeInterval));
+            float dark = 0.18f + 0.70f * wave;
+            float flash = GetLightning(District.Storm, districtElapsed).Amount;
+            return dark * (1f - flash * 0.9f);
+        }
+
+        private static bool ValidTime(float time)
+        { return !float.IsNaN(time) && !float.IsInfinity(time) && time >= 0f; }
     }
 }

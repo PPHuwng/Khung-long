@@ -17,8 +17,12 @@ internal static class Program
         Test("line segments preserve endpoints under canvas scale and letterboxing",LineEndpoints);
         Test("every hazard is drawn and no floating action labels remain",VisibleHazards);
         Test("peak blackout ends the world pass with fully opaque pure black",FullBlackout);
-        Test("rain lightning rendering follows the shared strike clock",LightningDraw);
-        Test("paused rain effects do not advance with ambient wall time",PausedWeather);
+        Test("storm lightning rendering follows the shared strike clock",LightningDraw);
+        Test("storm rain remains visible above both darkness and lightning",StormRainOrder);
+        Test("snow has a visible icy surface and falling flakes",SnowSurface);
+        Test("snow road cuts match open gaps and collapsed floors",SnowGapCuts);
+        Test("all survival and power-up pickups are drawn at their physical positions",PickupSprites);
+        Test("paused snow and storm weather do not advance with ambient wall time",PausedWeather);
         Test("jump and crouch poses draw their own atlas frames in both directions",ActionSprites);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
         Console.WriteLine("Recorded production draw calls with affine API stubs; no Unity rasterization or Editor execution.");
@@ -115,44 +119,137 @@ internal static class Program
     }
     private static void FullBlackout()
     {
-        foreach(District district in new[]{District.Night,District.Storm})
-        {
-        var art=new RunnerArt(); var run=New(district);
-        // Deliberately overlap the blackout plateau and a storm lightning peak.
+        var art=new RunnerArt(); var run=New(District.Night);
         Set(run,"NextBlackoutAt",2f); Set(run,"BlackoutDuration",2.5f); Set(run,"DistrictElapsed",2.21f);
-        Check(run.DarknessAmount==1,"Fixture is not at fully dark plateau");
+        Check(run.DarknessAmount==1,"Night fixture is not at fully dark plateau");
         World(run).Add(new WorldEntity { Kind=EntityKind.Saw,X=450,Y=60,Width=76,Height=76,Rotation=80 });
         using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f));
         RecordedDraw last=GUI.DrawCalls.Last();
-        Check(last.Kind=="Texture"&&last.Texture==Texture2D.whiteTexture&&last.Position.x==0&&last.Position.y==0&&last.Position.width==1280&&last.Position.height==720,"World was drawn over blackout");
-        Check(last.Color.r==0&&last.Color.g==0&&last.Color.b==0&&last.Color.a==1,"Blackout is not opaque pure black");
-        }
+        Check(last.Kind=="Texture"&&last.Texture==Texture2D.whiteTexture&&last.Position.x==0&&last.Position.y==0&&last.Position.width==1280&&last.Position.height==720,"World was drawn over night blackout");
+        Check(last.Color.r==0&&last.Color.g==0&&last.Color.b==0&&last.Color.a==1,"Night blackout is not opaque pure black");
+        var storm=New(District.Storm); Set(storm,"NextBlackoutAt",2f); Set(storm,"BlackoutDuration",2.5f); Set(storm,"DistrictElapsed",2.21f);
+        Check(storm.DarknessAmount==0,"Storm retained the long night blackout mechanism");
     }
     private static void Set(RunnerSession run,string property,float value)
     { typeof(RunnerSession).GetProperty(property).GetSetMethod(true).Invoke(run,new object[]{value}); }
+    private static bool FullCanvas(RecordedDraw draw)
+    {
+        return draw.Kind=="Texture"&&draw.Texture==Texture2D.whiteTexture&&draw.Position.x==0&&draw.Position.y==0
+            &&draw.Position.width==1280&&draw.Position.height==720;
+    }
     private static void LightningDraw()
     {
-        foreach(District district in new[]{District.Day,District.Rain,District.Sunset,District.Night,District.Skyway,District.Storm})
+        const float peak=1.16f;
+        foreach(District district in new[]{District.Day,District.Snow,District.Sunset,District.Night,District.Skyway,District.Storm})
         {
-            var art=new RunnerArt(); var run=New(district); Set(run,"DistrictElapsed",2.21f);
+            var art=new RunnerArt(); var run=New(district); Set(run,"DistrictElapsed",peak);
             using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f,150,0));
-            var flashes=GUI.DrawCalls.Where(d=>d.Kind=="Texture"&&d.Position.width==1280&&d.Position.height==720&&d.Color.b>d.Color.r&&d.Color.a>0).ToList();
-            bool wet=district==District.Rain||district==District.Storm;
-            Check(flashes.Count==(wet?1:0),"Lightning appeared on the wrong map or pulse duplicated");
-            if(wet)
-                Near(flashes[0].Color.a,RunnerWeather.GetLightning(district,2.21f).Amount*0.23f,"Flash uses a different clock from thunder");
+            var flashes=GUI.DrawCalls.Where(d=>FullCanvas(d)&&d.Color.r>0.5f&&d.Color.b>d.Color.r&&d.Color.a>0).ToList();
+            Check(flashes.Count==(district==District.Storm?1:0),"Lightning appeared on the wrong map or pulse duplicated");
+            if(district==District.Storm)
+                Near(flashes[0].Color.a,RunnerWeather.GetLightning(district,peak).Amount*0.55f,"Flash uses a different clock from thunder");
         }
     }
-    private static void PausedWeather()
+    private static void StormRainOrder()
     {
-        var art=new RunnerArt(); var run=New(District.Rain); Set(run,"Elapsed",6f); Set(run,"DistrictElapsed",2.21f);
-        run.TogglePause();
+        foreach(float time in new[]{1.16f,1.7f,2.5f,2.96f,3.9f})
+        {
+            var art=new RunnerArt();var run=New(District.Storm);Set(run,"DistrictElapsed",time);Set(run,"Elapsed",time);
+            using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f,90,0));
+            int overlay=GUI.DrawCalls.FindLastIndex(FullCanvas);
+            Check(overlay>=0,"Storm is missing its darkness/lightning overlay");
+            int drops=GUI.DrawCalls.Skip(overlay+1).Count(d=>d.Kind=="Texture"&&d.Texture==Texture2D.whiteTexture
+                &&d.Position.height<=3&&d.Position.width>=12&&d.Color.r>0.65f&&d.Color.g>0.75f&&d.Color.b>0.85f&&d.Color.a>0.1f);
+            Check(drops>=35,"Rain was covered by storm darkness/flash at "+time+"s (visible drops="+drops+")");
+        }
+    }
+    private static void SnowGapCuts()
+    {
+        var art=new RunnerArt();var run=New(District.Snow);
+        var gap=new WorldEntity{Kind=EntityKind.Gap,X=350,Width=160,Height=160};
+        var bridge=new WorldEntity{Kind=EntityKind.CollapsingFloor,X=720,Width=180,Height=160,CollapseProgress=0.5f};
+        World(run).Add(gap);World(run).Add(bridge);
         using(var view=new RunnerWorldView(art))
         {
             Draw(view,run,Canvas(1));
-            string first=DrawSnapshot();
-            GUI.DrawCalls.Clear(); view.Draw(run,50f);
-            Check(DrawSnapshot()==first,"Rain or lightning advanced while paused");
+            var cuts=(IList<Vector2>)typeof(RunnerWorldView).GetField("gaps",Private).GetValue(view);
+            Check(cuts.Count==1,"Uncollapsed bridge was rendered as an open hole");
+            Near(cuts[0].x,350,"Gap left edge differs from physics");Near(cuts[0].y,510,"Gap right edge differs from physics");
+            CheckSnowSurfaceAvoids(350,510);
+            Check(SnowSurfaceBounds().Any(r=>r.x<800&&r.xMax>820),"The intact bridge lacks a visible supporting road surface");
+            bridge.Collapsed=true;bridge.CollapseProgress=1;
+            Draw(view,run,Canvas(1));
+            Check(cuts.Count==2,"Collapsed floor still has road or snow over its opening");
+            Near(cuts[1].x,720,"Collapsed floor left edge differs from physics");Near(cuts[1].y,900,"Collapsed floor right edge differs from physics");
+            CheckSnowSurfaceAvoids(350,510);CheckSnowSurfaceAvoids(720,900);
+        }
+    }
+    private static Rect VisibleBounds(RecordedDraw draw)
+    {
+        Vector3[] corners={
+            draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.x,draw.Position.y,0)),
+            draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.xMax,draw.Position.y,0)),
+            draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.x,draw.Position.yMax,0)),
+            draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.xMax,draw.Position.yMax,0))};
+        float left=corners.Min(p=>p.x),right=corners.Max(p=>p.x),top=corners.Min(p=>p.y),bottom=corners.Max(p=>p.y);
+        if(draw.Clip.HasValue)
+        {
+            Rect clip=draw.Clip.Value;
+            left=Math.Max(left,clip.x);right=Math.Min(right,clip.xMax);
+            top=Math.Max(top,clip.y);bottom=Math.Min(bottom,clip.yMax);
+        }
+        return new Rect(left,top,Math.Max(0,right-left),Math.Max(0,bottom-top));
+    }
+    private static List<Rect> SnowSurfaceBounds()
+    {
+        return GUI.DrawCalls.Where(d=>d.Kind=="Texture"&&d.Texture==Texture2D.whiteTexture&&d.Position.height==7
+            &&d.Color.r>0.9f&&d.Color.g>0.95f&&d.Color.a>0.95f).Select(VisibleBounds)
+            .Where(r=>r.width>0&&r.height>0&&r.y>=RunnerSession.GroundY-0.01f).ToList();
+    }
+    private static void CheckSnowSurfaceAvoids(float left,float right)
+    {
+        var snow=SnowSurfaceBounds();Check(snow.Count>0,"Snow road fixture was not rendered");
+        Check(!snow.Any(r=>r.x<right-1&&r.xMax>left+1),"A snow/ice surface was painted over the physical hole "+left+".."+right);
+    }
+    private static void SnowSurface()
+    {
+        var art=new RunnerArt();var run=New(District.Snow);Set(run,"Elapsed",4f);
+        using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1));
+        Check(SnowSurfaceBounds().Sum(r=>r.width)>1200,"Snow-covered road surface is missing");
+        int flakes=GUI.DrawCalls.Count(d=>d.Kind=="Texture"&&d.Texture!=null&&d.Position.width<=8
+            &&d.Position.height<=8&&d.Position.y<RunnerSession.GroundY&&d.Color.r>0.85f&&d.Color.b>0.9f&&d.Color.a>0.1f);
+        Check(flakes>=40,"Snowfall is missing or not distinct from the storm rain (flakes="+flakes+")");
+    }
+    private static void PickupSprites()
+    {
+        var art=new RunnerArt();var run=New();
+        Check(art.PickupAtlas!=null,"Survival/power-up atlas was not included in resources");
+        var kinds=new[]{EntityKind.Water,EntityKind.HotDrink,EntityKind.DoubleScore,EntityKind.Magnet,EntityKind.Shield};
+        for(int i=0;i<kinds.Length;i++)World(run).Add(new WorldEntity{Id=i+1,Kind=kinds[i],X=300+i*160,Y=10,Width=32,Height=32});
+        using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f,80,0));
+        foreach(WorldEntity pickup in run.Entities)
+        {
+            float y=RunnerSession.GroundY-pickup.Y-pickup.Height;
+            RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.PickupAtlas&&d.Position.x==pickup.X
+                &&Math.Abs(d.Position.y-y)<0.01f&&d.Position.width==pickup.Width&&d.Position.height==pickup.Height&&d.Color.a>0);
+            Rect expected=art.GetPickupUV(pickup.Kind);
+            Check(expected.width>0&&expected.height>0&&expected.x>=0&&expected.y>=0&&expected.xMax<=1.001f&&expected.yMax<=1.001f,"Pickup has invalid source bounds: "+pickup.Kind);
+            Near(draw.UV.x,expected.x,"Pickup sampled a different icon");Near(draw.UV.y,expected.y,"Pickup sampled a different icon");
+        }
+        Check(kinds.Select(kind=>art.GetPickupUV(kind).x+":"+art.GetPickupUV(kind).y).Distinct().Count()==kinds.Length,"Different pickups accidentally share one sprite");
+    }
+    private static void PausedWeather()
+    {
+        foreach(District district in new[]{District.Snow,District.Storm})
+        {
+            var art=new RunnerArt();var run=New(district);Set(run,"Elapsed",6f);Set(run,"DistrictElapsed",1.16f);
+            run.TogglePause();
+            using(var view=new RunnerWorldView(art))
+            {
+                Draw(view,run,Canvas(1));string first=DrawSnapshot();
+                GUI.DrawCalls.Clear();view.Draw(run,50f);
+                Check(DrawSnapshot()==first,"Snow/rain/lightning advanced while paused on "+district);
+            }
         }
     }
     private static string DrawSnapshot()

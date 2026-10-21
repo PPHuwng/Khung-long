@@ -4,8 +4,8 @@ using System.Collections.Generic;
 namespace CityDino
 {
     public enum RunState { Menu, Playing, Paused, GameOver }
-    public enum District { Day, Rain, Sunset, Night, Skyway, Storm }
-    public enum EntityKind { House, Hydrant, Plane, Star, Heart, Gap, Spike, Saw, Barrier }
+    public enum District { Day, Snow, Sunset, Night, Skyway, Storm }
+    public enum EntityKind { House, Hydrant, Plane, Star, Heart, Gap, Spike, Saw, Barrier, Water, HotDrink, DoubleScore, Magnet, Shield, CollapsingFloor }
 
     [Serializable]
     public sealed class RunRecord
@@ -17,9 +17,9 @@ namespace CityDino
     }
 
     [Serializable]
-    public sealed class RunnerSave
+    public sealed partial class RunnerSave
     {
-        public int Version = 2;
+        public int Version = 3;
         public int Wallet;
         public int BestScore;
         public int LastScore;
@@ -49,6 +49,9 @@ namespace CityDino
         public float MotionAmplitude;
         public float MotionAmplitudeX;
         public float MotionSpeed = 2.1f;
+        public float CollapseProgress;
+        public bool Collapsed;
+        public bool IsOpenGap { get { return Kind == EntityKind.Gap || (Kind == EntityKind.CollapsingFloor && Collapsed); } }
     }
 
     /// <summary>
@@ -56,7 +59,7 @@ namespace CityDino
     /// collider is used: the floor and all hazards share one coordinate system.
     /// Update is internally substepped to keep fast hazards from tunnelling.
     /// </summary>
-    public sealed class RunnerSession
+    public sealed partial class RunnerSession
     {
         public const float CanvasWidth = 1280f;
         public const float CanvasHeight = 720f;
@@ -76,27 +79,29 @@ namespace CityDino
         public const float MaximumFrameDelta = 0.25f;
         public const int MaximumHearts = 5;
         public const int MaximumPurchasedHearts = 3;
-        public const int HeartPrice = 25;
+        public const int HeartPrice = 100;
         private const float BlackoutFade = 0.18f;
 
         private const float PhysicsStep = 1f / 120f;
         private const float SpawnX = CanvasWidth + 140f;
         private const int WalletLimit = 1000000000;
-        private static readonly int[] HeartCosts = { 40, 100, 180 };
+        private static readonly int[] LegacyHeartCosts = { 40, 100, 180 };
+        private static readonly int[] PurchasedHeartCosts = { 100, 300, 600 };
         private static readonly District[] AllDistricts =
         {
-            District.Day, District.Rain, District.Sunset,
+            District.Day, District.Snow, District.Sunset,
             District.Night, District.Skyway, District.Storm
         };
 
         private readonly Random random;
         private readonly List<WorldEntity> entities = new List<WorldEntity>();
         private readonly List<PatternType> patternBag = new List<PatternType>();
+        private readonly List<District> districtBag = new List<District>();
         private enum PatternType
         {
             Hydrant, House, SingleSpike, DoubleSpike, TripleSpike, Barrier,
             BarrierSteps, GroundSaw, FloatingSaw, Plane, Gap, PatrolSaw, MovingBarrier,
-            MovingPlane
+            MovingPlane, DoubleGap, CollapsingBridge
         }
         private bool grounded;
         private bool duckRequested;
@@ -107,6 +112,7 @@ namespace CityDino
         private float distanceToPattern;
         private float nextHeartAt;
         private float horizontalAxis;
+        private double nextSurvivalSupplyAt;
         // Long runs use double accumulation: a tiny adaptive substep must not
         // disappear when the public float clock has reached a large value.
         private double elapsedClock;
@@ -141,6 +147,28 @@ namespace CityDino
         public District? StartingDistrict { get; private set; }
         public float PlayerX { get; private set; }
         public float PlayerY { get; private set; }
+        public float HorizontalVelocity { get; private set; }
+        public float Water { get; private set; } = 100f;
+        public float Warmth { get; private set; } = 100f;
+        public float WindStrength
+        {
+            get
+            {
+                if (CurrentDistrict != District.Skyway || State == RunState.Menu || DistrictElapsed < 3f) return 0f;
+                float phase = (DistrictElapsed - 3f) % 8f;
+                if (phase >= 5f) return 0.1f;
+                float wave = (float)Math.Sin(Math.PI * phase / 5f);
+                return 0.3f + 0.7f * wave * wave;
+            }
+        }
+        public float WindPush
+        {
+            get
+            {
+                float strength = Math.Min(HorizontalSpeed * 0.55f, 45f + 12f * (float)Math.Sqrt(Math.Max(0f, Elapsed) / 120f));
+                return -strength * WindStrength * (grounded ? 0.35f : 1f);
+            }
+        }
         public float VelocityY { get; private set; }
         // Rendering keeps the last physical pose even when a fatal hit stops
         // VelocityY, so the death frame cannot switch from falling to rising.
@@ -195,7 +223,7 @@ namespace CityDino
         {
             get
             {
-                return Save.PurchasedHearts >= MaximumPurchasedHearts ? 0 : HeartPrice;
+                return Save.PurchasedHearts >= MaximumPurchasedHearts ? 0 : PurchasedHeartCosts[Save.PurchasedHearts];
             }
         }
 
@@ -224,12 +252,15 @@ namespace CityDino
             previousPattern = PatternType.Hydrant;
             recorded = false;
             State = RunState.Playing;
-            CurrentDistrict = StartingDistrict ?? AllDistricts[random.Next(AllDistricts.Length)];
+            districtBag.Clear();
+            RefillDistrictBag();
+            CurrentDistrict = StartingDistrict ?? DrawDistrict(null);
+            if (StartingDistrict.HasValue) districtBag.Remove(StartingDistrict.Value);
             DistrictElapsed = 0f;
             districtClock = 0d;
-            ScheduleBlackout();
             StageNumber = 1;
             PlayerX = StartPlayerX;
+            HorizontalVelocity = 0f;
             PlayerY = 0f;
             VelocityY = 0f;
             AnimationVelocityY = 0f;
@@ -251,6 +282,8 @@ namespace CityDino
             jumpsUsed = 0;
             coyoteRemaining = 0.1f;
             EndReason = "";
+            EnterDistrict();
+            BeginRunItems();
             if (spentHearts) NotifySaveChanged();
 
             // A few easy stars teach collecting before the first hazard arrives.
@@ -291,7 +324,7 @@ namespace CityDino
             // Bound displacement, not speed. At high runner/moving-hazard speeds
             // smaller physics steps still detect thin spikes, pickups and ledges.
             float currentSpeed = (float)(InitialSpeed + elapsedClock * SpeedAcceleration);
-            float horizontal = currentSpeed + SpeedAcceleration * PhysicsStep + HorizontalSpeed + motionX;
+            float horizontal = currentSpeed + SpeedAcceleration * PhysicsStep + HorizontalSpeed + Math.Abs(WindPush) + motionX;
             float vertical = Math.Abs(VelocityY) + Gravity * PhysicsStep + motionY;
             return Math.Min(PhysicsStep, 6f / Math.Max(1f, Math.Max(horizontal, vertical)));
         }
@@ -347,6 +380,7 @@ namespace CityDino
             if (State == RunState.Playing || State == RunState.Paused)
                 FinishRun("Trở về menu");
             State = RunState.Menu;
+            HorizontalVelocity = 0f;
             IsDucking = false;
             duckRequested = false;
             horizontalAxis = 0f;
@@ -373,11 +407,9 @@ namespace CityDino
             float travel = Speed * dt;
             distanceClock += travel;
             Distance = (float)distanceClock;
-            Score = (int)Math.Min(int.MaxValue, Math.Floor(distanceClock / 20d));
             InvincibleRemaining = Math.Max(0f, InvincibleRemaining - dt);
             float previousPlayerX = PlayerX;
-            PlayerX = Math.Max(MinimumPlayerX, Math.Min(MaximumPlayerX,
-                PlayerX + horizontalAxis * HorizontalSpeed * dt));
+            IntegrateHorizontal(dt);
             if (Math.Abs(PlayerX - previousPlayerX) > 0.0001f)
                 FacingLeft = PlayerX < previousPlayerX;
 
@@ -389,12 +421,8 @@ namespace CityDino
                 DistrictElapsed = (float)districtClock;
                 StageNumber++;
                 District previous = CurrentDistrict;
-                // Select uniformly from the other districts, starting with
-                // the very first transition rather than a scripted first lap.
-                int next = random.Next(AllDistricts.Length - 1);
-                if (next >= (int)previous) next++;
-                CurrentDistrict = AllDistricts[next];
-                ScheduleBlackout();
+                CurrentDistrict = DrawDistrict(previous);
+                EnterDistrict();
                 patternBag.Clear();
                 bagTier = -1;
             }
@@ -405,6 +433,14 @@ namespace CityDino
             {
                 WorldEntity entity = entities[i];
                 entity.X -= travel;
+                if (entity.Kind == EntityKind.CollapsingFloor)
+                {
+                    float crackStart = CanvasWidth + 60f;
+                    float collapseX = MaximumPlayerX + 100f;
+                    entity.CollapseProgress = Math.Max(entity.CollapseProgress,
+                        Math.Max(0f, Math.Min(1f, (crackStart - entity.X) / (crackStart - collapseX))));
+                    if (entity.CollapseProgress >= 1f) entity.Collapsed = true;
+                }
                 if (entity.Kind == EntityKind.Saw)
                     entity.Rotation = (entity.Rotation + dt * 280f * MotionFrequencyScale) % 360f;
                 if (entity.MotionAmplitudeX > 0f || entity.MotionAmplitude > 0f)
@@ -439,6 +475,7 @@ namespace CityDino
                 Add(pickup, SpawnX + 70f, 108f, 30f, 30f);
             }
 
+            TickItems(dt, travel);
             IntegratePlayer(dt);
             AnimationVelocityY = VelocityY;
             if (PlayerY < -180f)
@@ -450,10 +487,154 @@ namespace CityDino
 
             if (State == RunState.Playing)
                 ResolveCollisions();
+            if (State == RunState.Playing)
+                TickSurvival(dt);
 
             for (int i = entities.Count - 1; i >= 0; i--)
                 if (entities[i].Removed || entities[i].X + entities[i].Width < -100f)
                     entities.RemoveAt(i);
+        }
+
+        private void IntegrateHorizontal(float dt)
+        {
+            if (CurrentDistrict == District.Snow)
+            {
+                float target = horizontalAxis * HorizontalSpeed;
+                float acceleration = Math.Abs(horizontalAxis) > 0.001f
+                    ? (grounded ? 660f : 990f) : (grounded ? 420f : 160f);
+                float difference = target - HorizontalVelocity;
+                HorizontalVelocity += Math.Max(-acceleration * dt, Math.Min(acceleration * dt, difference));
+            }
+            else
+                HorizontalVelocity = horizontalAxis * HorizontalSpeed + WindPush;
+
+            float nextX = PlayerX + HorizontalVelocity * dt;
+            PlayerX = Math.Max(MinimumPlayerX, Math.Min(MaximumPlayerX, nextX));
+            if (CurrentDistrict == District.Snow && PlayerX != nextX)
+                HorizontalVelocity = 0f;
+        }
+
+        private void RefillDistrictBag()
+        {
+            districtBag.Clear();
+            for (int i = 0; i < AllDistricts.Length; i++) districtBag.Add(AllDistricts[i]);
+            for (int i = districtBag.Count - 1; i > 0; i--)
+            {
+                int index = random.Next(i + 1);
+                District temporary = districtBag[i];
+                districtBag[i] = districtBag[index];
+                districtBag[index] = temporary;
+            }
+        }
+
+        private District DrawDistrict(District? previous)
+        {
+            if (districtBag.Count == 0) RefillDistrictBag();
+            int last = districtBag.Count - 1;
+            if (previous.HasValue && districtBag[last] == previous.Value)
+            {
+                for (int i = 0; i < last; i++)
+                {
+                    if (districtBag[i] == previous.Value) continue;
+                    District temporary = districtBag[last];
+                    districtBag[last] = districtBag[i];
+                    districtBag[i] = temporary;
+                    break;
+                }
+            }
+            District selected = districtBag[last];
+            districtBag.RemoveAt(last);
+            return selected;
+        }
+
+        private void EnterDistrict()
+        {
+            Water = Warmth = 100f;
+            HorizontalVelocity = 0f;
+            nextSurvivalSupplyAt = elapsedClock + 0.75d;
+            for (int i = 0; i < entities.Count; i++)
+                if (entities[i].Kind == EntityKind.Water || entities[i].Kind == EntityKind.HotDrink)
+                    entities[i].Removed = true;
+            ScheduleBlackout();
+        }
+
+        private void TickSurvival(float dt)
+        {
+            bool cold = CurrentDistrict == District.Snow;
+            bool hot = CurrentDistrict == District.Sunset;
+            if (!cold && !hot) return;
+
+            if (elapsedClock >= nextSurvivalSupplyAt)
+            {
+                nextSurvivalSupplyAt = elapsedClock + Range(3.7f, 4.6f);
+                SpawnSurvivalSupply(cold);
+            }
+            if (DistrictElapsed <= 2f) return;
+            if (cold) Warmth = Math.Max(0f, Warmth - 7f * dt);
+            else Water = Math.Max(0f, Water - 6f * dt);
+            float resource = cold ? Warmth : Water;
+            if (resource > 0f) return;
+
+            if (TryUseSurvivalReserve(cold))
+            {
+                if (cold) Warmth = 85f;
+                else Water = 85f;
+            }
+            else
+            {
+                TakeHit(cold ? "Hạ thân nhiệt · Cần đồ uống nóng" : "Mất nước · Cần nhặt chai nước");
+                // A surviving player gets recovery time instead of losing all
+                // remaining hearts on consecutive simulation substeps.
+                if (State == RunState.Playing)
+                {
+                    if (cold) Warmth = 45f;
+                    else Water = 45f;
+                }
+            }
+        }
+
+        private void SpawnSurvivalSupply(bool cold)
+        {
+            float x = CanvasWidth + 50f;
+            // Find a visible approach lane ahead of the player, before any
+            // ground hazard's full moving envelope. Supplies are never placed
+            // in a hole or inside a house, saw, spike or barrier.
+            for (int pass = 0; pass < 12; pass++)
+            {
+                bool changed = false;
+                for (int i = 0; i < entities.Count; i++)
+                {
+                    WorldEntity e = entities[i];
+                    if (e.Removed || !BlocksGroundSupply(e)) continue;
+                    float left = e.X - e.MotionAmplitudeX * 2f - 100f;
+                    float right = e.X + e.Width + e.MotionAmplitudeX * 2f + 100f;
+                    if (x + 32f <= left || x >= right) continue;
+                    x = left - 34f;
+                    changed = true;
+                }
+                if (!changed) break;
+            }
+            if (x < MaximumPlayerX + 100f)
+            {
+                // The approach area can be occupied by a very wide late pack.
+                // Put the supply after all visible/spawning ground hazards.
+                x = CanvasWidth + 50f;
+                for (int i = 0; i < entities.Count; i++)
+                {
+                    WorldEntity e = entities[i];
+                    if (e.Removed || !BlocksGroundSupply(e)) continue;
+                    x = Math.Max(x, e.X + e.Width + e.MotionAmplitudeX * 2f + 120f);
+                }
+            }
+            Add(cold ? EntityKind.HotDrink : EntityKind.Water, x, 10f, 32f, 36f);
+        }
+
+        private static bool BlocksGroundSupply(WorldEntity entity)
+        {
+            return entity.Kind == EntityKind.Gap || entity.Kind == EntityKind.CollapsingFloor ||
+                entity.Kind == EntityKind.House || entity.Kind == EntityKind.Hydrant ||
+                entity.Kind == EntityKind.Spike || entity.Kind == EntityKind.Barrier ||
+                (entity.Kind == EntityKind.Saw && entity.BaseY < 56f);
         }
 
         private void IntegratePlayer(float dt)
@@ -495,7 +676,7 @@ namespace CityDino
             for (int i = 0; i < entities.Count; i++)
             {
                 WorldEntity e = entities[i];
-                if (!e.Removed && e.Kind == EntityKind.Gap &&
+                if (!e.Removed && e.IsOpenGap &&
                     PlayerX > e.X + 8f && PlayerX < e.X + e.Width - 8f)
                     return false;
             }
@@ -512,7 +693,7 @@ namespace CityDino
             for (int i = 0; i < entities.Count && State == RunState.Playing; i++)
             {
                 WorldEntity e = entities[i];
-                if (e.Removed || e.Kind == EntityKind.Gap)
+                if (e.Removed || e.Kind == EntityKind.Gap || e.Kind == EntityKind.CollapsingFloor)
                     continue;
                 // A rectangle includes the transparent space behind the neck
                 // and misses the nose. Saws use the same animated silhouette,
@@ -546,9 +727,17 @@ namespace CityDino
                         NotifySaveChanged();
                     }
                 }
+                else if (e.Kind == EntityKind.Water || e.Kind == EntityKind.HotDrink)
+                {
+                    e.Removed = true;
+                    if (e.Kind == EntityKind.Water) Water = Math.Min(100f, Water + 40f);
+                    else Warmth = Math.Min(100f, Warmth + 45f);
+                }
+                else if (HandleItemPickup(e)) { }
                 else if (InvincibleRemaining <= 0f)
                 {
                     e.Removed = true;
+                    if (TryAbsorbHazard()) continue;
                     TakeHit(e.Kind == EntityKind.Plane
                         ? "Va vào máy bay · Hãy cúi xuống"
                         : "Va vào chướng ngại vật");
@@ -600,7 +789,7 @@ namespace CityDino
             for (int i = 0; i < entities.Count; i++)
             {
                 WorldEntity e = entities[i];
-                if (e.Kind == EntityKind.Gap && e.X < PlayerX + (Speed + HorizontalSpeed) * 2f &&
+                if ((e.Kind == EntityKind.Gap || e.Kind == EntityKind.CollapsingFloor) && e.X < PlayerX + (Speed + HorizontalSpeed) * 2f &&
                     e.X + e.Width > PlayerX - 100f)
                     e.Removed = true;
             }
@@ -618,6 +807,7 @@ namespace CityDino
             VelocityY = 0f;
             duckRequested = false;
             horizontalAxis = 0f;
+            HorizontalVelocity = 0f;
             if (recorded)
                 return;
 
@@ -669,9 +859,13 @@ namespace CityDino
                 }
                 if (skyway)
                 {
-                    patternBag.Add(PatternType.Gap);
-                    patternBag.Add(PatternType.Gap);
+                    for (int i = 0; i < 9; i++) patternBag.Add(PatternType.Gap);
+                    for (int i = 0; i < 6; i++) patternBag.Add(PatternType.CollapsingBridge);
+                    if (tier >= 1)
+                        for (int i = 0; i < 5; i++) patternBag.Add(PatternType.DoubleGap);
                 }
+                else if (tier >= 2 && CurrentDistrict != District.Snow)
+                    patternBag.Add(PatternType.CollapsingBridge);
                 AddDistrictPatterns(tier);
                 for (int i = patternBag.Count - 1; i > 0; i--)
                 {
@@ -716,7 +910,7 @@ namespace CityDino
                     patternBag.Add(PatternType.Hydrant);
                     if (tier >= 2) patternBag.Add(PatternType.PatrolSaw);
                     break;
-                case District.Rain:
+                case District.Snow:
                     if (tier >= 1) patternBag.Add(PatternType.Barrier);
                     if (tier >= 2)
                     {
@@ -763,18 +957,17 @@ namespace CityDino
 
         private bool HasBlackouts
         {
-            get { return State != RunState.Menu && (CurrentDistrict == District.Night || CurrentDistrict == District.Storm); }
+            get { return State != RunState.Menu && CurrentDistrict == District.Night; }
         }
 
         private void ScheduleBlackout()
         {
-            bool storm = CurrentDistrict == District.Storm;
-            if (!storm && CurrentDistrict != District.Night)
+            if (CurrentDistrict != District.Night)
             {
                 NextBlackoutAt = BlackoutDuration = 0f;
                 return;
             }
-            NextBlackoutAt = DistrictElapsed + Range(storm ? 7f : 8f, storm ? 11f : 13f);
+            NextBlackoutAt = DistrictElapsed + Range(8f, 13f);
             BlackoutDuration = Range(2f, 3f);
         }
 
@@ -784,7 +977,23 @@ namespace CityDino
             float width;
             float height;
             float starBase;
-            if (kind == PatternType.Gap)
+            if (kind == PatternType.DoubleGap)
+            {
+                float firstWidth = Range(135f, 160f);
+                float island = Range(115f, 145f);
+                float secondWidth = Range(135f, 160f);
+                width = firstWidth + island + secondWidth;
+                Add(EntityKind.Gap, SpawnX, 0f, firstWidth, 160f);
+                Add(EntityKind.Gap, SpawnX + firstWidth + island, 0f, secondWidth, 160f);
+                starBase = 105f;
+            }
+            else if (kind == PatternType.CollapsingBridge)
+            {
+                width = Range(155f, 205f);
+                Add(EntityKind.CollapsingFloor, SpawnX, 0f, width, 160f);
+                starBase = 100f;
+            }
+            else if (kind == PatternType.Gap)
             {
                 width = Range(140f, 205f);
                 Add(EntityKind.Gap, SpawnX, 0f, width, 160f);
@@ -955,8 +1164,8 @@ namespace CityDino
         {
             switch (district)
             {
-                case District.Rain: return "Thành phố mưa";
-                case District.Sunset: return "Nắng chiều";
+                case District.Snow: return "Phố tuyết";
+                case District.Sunset: return "Nắng gắt";
                 case District.Night: return "Đêm neon";
                 case District.Skyway: return "Đường trên mây";
                 case District.Storm: return "Giông bão";
@@ -968,11 +1177,11 @@ namespace CityDino
         {
             switch (district)
             {
-                case District.Rain: return "Cúi tránh bẫy bay, nhảy qua rào chắn.";
-                case District.Sunset: return "Canh nhịp vượt cụm gai và rào bậc thang.";
+                case District.Snow: return "Đường trơn; nhặt đồ nóng để giữ ấm.";
+                case District.Sunset: return "Nắng gắt; nhặt nước để duy trì thể lực.";
                 case District.Night: return "Nhiều cưa xoay; đèn tắt ngắn có báo trước.";
-                case District.Skyway: return "Nhảy qua khe cầu; 10 giây đầu chưa có hố.";
-                case District.Storm: return "Đổi nhịp nhảy/cúi; trời tối ngắn có báo trước.";
+                case District.Skyway: return "Gió đẩy lùi; hố đôi và cầu sập liên tiếp.";
+                case District.Storm: return "Mưa xuyên suốt; tối và sấm chớp liên tục.";
                 default: return "Vượt nhà và trụ nước, làm quen nhịp chạy.";
             }
         }
@@ -985,13 +1194,14 @@ namespace CityDino
             save.LastScore = Math.Max(0, save.LastScore);
             if (save.Version < 2)
             {
-                int legacyLevel = Clamp(save.ExtraHeartsLevel, 0, HeartCosts.Length);
+                int legacyLevel = Clamp(save.ExtraHeartsLevel, 0, LegacyHeartCosts.Length);
                 for (int i = 0; i < legacyLevel; i++)
-                    save.Wallet = Math.Min(WalletLimit, save.Wallet + HeartCosts[i]);
+                    save.Wallet = Math.Min(WalletLimit, save.Wallet + LegacyHeartCosts[i]);
             }
-            save.Version = 2;
+            save.Version = 3;
             save.ExtraHeartsLevel = 0;
             save.PurchasedHearts = Clamp(save.PurchasedHearts, 0, MaximumPurchasedHearts);
+            SanitizeItemSave(save);
             if (save.History == null)
                 save.History = new List<RunRecord>();
             for (int i = save.History.Count - 1; i >= 0; i--)

@@ -27,6 +27,7 @@ namespace CityDino
         private bool muted, showShop, showHistory, dirty;
         private float nextSave, ambientTime;
         private int bestAtStart;
+        private int shopTab;
         private int thunderStage, lastThunderStrike;
         private readonly Color ink = new Color32(24, 43, 51, 255);
         private readonly Color cream = new Color32(249, 246, 233, 255);
@@ -63,7 +64,7 @@ namespace CityDino
                 catch (Exception) { Debug.LogWarning("City Dino: không đọc được dữ liệu lưu; tạo hồ sơ mới."); }
             }
             if (save == null) save = new RunnerSave();
-            bool migrateSave = save.Version < 2;
+            bool migrateSave = save.Version < 3;
             save.BestScore = Math.Max(save.BestScore, PlayerPrefs.GetInt("HighScore", 0));
             session = new RunnerSession(save, Environment.TickCount);
             session.SaveChanged += SaveProgress;
@@ -223,14 +224,14 @@ namespace CityDino
             Box(new Rect(64, 56, 486, 602), cream);
             Text(new Rect(98, 85, 390, 24), "●  ENDLESS RUNNER", 15, soft, FontStyle.Bold);
             Text(new Rect(94, 151, 420, 88), "DINO CITY", 64, ink, FontStyle.Bold);
-            Text(new Rect(98, 268, 402, 70), "Chọn thành phố. Gom sao. Vượt kỷ lục.\nMỗi lượt chạy là một thử thách mới.", 18, soft);
+            Text(new Rect(98, 268, 402, 70), "Băng trơn, nắng gắt và gió trên cao.\nChuẩn bị tiếp tế, chinh phục thành phố.", 18, soft);
             Stat(new Rect(98, 366, 124, 64), "KỶ LỤC", session.Save.BestScore.ToString("N0"));
             Stat(new Rect(238, 366, 124, 64), "LƯỢT TRƯỚC", session.Save.LastScore.ToString("N0"));
             Stat(new Rect(378, 366, 124, 64), "VÍ SAO", session.Save.Wallet.ToString("N0"));
             if (Button(new Rect(98, 458, 418, 62), "BẮT ĐẦU CHẠY     →", mint, ink, 22)) BeginRun();
             if (Button(new Rect(98, 534, 202, 52), "Cửa hàng", ink, cream)) showShop = true;
             if (Button(new Rect(314, 534, 202, 52), "Thành tích", new Color32(231, 231, 215, 255), ink)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 05  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 06  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), "MỖI LƯỢT, MỘT THÀNH PHỐ.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -253,8 +254,8 @@ namespace CityDino
             Text(new Rect(780, 310, 408, 24), "CHỌN MAP KHỞI ĐẦU", 16, ink, FontStyle.Bold);
             MapButton(new Rect(780, 343, 408, 38), null, "Ngẫu nhiên mỗi lượt");
             MapButton(new Rect(780, 389, 198, 38), District.Day, "Bình minh");
-            MapButton(new Rect(990, 389, 198, 38), District.Rain, "Phố mưa");
-            MapButton(new Rect(780, 433, 198, 38), District.Sunset, "Nắng chiều");
+            MapButton(new Rect(990, 389, 198, 38), District.Snow, "Phố tuyết");
+            MapButton(new Rect(780, 433, 198, 38), District.Sunset, "Nắng gắt");
             MapButton(new Rect(990, 433, 198, 38), District.Night, "Phố đêm");
             MapButton(new Rect(780, 477, 198, 38), District.Skyway, "Trên mây");
             MapButton(new Rect(990, 477, 198, 38), District.Storm, "Giông bão");
@@ -262,7 +263,7 @@ namespace CityDino
                 ? RunnerSession.DistrictChallenge(session.StartingDistrict.Value)
                 : "Mở đầu bất kỳ map nào trong 6 map.";
             Text(new Rect(780, 530, 408, 18), challenge, 13, soft);
-            Text(new Rect(780, 550, 408, 18), "Sau 35 giây: map ngẫu nhiên khác map vừa chạy.", 12, soft);
+            Text(new Rect(780, 550, 408, 18), "Xáo đủ 6 map mỗi vòng · Đổi chặng sau 35 giây.", 12, soft);
         }
 
         private void MapButton(Rect rect, District? district, string caption)
@@ -298,6 +299,33 @@ namespace CityDino
             Text(new Rect(897, 75, 150, 20), "Ví: " + session.Save.Wallet, 13, soft);
             if (Button(new Rect(1070, 43, 54, 50), muted ? "♫ ×" : "♫", new Color32(231, 231, 215, 255), ink, 18)) ToggleSound();
             if (Button(new Rect(1136, 43, 82, 50), "II", ink, cream, 22)) session.TogglePause();
+            DrawRunResources();
+        }
+
+        private void DrawRunResources()
+        {
+            if (session.CurrentDistrict == District.Snow || session.CurrentDistrict == District.Sunset)
+            {
+                bool cold = session.CurrentDistrict == District.Snow;
+                float value = cold ? session.Warmth : session.Water;
+                bool reserve = cold ? session.WarmReserveReady : session.WaterReserveReady;
+                Box(new Rect(36, 128, 276, reserve ? 83 : 63), cream);
+                PickupIcon(cold ? EntityKind.HotDrink : EntityKind.Water, new Rect(49, 139, 32, 38));
+                Text(new Rect(92, 139, 205, 21), (cold ? "THÂN NHIỆT " : "NƯỚC ") + Mathf.CeilToInt(value) + "%", 14, ink, FontStyle.Bold);
+                Box(new Rect(92, 165, 202, 9), new Color32(217, 224, 221, 255));
+                if (value > 0)
+                    Box(new Rect(92, 165, 202 * Mathf.Clamp01(value / 100f), 9), value < 25 ? new Color32(222, 87, 69, 255) : cold ? new Color32(240, 150, 76, 255) : new Color32(68, 172, 213, 255));
+                if (reserve) Text(new Rect(49, 183, 250, 22), cold ? "Có bình giữ ấm dự phòng" : "Có nước dự phòng", 12, soft, FontStyle.Bold);
+            }
+            string effects = "";
+            if (session.ScoreBoostRemaining > 0) effects += "×2 ĐIỂM  " + session.ScoreBoostRemaining.ToString("0.0") + " s\n";
+            if (session.MagnetRemaining > 0) effects += "NAM CHÂM  " + session.MagnetRemaining.ToString("0.0") + " s\n";
+            if (session.ShieldReady) effects += "KHIÊN SẴN SÀNG";
+            if (effects.Length > 0)
+            {
+                Box(new Rect(964, 128, 280, 77), ink);
+                Text(new Rect(980, 138, 250, 64), effects.TrimEnd(), 14, cream, FontStyle.Bold);
+            }
         }
 
         private void DrawPlayHints()
@@ -350,6 +378,10 @@ namespace CityDino
 
         private string EndMessage()
         {
+            if (session.EndReason != null && session.EndReason.IndexOf("thân nhiệt", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Nhặt đồ uống nóng để giữ thân nhiệt nhé!";
+            if (session.EndReason != null && session.EndReason.IndexOf("nước", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Nhặt chai nước để vượt qua nắng gắt nhé!";
             if (session.EndReason != null && session.EndReason.IndexOf("Rơi", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "Lỡ một nhịp nhảy. Thử lại nhé!";
             if (session.EndReason != null && session.EndReason.IndexOf("máy bay", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -360,24 +392,77 @@ namespace CityDino
         private void DrawShop()
         {
             Scrim();
-            Box(new Rect(342, 112, 596, 536), cream);
-            Text(new Rect(380, 139, 440, 25), "CỬA HÀNG TIM", 15, soft, FontStyle.Bold);
-            if (Button(new Rect(858, 134, 45, 38), "×", new Color32(231, 231, 215, 255), ink, 23)) showShop = false;
-            Text(new Rect(378, 183, 500, 53), "Thêm một cơ hội.", 35, ink, FontStyle.Bold);
-            Icon(art.Star, new Rect(380, 253, 32, 32));
-            Text(new Rect(425, 251, 420, 34), session.Save.Wallet + " sao trong ví", 23, ink, FontStyle.Bold);
-            Box(new Rect(378, 309, 524, 146), new Color32(232, 237, 217, 255));
-            Icon(art.Heart, new Rect(398, 335, 64, 62));
-            Text(new Rect(483, 328, 390, 32), "Tim cho lượt kế tiếp", 23, ink, FontStyle.Bold);
-            Text(new Rect(483, 370, 380, 53), "Đã mua: " + session.Save.PurchasedHearts + "/3 tim\nLượt tới: " + (1 + session.Save.PurchasedHearts) + " mạng · Dùng một lượt.", 17, soft);
-            int price = session.NextHeartCost;
-            bool canBuy = price > 0 && session.Save.Wallet >= price;
-            string text = price <= 0 ? "ĐÃ CHUẨN BỊ ĐỦ 3 TIM" : "MUA 1 TIM    ·    " + price + " SAO";
-            if (Button(new Rect(378, 481, 524, 61), text, canBuy ? mint : new Color32(221, 223, 211, 255), ink, 21, canBuy))
+            Box(new Rect(216, 76, 848, 580), cream);
+            Text(new Rect(246, 104, 500, 25), "CỬA HÀNG DINO CITY", 16, soft, FontStyle.Bold);
+            Text(new Rect(246, 140, 530, 42), "Chuẩn bị chuyến đi.", 34, ink, FontStyle.Bold);
+            Icon(art.Star, new Rect(788, 111, 31, 31));
+            Text(new Rect(830, 112, 166, 32), session.Save.Wallet.ToString("N0"), 23, ink, FontStyle.Bold);
+            if (Button(new Rect(1004, 96, 40, 38), "×", new Color32(231, 231, 215, 255), ink, 23)) showShop = false;
+            if (Button(new Rect(246, 189, 374, 42), "TIM & TIẾP TẾ", shopTab == 0 ? mint : new Color32(231, 231, 215, 255), ink, 17)) shopTab = 0;
+            if (Button(new Rect(638, 189, 374, 42), "NÂNG THỜI LƯỢNG", shopTab == 1 ? mint : new Color32(231, 231, 215, 255), ink, 17)) shopTab = 1;
+            if (shopTab == 0)
             {
-                if (session.BuyExtraHeart()) { Play(buySound); FlushSave(); }
+                ShopProduct(new Rect(246, 247, 374, 146), null,
+                    "Tim khởi đầu · " + session.Save.PurchasedHearts + "/3",
+                    "Chỉ dùng cho lượt kế tiếp.\nLượt tới: " + (1 + session.Save.PurchasedHearts) + " mạng.",
+                    session.NextHeartCost, session.Save.PurchasedHearts < 3, session.BuyExtraHeart);
+                ShopProduct(new Rect(638, 247, 374, 146), EntityKind.Shield,
+                    "Khiên khởi đầu", "Chặn một lần va chạm.\nDùng cho lượt kế tiếp.",
+                    RunnerSession.StartingShieldPrice, !session.Save.PurchasedShield, session.BuyStartingShield);
+                ShopProduct(new Rect(246, 409, 374, 146), EntityKind.Water,
+                    "Nước dự phòng", "Tự dùng khi thanh nước cạn.\nMột bình cho lượt kế tiếp.",
+                    RunnerSession.SurvivalReservePrice, !session.Save.PurchasedWaterReserve, session.BuyWaterReserve);
+                ShopProduct(new Rect(638, 409, 374, 146), EntityKind.HotDrink,
+                    "Bình giữ ấm", "Tự dùng khi thân nhiệt cạn.\nMột bình cho lượt kế tiếp.",
+                    RunnerSession.SurvivalReservePrice, !session.Save.PurchasedWarmReserve, session.BuyWarmReserve);
             }
-            Text(new Rect(382, 562, 516, 59), "Tim mua được dùng khi bắt đầu lượt kế tiếp.\nLượt sau mua lại · Tim nhặt trong màn hồi tối đa 5 mạng.", 15, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+            else
+            {
+                ShopProduct(new Rect(246, 247, 374, 308), EntityKind.DoubleScore,
+                    "×2 điểm · Cấp " + session.Save.ScoreBoostLevel + "/4",
+                    "Vật phẩm nhặt trên đường.\nĐang có: " + session.ScoreBoostDuration + " giây" +
+                    (session.NextScoreBoostCost > 0 ? "\nNâng tiếp: " + (session.ScoreBoostDuration + 2) + " giây" : "\nĐã nâng tối đa.") +
+                    "\nNhặt thêm để gia hạn.\nSao trong ví tính riêng.",
+                    session.NextScoreBoostCost, session.NextScoreBoostCost > 0, session.BuyScoreBoostUpgrade);
+                ShopProduct(new Rect(638, 247, 374, 308), EntityKind.Magnet,
+                    "Nam châm · Cấp " + session.Save.MagnetLevel + "/4",
+                    "Hút sao về phía khủng long.\nĐang có: " + session.MagnetDuration + " giây" +
+                    (session.NextMagnetCost > 0 ? "\nNâng tiếp: " + (session.MagnetDuration + 2) + " giây" : "\nĐã nâng tối đa.") +
+                    "\nNhặt nam châm trên đường\nđể kích hoạt hiệu ứng.",
+                    session.NextMagnetCost, session.NextMagnetCost > 0, session.BuyMagnetUpgrade);
+            }
+            Text(new Rect(246, 583, 766, 49), shopTab == 0
+                ? "Tim và tiếp tế dùng theo lượt. Nâng thời lượng áp dụng vĩnh viễn.\nTim nhặt trong màn hồi tối đa 5 mạng."
+                : "Nâng thời lượng: 200 → 400 → 700 → 1.100 sao.\nVật phẩm được nhặt trong màn, tối đa 16 giây mỗi lần nhặt.",
+                14, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+        }
+
+        private void ShopProduct(Rect rect, EntityKind? pickup, string title, string description,
+            int price, bool available, Func<bool> purchase)
+        {
+            Box(rect, new Color32(232, 237, 222, 255));
+            Rect iconRect = new Rect(rect.x + 16, rect.y + 14, 44, 42);
+            if (pickup.HasValue) PickupIcon(pickup.Value, iconRect, pickup.Value == EntityKind.HotDrink);
+            else Icon(art.Heart, iconRect);
+            Text(new Rect(rect.x + 72, rect.y + 18, rect.width - 86, 31), title, 19, ink, FontStyle.Bold);
+            Text(new Rect(rect.x + 16, rect.y + 61, rect.width - 32, rect.height - 104), description, 14, soft);
+            bool canBuy = available && price > 0 && session.Save.Wallet >= price;
+            string caption = !available ? (shopTab == 0 ? "ĐÃ CHUẨN BỊ" : "ĐÃ TỐI ĐA") : "MUA  ·  " + price.ToString("N0") + " SAO";
+            if (Button(new Rect(rect.x + 16, rect.yMax - 42, rect.width - 32, 32), caption,
+                canBuy ? mint : new Color32(215, 221, 209, 255), ink, 16, canBuy) && purchase())
+            {
+                Play(buySound);
+                FlushSave();
+            }
+        }
+
+        private void PickupIcon(EntityKind kind, Rect rect, bool warmReserve = false)
+        {
+            if (art.PickupAtlas == null) return;
+            Color before = GUI.color;
+            GUI.color = Color.white;
+            GUI.DrawTextureWithTexCoords(rect, art.PickupAtlas, warmReserve ? art.WarmReserveUV : art.GetPickupUV(kind), true);
+            GUI.color = before;
         }
 
         private void DrawHistory()
@@ -575,8 +660,8 @@ namespace CityDino
         {
             switch (district)
             {
-                case District.Rain: return "Phố mưa";
-                case District.Sunset: return "Nắng chiều";
+                case District.Snow: return "Phố tuyết";
+                case District.Sunset: return "Nắng gắt";
                 case District.Night: return "Phố đêm";
                 case District.Skyway: return "Thành phố trên mây";
                 case District.Storm: return "Vùng giông";

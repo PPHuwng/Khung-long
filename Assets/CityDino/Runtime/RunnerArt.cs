@@ -22,6 +22,7 @@ namespace CityDino
         public readonly Texture2D SkylineNear;
         public readonly Texture2D HazardAtlas;
         public readonly Texture2D DinoActionsAtlas;
+        public readonly Texture2D PickupAtlas;
         public readonly Rect SkylineFarUV = new Rect(0f, 0f, 1f, 0.7651934f);
         public readonly Rect SkylineNearUV = new Rect(0f, 0.0441989f, 1f, 0.730663f);
         public readonly Texture2D[] DinoFrames;
@@ -49,6 +50,19 @@ namespace CityDino
             new Rect(0.684244792f, 0.440429688f, 0.292317708f, 0.435546875f),
         };
 
+        // Water, hot drink, shield, magnet, double score, warming thermos.
+        // Square alpha-bounded viewports preserve each icon's proportions.
+        private static readonly Rect[] PickupUvs =
+        {
+            new Rect(0.044596354f, 0.505859375f, 0.287760417f, 0.431640625f),
+            new Rect(0.352539062f, 0.505859375f, 0.293619792f, 0.440429688f),
+            new Rect(0.690755208f, 0.507812500f, 0.253255208f, 0.379882812f),
+            new Rect(0.060546875f, 0.069824219f, 0.249348958f, 0.374023438f),
+            new Rect(0.367838542f, 0.079589844f, 0.259114583f, 0.388671875f),
+            new Rect(0.694010417f, 0.050781250f, 0.287109375f, 0.430664062f),
+        };
+        public Rect WarmReserveUV { get { return PickupUvs[5]; } }
+
         public RunnerArt()
         {
             Background = Load("Background");
@@ -68,6 +82,7 @@ namespace CityDino
             SkylineNear = Load("SkylineNear");
             HazardAtlas = Load("HazardAtlas");
             DinoActionsAtlas = Load("DinoActionsAtlas");
+            PickupAtlas = Load("PickupAtlas");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
@@ -87,6 +102,13 @@ namespace CityDino
         {
             int index = System.Math.Max(0, System.Math.Min(DinoActionUvs.Length - 1, frame - 5));
             return DinoActionUvs[index];
+        }
+
+        public Rect GetPickupUV(EntityKind kind)
+        {
+            int index = kind == EntityKind.Water ? 0 : kind == EntityKind.HotDrink ? 1
+                : kind == EntityKind.Shield ? 2 : kind == EntityKind.Magnet ? 3 : 4;
+            return PickupUvs[index];
         }
 
         private static Texture2D Load(string name)

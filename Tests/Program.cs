@@ -39,9 +39,9 @@ internal static class Program
         Test("starting map selection supports every district and validates changes", StartingMapSelection);
         Test("random starts cover all maps and selected starts remain repeatable", RandomStartingMaps);
         Test("district transitions randomize without adjacent repeats", Districts);
-        Test("night and storm blackouts are brief, warned, and limited to their maps", BlackoutTimeline);
+        Test("night blackouts are brief, warned, and limited to night", BlackoutTimeline);
         Test("blackouts freeze on pause and reset between maps and runs", BlackoutStateTransitions);
-        Test("rain and storm lightning uses spaced single pulses with matching strike identities", LightningCadence);
+        Test("storm flashes repeat with matching thunder identities and variable darkness", LightningCadence);
         Test("skyway starts give a safe opening before real gaps", SkywayOpening);
         Test("obstacles and gaps do not form impossible overlapping hazards", SpawnSafety);
         Test("horizontal control moves left/right and respects screen bounds", HorizontalMovement);
@@ -72,6 +72,22 @@ internal static class Program
         Test("late generated motion packs retain a real jump or duck solution", LatePatternReplay);
         Test("faster pace keeps increasing beyond the old ceiling", FasterPacing);
         Test("seeded full runs can traverse successive packs without taking damage", SequentialRunner);
+        Test("six-map shuffle bags visit every map before repeating", MapShuffleBag);
+        Test("snow slides on release and brakes gradually when reversing", SnowInertia);
+        Test("skyway wind pushes airborne players and allows counter steering", SkyWind);
+        Test("warmth and water drain after grace and refill from matching supplies", SurvivalResources);
+        Test("empty resources cost one life with recovery and freeze after fatal damage", SurvivalDepletion);
+        Test("production supplies sustain snow and heat without resource refills", ProductionSupplyRuns);
+        Test("late biome supplies remain clear and reachable after fallback placement", LateSupplyApproach);
+        Test("skyway packs favor holes and include double gaps and collapsing floors", SkyHoleDensity);
+        Test("collapsing floors crack monotonically then become recoverable real holes", CollapsingFloors);
+        Test("item upgrades follow prices and caps while next-run stocks consume once", ItemShop);
+        Test("water and warmth reserves rescue one depletion and do not become permanent", SurvivalReserves);
+        Test("double score applies only to active travel and leaves wallet unchanged", DoubleScoreAccounting);
+        Test("double score and magnet stack duration within their cap and pause", TimedItemLifecycle);
+        Test("magnet attracts nearby stars only and respects its expiry", MagnetAttraction);
+        Test("shield absorbs one physical hit without hiding later damage", ShieldDamage);
+        Test("random powerups use clear lanes and cover all three pickup kinds", PowerupGeneration);
         Test("save input is sanitized without discarding valid progress", SaveValidation);
         Test("long frame updates behave like fixed small steps", FrameStep);
         Console.WriteLine();
@@ -99,9 +115,13 @@ internal static class Program
         Check(Math.Abs(actual - expected) <= tolerance, message + " (actual " + actual + ", expected " + expected + ")");
     }
 
-    private static RunnerSession New(int seed = 123, int upgrade = 0)
+    private static RunnerSession New(int seed = 123, int upgrade = 0, bool randomStart = false)
     {
-        return new RunnerSession(new RunnerSave { PurchasedHearts = upgrade }, seed);
+        var run = new RunnerSession(new RunnerSave { PurchasedHearts = upgrade }, seed);
+        // Generic physics fixtures start on a neutral road. Random-start and
+        // biome tests explicitly opt into the production map-selection flow.
+        if (!randomStart) run.SetStartingDistrict(District.Day);
+        return run;
     }
 
     private static IList<WorldEntity> World(RunnerSession run)
@@ -114,12 +134,25 @@ internal static class Program
 
     private static bool Hazard(WorldEntity entity)
     {
-        return entity.Kind != EntityKind.Star && entity.Kind != EntityKind.Heart;
+        return entity.Kind == EntityKind.House || entity.Kind == EntityKind.Hydrant ||
+            entity.Kind == EntityKind.Plane || entity.Kind == EntityKind.Gap ||
+            entity.Kind == EntityKind.Spike || entity.Kind == EntityKind.Saw ||
+            entity.Kind == EntityKind.Barrier || entity.Kind == EntityKind.CollapsingFloor;
     }
 
     private static void ClearHazards(RunnerSession run)
     {
         foreach (WorldEntity e in run.Entities) if (Hazard(e)) e.Removed = true;
+    }
+
+    private static void IsolateWorld(RunnerSession run)
+    {
+        // This helper is used only by isolated mechanics and generation audits.
+        // Real survival/supply traversal checks below do not call it.
+        ClearHazards(run);
+        foreach (WorldEntity e in run.Entities)
+            if (e.Kind == EntityKind.DoubleScore || e.Kind == EntityKind.Magnet || e.Kind == EntityKind.Shield) e.Removed = true;
+        SetProperty(run, "Water", 100f); SetProperty(run, "Warmth", 100f);
     }
 
     private static void Advance(RunnerSession run, float seconds, bool clearHazards = true)
@@ -128,7 +161,7 @@ internal static class Program
         float dt = seconds / steps;
         for (int n = 0; n < steps; n++)
         {
-            if (clearHazards) ClearHazards(run);
+            if (clearHazards) IsolateWorld(run);
             run.Update(dt);
         }
     }
@@ -317,8 +350,8 @@ internal static class Program
     {
         RunnerSession run=New();
         Check(!run.BuyExtraHeart() && run.Save.Wallet==0 && run.Save.PurchasedHearts==0,"Unfunded purchase changed progress");
-        run.Save.Wallet=25; int saved=0; run.SaveChanged+=()=>saved++;
-        Check(run.NextHeartCost==25 && run.BuyExtraHeart(),"Funded heart purchase rejected");
+        run.Save.Wallet=100; int saved=0; run.SaveChanged+=()=>saved++;
+        Check(run.NextHeartCost==100 && run.BuyExtraHeart(),"Funded heart purchase rejected");
         Check(run.Save.Wallet==0 && run.Save.PurchasedHearts==1 && saved==1,"Heart purchase not persisted at exact price");
         run.StartRun();
         Check(run.Lives==2 && run.Save.PurchasedHearts==0 && saved==2,"Starting did not consume and persist the reserved heart");
@@ -329,10 +362,10 @@ internal static class Program
 
     private static void UpgradeCap()
     {
-        RunnerSession run=New(); run.Save.Wallet=1000;
-        for(int i=0;i<3;i++) Check(run.NextHeartCost==25 && run.BuyExtraHeart(),"Repeatable heart purchase failed");
-        Check(run.Save.Wallet==925 && run.Save.PurchasedHearts==3,"Heart total/price incorrect");
-        Check(!run.BuyExtraHeart() && run.NextHeartCost==0 && run.Save.Wallet==925,"Reserved-heart cap was not enforced");
+        RunnerSession run=New(); run.Save.Wallet=2000;
+        foreach(int price in new[]{100,300,600}) Check(run.NextHeartCost==price && run.BuyExtraHeart(),"Escalating heart purchase failed");
+        Check(run.Save.Wallet==1000 && run.Save.PurchasedHearts==3,"Heart total/price incorrect");
+        Check(!run.BuyExtraHeart() && run.NextHeartCost==0 && run.Save.Wallet==1000,"Reserved-heart cap was not enforced");
         RunnerSession reloaded=new RunnerSession(run.Save,9);
         Check(reloaded.Save.PurchasedHearts==3,"Reload lost unspent reserved hearts");
         reloaded.StartRun(); Check(reloaded.Lives==4 && reloaded.Save.PurchasedHearts==0,"Run did not use all reserved hearts once");
@@ -350,7 +383,7 @@ internal static class Program
             var old=new RunnerSave { Version=1,Wallet=57,ExtraHeartsLevel=level,BestScore=900,LastScore=700,
                 History=new List<RunRecord>{new RunRecord{Score=700,Stars=5,EndReason="test"}} };
             RunnerSession migrated=new RunnerSession(old,7);
-            Check(migrated.Save.Version==2 && migrated.Save.ExtraHeartsLevel==0,"Legacy upgrade not migrated");
+            Check(migrated.Save.Version==3 && migrated.Save.ExtraHeartsLevel==0,"Legacy upgrade not migrated");
             Check(migrated.Save.Wallet==57+refunds[level] && migrated.Save.PurchasedHearts==0,"Legacy spending not refunded correctly");
             Check(migrated.Save.BestScore==900 && migrated.Save.LastScore==700 && migrated.Save.History.Count==1,"Migration lost achievements");
             RunnerSession twice=new RunnerSession(migrated.Save,8);
@@ -422,7 +455,7 @@ internal static class Program
         var seen = new HashSet<int>(); var times = new List<float>();
         for (int i = 0; i < 120 * 180; i++)
         {
-            ClearHazards(run); run.Update(1f / 120);
+            IsolateWorld(run); run.Update(1f / 120);
             foreach (WorldEntity e in run.Entities)
                 if (e.Kind == EntityKind.Heart && !e.Removed && seen.Add(e.Id)) times.Add(run.Elapsed);
         }
@@ -434,7 +467,7 @@ internal static class Program
 
     private static void StartingMapSelection()
     {
-        RunnerSession run = New(99);
+        RunnerSession run = New(99, randomStart: true);
         Check(!run.StartingDistrict.HasValue, "New profile should default to random starting map");
         foreach (District district in Enum.GetValues(typeof(District)))
         {
@@ -466,10 +499,10 @@ internal static class Program
         var seeds = new HashSet<District>();
         for (int seed=0; seed<72; seed++)
         {
-            RunnerSession run=New(seed); run.StartRun(); seeds.Add(run.CurrentDistrict);
+            RunnerSession run=New(seed, randomStart:true); run.StartRun(); seeds.Add(run.CurrentDistrict);
         }
         Check(seeds.Count == 6, "Random starting map omitted one or more districts across seeds");
-        RunnerSession repeat=New(227);
+        RunnerSession repeat=New(227, randomStart:true);
         var retries=new HashSet<District>();
         for (int i=0; i<72; i++)
         {
@@ -497,7 +530,7 @@ internal static class Program
             District previous=run.CurrentDistrict; int stage=run.StageNumber;
             for (int i=0; i<120*245; i++)
             {
-                ClearHazards(run); run.Update(1f/120); visited.Add(run.CurrentDistrict);
+                IsolateWorld(run); run.Update(1f/120); visited.Add(run.CurrentDistrict);
                 if (run.StageNumber != stage)
                 {
                     Check(run.StageNumber == stage+1, "Transition skipped a stage");
@@ -522,13 +555,13 @@ internal static class Program
         for(int seed=0;seed<8;seed++)
         {
             RunnerSession run=New(seed); run.SetStartingDistrict(district); run.StartRun();
-            bool darkMap=district==District.Night || district==District.Storm;
+            bool darkMap=district==District.Night;
             float firstDark=-1,firstWarning=-1,full=0,block=0,peak=0;
             int completed=0; bool partial=false;
             starts.Add((int)(run.NextBlackoutAt*100)); durations.Add((int)(run.BlackoutDuration*100));
             for(int i=0;i<120*34;i++)
             {
-                ClearHazards(run); run.Update(dt); float amount=run.DarknessAmount;
+                IsolateWorld(run); run.Update(dt); float amount=run.DarknessAmount;
                 Check(!float.IsNaN(amount)&&amount>=0&&amount<=1,"Blackout opacity outside normalized bounds");
                 if(!darkMap) Check(amount==0&&!run.BlackoutWarning,"Unexpected blackout on "+district);
                 if(run.BlackoutWarning&&firstWarning<0) firstWarning=run.DistrictElapsed;
@@ -558,7 +591,7 @@ internal static class Program
 
     private static void BlackoutStateTransitions()
     {
-        foreach (District district in new[] {District.Night,District.Storm})
+        foreach (District district in new[] {District.Night})
         {
             RunnerSession run=New(778); run.SetStartingDistrict(district); run.StartRun();
             while (run.DarknessAmount<0.9f) Advance(run,1f/120);
@@ -585,32 +618,37 @@ internal static class Program
     {
         foreach(District district in Enum.GetValues(typeof(District)))
         {
-            bool active=district==District.Rain||district==District.Storm;
-            float previousPulse=-100,block=0; int pulseCount=0,lastStrike=0;
+            bool active=district==District.Storm;
+            float previousPulse=-100,block=0,minDark=1,maxDark=0; int pulseCount=0,lastStrike=0;
             for(int i=0;i<3000;i++)
             {
                 float time=i/100f; LightningFrame frame=RunnerWeather.GetLightning(district,time);
                 Check(frame.Amount>=0&&frame.Amount<=1&&!float.IsNaN(frame.Amount),"Lightning amount outside finite bounds");
-                if(!active) Check(frame.Amount==0&&frame.StrikeId==0,"Lightning appeared on a clear map");
-                if(time<2) Check(frame.Amount==0,"Lightning skipped opening grace");
+                if(!active) Check(frame.Amount==0&&frame.StrikeId==0,"Lightning appeared outside storm");
+                if(time<RunnerWeather.StormFirstStrike) Check(frame.Amount==0,"Lightning skipped opening grace");
                 if(frame.Amount>0.001f)
                 {
                     if(block==0)
                     {
-                        Check(time-previousPulse>=2.7f,"Lightning became a rapid strobe");
+                        if(pulseCount>0) Near(time-previousPulse,RunnerWeather.StormStrikeInterval,0.03f,"Lightning interval drifted");
                         Check(frame.StrikeId>lastStrike,"A new flash reused its thunder identity");
                         previousPulse=time; lastStrike=frame.StrikeId; pulseCount++;
                     }
                     block+=0.01f;
-                    Check(block<=0.44f,"Lightning stayed continuously white");
+                    Check(block<=RunnerWeather.LightningPulseDuration+0.02f,"Lightning stayed continuously white");
                     Check(frame.BoltX>=180&&frame.BoltX<=1100,"Lightning bolt position escaped the canvas");
                 }
                 else block=0;
+                float darkness=RunnerWeather.GetStormDarkness(time);
+                Check(darkness>=0&&darkness<=1&&!float.IsNaN(darkness),"Storm darkness invalid");
+                minDark=Math.Min(minDark,darkness); maxDark=Math.Max(maxDark,darkness);
             }
-            Check(active?pulseCount>=8:pulseCount==0,"Unexpected lightning cadence on "+district);
+            Check(active?pulseCount>=15:pulseCount==0,"Unexpected lightning cadence on "+district);
+            Check(minDark<0.15f&&maxDark>0.85f,"Storm did not alternate clear flashes and deep darkness");
         }
         foreach(float invalid in new[]{float.NaN,float.PositiveInfinity,-1f})
-            Check(RunnerWeather.GetLightning(District.Rain,invalid).Amount==0,"Invalid lightning clock produced a flash");
+            Check(RunnerWeather.GetLightning(District.Storm,invalid).Amount==0&&RunnerWeather.GetStormDarkness(invalid)==0,
+                "Invalid weather clock produced an effect");
     }
 
     private static void SkywayOpening()
@@ -621,7 +659,7 @@ internal static class Program
             bool gap=false;
             for (int i=0; i<120*34; i++)
             {
-                ClearHazards(run); run.Update(1f/120);
+                IsolateWorld(run); run.Update(1f/120);
                 bool newGap=run.Entities.Any(e=>e.Kind==EntityKind.Gap && !e.Removed);
                 if (run.Elapsed<10-0.02f) Check(!newGap,"Skyway spawned a gap during opening grace");
                 gap|=newGap;
@@ -651,7 +689,7 @@ internal static class Program
             Id = source.Id, PatternId = source.PatternId, Kind = source.Kind, Variant = source.Variant,
             X = source.X, Y = source.Y, BaseY = source.BaseY, Width = source.Width, Height = source.Height,
             Rotation = source.Rotation, MotionPhase = source.MotionPhase, MotionAmplitude = source.MotionAmplitude,
-            MotionAmplitudeX = source.MotionAmplitudeX, MotionSpeed = source.MotionSpeed
+            MotionAmplitudeX = source.MotionAmplitudeX, MotionSpeed = source.MotionSpeed, CollapseProgress=source.CollapseProgress, Collapsed=source.Collapsed
         };
     }
 
@@ -680,7 +718,7 @@ internal static class Program
                 }
                 // Generation checks remove hazards only after recording the complete
                 // pack. Physical traversability is checked separately with real collisions.
-                ClearHazards(run); run.Update(1f / 120);
+                IsolateWorld(run); run.Update(1f / 120);
             }
             Check(seen.Count > 60, "Generation did not exercise enough packs for seed " + seed);
         }
@@ -708,7 +746,7 @@ internal static class Program
                     (e.Kind == EntityKind.Saw && e.BaseY > RunnerSession.DuckHeight));
                 Check(!(floorHazard && ceilingHazard), "A pack combines incompatible jump/duck lanes");
                 if (pack.Entities.Any(e => e.Kind == EntityKind.Gap))
-                    Check(pack.Entities.Count == 1, "A ground obstacle covers a gap in the same pack");
+                    Check(pack.Entities.All(e=>e.Kind==EntityKind.Gap), "A ground obstacle covers a gap in the same pack");
                 previous = pack;
             }
         }
@@ -1063,7 +1101,7 @@ internal static class Program
     { return (float)Math.Sin(time*e.MotionSpeed+e.MotionPhase)*e.MotionAmplitudeX; }
 
     private static void StopSpawns(RunnerSession run)
-    { SetField(run,"distanceToPattern",1000000f); SetField(run,"nextHeartAt",float.MaxValue); }
+    { SetField(run,"distanceToPattern",1000000f); SetField(run,"nextHeartAt",float.MaxValue); SetField(run,"nextPowerupAt",double.MaxValue); SetField(run,"nextSurvivalSupplyAt",double.MaxValue); }
 
     private static WorldEntity MotionFixture(RunnerSession run)
     {
@@ -1148,7 +1186,7 @@ internal static class Program
         RunnerSession run = New(991); run.StartRun(); World(run).Clear();
         SetProperty(run, "Elapsed", (speed-RunnerSession.InitialSpeed)/RunnerSession.SpeedAcceleration);
         SetProperty(run, "Speed", speed); SetProperty(run, "PlayerX", playerX);
-        SetField(run, "distanceToPattern", 1000000f); SetField(run, "nextHeartAt", float.MaxValue);
+        StopSpawns(run);
         var obstacles = new List<WorldEntity>();
         foreach (WorldEntity e in pack.Entities)
         {
@@ -1216,6 +1254,7 @@ internal static class Program
 
     private static void SequentialRunner()
     {
+        int auditedSupplyFrames=0;
         for (int seed=0; seed<6; seed++)
             foreach (float x in new[] {RunnerSession.StartPlayerX,RunnerSession.MaximumPlayerX})
             {
@@ -1264,18 +1303,44 @@ internal static class Program
                         if (!overhead && jumped && !second && doubleDelay>=0 && run.Elapsed-jumpTime>=doubleDelay)
                             second=run.Jump();
                     }
+                    foreach(WorldEntity item in run.Entities)
+                        if(item.Kind==EntityKind.Shield||item.Kind==EntityKind.Magnet||item.Kind==EntityKind.DoubleScore) item.Removed=true;
+                    run.SetHorizontal((x-run.PlayerX)*8f/RunnerSession.HorizontalSpeed-run.WindPush/RunnerSession.HorizontalSpeed);
                     int before=run.Lives;
                     run.Update(1f/120);
+                    auditedSupplyFrames+=AssertSupplyLanes(run,"seed="+seed+" age="+run.Elapsed);
                     Check(run.State==RunState.Playing && run.Lives>=before,
                         "Sequence bot hit a hazard for seed "+seed+" X="+x+" at "+
                         run.Elapsed.ToString("0.00")+"s pack="+current+" Y="+run.PlayerY+" VY="+run.VelocityY+
                         " jumped="+jumped+" double="+second+" lead="+jumpLead+" plan="+description+" since="+(run.Elapsed-jumpTime)+
-                        " hazards="+string.Join(";",run.Entities.Where(e=>Hazard(e)&&e.X<run.PlayerX+180&&e.X+e.Width>run.PlayerX-100)
+                        " warmth="+run.Warmth+" water="+run.Water+" hazards="+string.Join(";",run.Entities.Where(e=>Hazard(e)&&e.X<run.PlayerX+180&&e.X+e.Width>run.PlayerX-100)
                             .Select(e=>e.PatternId+":"+e.Kind+"@"+e.X+","+e.Y+" size="+e.Width+","+e.Height))+" reason="+run.EndReason);
                 }
                 Check(solved>=70 && run.Score>4000 && run.Speed>800f,
                     "Sequential run did not cover enough authored packs and accelerating play");
             }
+        Check(auditedSupplyFrames>10000,"Sequential traversal omitted live supply overlap coverage");
+        Console.WriteLine("  Real traversal checked "+auditedSupplyFrames+" visible supply frames against live ground hazards.");
+    }
+
+    private static int AssertSupplyLanes(RunnerSession run,string context)
+    {
+        int checkedFrames=0;
+        foreach(WorldEntity supply in run.Entities)
+        {
+            if(supply.Removed||(supply.Kind!=EntityKind.Water&&supply.Kind!=EntityKind.HotDrink)||
+                supply.X+supply.Width<0||supply.X>RunnerSession.CanvasWidth) continue;
+            checkedFrames++;
+            foreach(WorldEntity hazard in run.Entities)
+            {
+                if(hazard.Removed||!Hazard(hazard)||hazard.Kind==EntityKind.Plane) continue;
+                bool hole=hazard.Kind==EntityKind.Gap||hazard.Kind==EntityKind.CollapsingFloor;
+                if(!hole&&(supply.Y+supply.Height<=hazard.Y||supply.Y>=hazard.Y+hazard.Height)) continue;
+                Check(supply.X+supply.Width<=hazard.X||supply.X>=hazard.X+hazard.Width,
+                    "Live supply overlaps "+hazard.Kind+" "+context+" supplyX="+supply.X+" hazardX="+hazard.X);
+            }
+        }
+        return checkedFrames;
     }
 
     private static List<PackSpec> lateCatalog;
@@ -1301,7 +1366,7 @@ internal static class Program
                     foreach(WorldEntity e in entities) e.X=e.X+run.Distance-start;
                     lateCatalog.Add(new PackSpec{Seed=runId,District=district,Id=group.Key,Speed=run.Speed,SpawnTime=run.Elapsed,Start=start,End=end,Entities=entities});
                 }
-                ClearHazards(run); run.Update(1f/120);
+                IsolateWorld(run); run.Update(1f/120);
             }
             Check(seen.Count>=10,"Late run did not generate enough real packs at "+elapsed+"s on "+district);
             runId++;
@@ -1382,12 +1447,357 @@ internal static class Program
         Check(run.Speed>1680&&run.Speed>610,"Speed retained the old upper limit");
     }
 
+    private static RunnerSession EmptyRun(District district=District.Day, int hearts=0)
+    {
+        RunnerSession run=New(123,hearts); run.SetStartingDistrict(district); run.StartRun();
+        World(run).Clear(); StopSpawns(run); return run;
+    }
+
+    private static void MapShuffleBag()
+    {
+        foreach(District? selected in new District?[]{null,District.Day,District.Snow,District.Sunset,District.Night,District.Skyway,District.Storm})
+        for(int seed=0;seed<4;seed++)
+        {
+            RunnerSession run=New(seed,randomStart:true); run.SetStartingDistrict(selected); run.StartRun();
+            var sequence=new List<District>{run.CurrentDistrict};
+            if(selected.HasValue) Check(run.CurrentDistrict==selected.Value,"Chosen map was not first");
+            while(sequence.Count<18)
+            {
+                int stage=run.StageNumber; Advance(run,0.25f);
+                if(stage!=run.StageNumber) sequence.Add(run.CurrentDistrict);
+            }
+            for(int i=1;i<sequence.Count;i++) Check(sequence[i]!=sequence[i-1],"Bag boundary repeated adjacent maps");
+            for(int i=0;i<18;i+=6) Check(sequence.Skip(i).Take(6).Distinct().Count()==6,
+                "Six-map bag repeated before all maps were visited: "+string.Join(",",sequence.Skip(i).Take(6)));
+        }
+    }
+
+    private static void SnowInertia()
+    {
+        RunnerSession run=EmptyRun(District.Snow); SetProperty(run,"PlayerX",350f);
+        run.SetHorizontal(1); Advance(run,0.35f,false);
+        Check(run.HorizontalVelocity>200&&run.HorizontalVelocity<RunnerSession.HorizontalSpeed,"Snow accelerated instantly or never accelerated");
+        float x=run.PlayerX,velocity=run.HorizontalVelocity; run.SetHorizontal(0); Advance(run,0.2f,false);
+        Check(run.PlayerX>x+20&&run.HorizontalVelocity>0&&run.HorizontalVelocity<velocity,"Releasing snow input did not slide and slow");
+        Advance(run,0.6f,false); Near(run.HorizontalVelocity,0,0.01f,"Snow drag never stopped sliding");
+        run.SetHorizontal(-1); Advance(run,0.55f,false); float negative=run.HorizontalVelocity;
+        run.SetHorizontal(1); Advance(run,0.15f,false);
+        Check(negative<0&&run.HorizontalVelocity<0&&run.HorizontalVelocity>negative,"Snow reversal skipped braking");
+        run.TogglePause(); x=run.PlayerX; velocity=run.HorizontalVelocity; run.Update(5);
+        Near(run.PlayerX,x,0,"Paused snow slid"); Near(run.HorizontalVelocity,velocity,0,"Pause advanced friction");
+        run.TogglePause(); Advance(run,0.1f,false); Check(run.PlayerX<x,"Resume lost existing snow momentum");
+        run.SetHorizontal(-1); Advance(run,2,false);
+        Near(run.PlayerX,RunnerSession.MinimumPlayerX,0.01f,"Sliding escaped screen bounds");
+        Near(run.HorizontalVelocity,0,0.01f,"Snow retained velocity into screen edge");
+        run.ReturnToMenu(); run.StartRun(); Near(run.HorizontalVelocity,0,0,"Restart retained snow velocity");
+    }
+
+    private static void SkyWind()
+    {
+        RunnerSession ground=EmptyRun(District.Skyway); SetProperty(ground,"PlayerX",450f); SetProperty(ground,"DistrictElapsed",5.5f);
+        Check(ground.WindStrength>0.9f&&ground.WindPush<0,"Sky gust was absent");
+        Advance(ground,0.2f,false); float groundLoss=450-ground.PlayerX;
+        RunnerSession air=EmptyRun(District.Skyway); SetProperty(air,"PlayerX",450f); SetProperty(air,"DistrictElapsed",5.5f);
+        air.Jump(); Advance(air,0.2f,false);
+        Check(450-air.PlayerX>groundLoss*2,"Airborne wind was not stronger than grounded wind");
+        float x=air.PlayerX; air.SetHorizontal(1); Advance(air,0.15f,false); Check(air.PlayerX>x,"Player cannot overcome wind");
+        x=air.PlayerX;
+        for(int i=0;i<60;i++){air.SetHorizontal(-air.WindPush/RunnerSession.HorizontalSpeed);air.Update(1f/120);}
+        Near(air.PlayerX,x,0.03f,"Counter steering cannot hold position against live wind");
+        air.TogglePause(); float wind=air.WindPush; air.Update(5); Near(air.PlayerX,x,0.03f,"Paused gust moved player");
+        Near(air.WindPush,wind,0,"Paused wind clock advanced");
+        air.ReturnToMenu(); air.SetStartingDistrict(District.Day); air.StartRun(); Near(air.WindPush,0,0,"Wind leaked into another map");
+    }
+
+    private static void SurvivalResources()
+    {
+        foreach(District district in new[]{District.Snow,District.Sunset})
+        {
+            RunnerSession run=EmptyRun(district); bool cold=district==District.Snow;
+            Advance(run,1.9f,false); Near(cold?run.Warmth:run.Water,100,0,"Thermal opening grace missing");
+            Advance(run,1.1f,false); Near(cold?run.Warmth:run.Water,cold?93:94,0.1f,"Wrong depletion rate after grace");
+            Near(cold?run.Water:run.Warmth,100,0,"Inactive resource drained");
+            SetProperty(run,cold?"Warmth":"Water",20f);
+            Inject(run,cold?EntityKind.HotDrink:EntityKind.Water,10,32,36); run.Update(1f/120);
+            Near(cold?run.Warmth:run.Water,cold?65:60,0.1f,"Matching supply did not replenish resource");
+            for(int i=0;i<3;i++) Inject(run,cold?EntityKind.HotDrink:EntityKind.Water,10,32,36);
+            run.Update(1f/120); Near(cold?run.Warmth:run.Water,100,0.1f,"Supply overflowed resource cap");
+            run.TogglePause(); float resource=cold?run.Warmth:run.Water; run.Update(5);
+            Near(cold?run.Warmth:run.Water,resource,0,"Paused survival depleted resource");
+            run.TogglePause(); SetProperty(run,"DistrictElapsed",RunnerSession.DistrictDuration-0.01f); run.Update(0.02f);
+            Near(run.Water,100,0,"Map entry did not restore water"); Near(run.Warmth,100,0,"Map entry did not restore warmth");
+        }
+    }
+
+    private static void SurvivalDepletion()
+    {
+        foreach(District district in new[]{District.Snow,District.Sunset})
+        {
+            bool cold=district==District.Snow; RunnerSession run=EmptyRun(district,1);
+            SetProperty(run,"DistrictElapsed",3f); SetProperty(run,cold?"Warmth":"Water",0.01f); run.Update(0.02f);
+            Check(run.Lives==1&&run.State==RunState.Playing,"Depletion did not consume exactly one life");
+            Near(cold?run.Warmth:run.Water,45,0.15f,"Survivor did not receive recovery supply");
+            Advance(run,0.5f,false); Check(run.Lives==1,"Depletion repeatedly consumed hearts in adjacent frames");
+            Advance(run,2f,false); SetProperty(run,cold?"Warmth":"Water",0.01f); run.Update(0.02f);
+            Check(run.State==RunState.GameOver&&run.Lives==0&&run.Save.History.Count==1,"Fatal depletion failed to end the run once");
+            Near(cold?run.Warmth:run.Water,0,0,"Fatal depletion falsely refilled resource");
+            string end=Snapshot(run); run.Update(1); Check(Snapshot(run)==end,"Fatal survival continued simulation");
+        }
+    }
+
+    private static void ProductionSupplyRuns()
+    {
+        int picked=0,spawned=0;
+        foreach(District district in new[]{District.Snow,District.Sunset})
+        for(int seed=0;seed<12;seed++)
+        {
+            RunnerSession run=New(seed); run.SetStartingDistrict(district); run.StartRun();
+            var seen=new HashSet<int>(); float minimum=100,previous=100;
+            for(int i=0;i<120*34;i++)
+            {
+                // Isolate supply cadence while preserving real drain, actual
+                // pickup travel/contact, and random production supply placement.
+                ClearHazards(run);
+                foreach(WorldEntity item in run.Entities)
+                    if(item.Kind==EntityKind.DoubleScore||item.Kind==EntityKind.Magnet||item.Kind==EntityKind.Shield) item.Removed=true;
+                run.Update(1f/120);
+                foreach(WorldEntity item in run.Entities.Where(e=>!e.Removed&&(e.Kind==EntityKind.Water||e.Kind==EntityKind.HotDrink)))
+                {
+                    if(!seen.Add(item.Id)) continue;
+                    spawned++;
+                    Check(item.Kind==(district==District.Snow?EntityKind.HotDrink:EntityKind.Water),"Wrong biome supply spawned");
+                    Check(item.X>RunnerSession.MaximumPlayerX+90&&item.Y==10,"Supply spawned without an approach lane");
+                    foreach(WorldEntity hazard in run.Entities.Where(e=>!e.Removed&&Hazard(e)))
+                        if(hazard.Kind!=EntityKind.Plane&&!(hazard.Kind==EntityKind.Saw&&hazard.BaseY>=56))
+                            Check(item.X+item.Width<=hazard.X-hazard.MotionAmplitudeX*2-90||item.X>=hazard.X+hazard.Width+hazard.MotionAmplitudeX*2+90,
+                                "Supply spawned inside hazard envelope");
+                }
+                float resource=district==District.Snow?run.Warmth:run.Water;
+                if(resource>previous+1) picked++;
+                minimum=Math.Min(minimum,resource); previous=resource;
+                Check(run.State==RunState.Playing&&run.Lives==1,"Production supply stream failed to sustain a grounded player on "+district+" seed="+seed);
+            }
+            Check(minimum>15&&seen.Count>=7,"Supply stream too sparse on "+district+" seed="+seed+" minimum="+minimum+" count="+seen.Count);
+        }
+        Check(picked>=120&&spawned>=160,"Supply audit covered too few real pickups");
+        Console.WriteLine("  Real supply audit: "+spawned+" spawns, "+picked+" replenishments, 24 unrefilled 34-second biome runs.");
+    }
+
+    private static void LateSupplyApproach()
+    {
+        int cases=0; float slowest=0;
+        MethodInfo spawn=typeof(RunnerSession).GetMethod("SpawnSurvivalSupply",BindingFlags.Instance|BindingFlags.NonPublic);
+        foreach(PackSpec pack in LatePacks().Where(p=>p.District==District.Snow||p.District==District.Sunset))
+        foreach(float left in new[]{650f,1000f})
+        {
+            RunnerSession run=EmptyRun(pack.District); SetProperty(run,"Speed",pack.Speed); SetProperty(run,"Elapsed",pack.SpawnTime);
+            SetProperty(run,"PlayerX",RunnerSession.MaximumPlayerX);
+            foreach(WorldEntity original in pack.Entities)
+            {
+                WorldEntity copy=CopyEntity(original); copy.X+=left; World(run).Add(copy);
+            }
+            // Exercise the production placement against real late packs at two
+            // approach positions, including its behind-the-pack fallback lane.
+            spawn.Invoke(run,new object[]{pack.District==District.Snow});
+            WorldEntity supply=run.Entities.Single(e=>e.Kind==EntityKind.Water||e.Kind==EntityKind.HotDrink);
+            foreach(WorldEntity hazard in run.Entities.Where(Hazard))
+            {
+                if(hazard.Kind==EntityKind.Plane||hazard.Kind==EntityKind.Saw&&hazard.BaseY>=56) continue;
+                Check(supply.X+supply.Width<=hazard.X-hazard.MotionAmplitudeX*2-95||
+                    supply.X>=hazard.X+hazard.Width+hazard.MotionAmplitudeX*2+95,"Late supply fallback overlaps hazard sweep");
+            }
+            float approach=(supply.X-run.PlayerX)/pack.Speed;
+            Check(approach>0&&approach<7f,"Late supply cannot be reached before half-full warmth depletes");
+            slowest=Math.Max(slowest,approach); cases++;
+        }
+        Check(cases>=100,"Late supply audit omitted real thermal pack variants");
+        Console.WriteLine("  Late supply approach audit: "+cases+" production placements; longest scroll approach "+slowest.ToString("0.00")+"s.");
+    }
+
+    private static void SkyHoleDensity()
+    {
+        int total=0,holes=0,doubleGaps=0,collapse=0;
+        foreach(float age in new[]{0f,90f})
+        for(int seed=0;seed<12;seed++)
+        {
+            RunnerSession run=New(seed); run.SetStartingDistrict(District.Skyway); run.StartRun();
+            SetProperty(run,"Elapsed",age); SetProperty(run,"Speed",RunnerSession.InitialSpeed+age*RunnerSession.SpeedAcceleration);
+            var seen=new HashSet<int>();
+            for(int i=0;i<120*34;i++)
+            {
+                foreach(var group in run.Entities.Where(e=>!e.Removed&&Hazard(e)).GroupBy(e=>e.PatternId))
+                {
+                    if(!seen.Add(group.Key)||run.Elapsed<10) continue;
+                    total++; bool hole=group.Any(e=>e.Kind==EntityKind.Gap||e.Kind==EntityKind.CollapsingFloor);
+                    if(hole) holes++; if(group.Count(e=>e.Kind==EntityKind.Gap)==2) doubleGaps++;
+                    if(group.Any(e=>e.Kind==EntityKind.CollapsingFloor)) collapse++;
+                }
+                ClearHazards(run); run.Update(1f/120);
+            }
+        }
+        Console.WriteLine("  Skyway hole families: "+holes+"/"+total+" packs; double gaps="+doubleGaps+", collapses="+collapse+".");
+        Check(total>180&&holes>=total*0.5f,"Skyway hole families are less than half of generated packs");
+        Check(doubleGaps>12&&collapse>12,"Skyway omitted double gaps or collapses");
+    }
+
+    private static void CollapsingFloors()
+    {
+        RunnerSession run=EmptyRun(District.Skyway,1); var bridge=Inject(run,EntityKind.CollapsingFloor,0,180,0); bridge.X=1300;
+        Check(!bridge.IsOpenGap,"New bridge starts open"); float previous=0; bool cracked=false,opened=false;
+        for(int i=0;i<120*6&&run.Lives==2;i++)
+        {
+            run.Update(1f/120);
+            Check(bridge.CollapseProgress>=previous,"Bridge repaired itself while approaching"); previous=bridge.CollapseProgress;
+            cracked|=previous>0&&previous<1; opened|=bridge.IsOpenGap;
+        }
+        Check(cracked&&opened&&bridge.Collapsed,"Bridge did not visibly crack before collapsing");
+        Check(run.Lives==1&&run.State==RunState.Playing,"Collapsed bridge did not act as a real hole");
+        Check(bridge.Removed,"Fall recovery left the collapsed floor underneath the player");
+        Advance(run,2,false); Check(run.Lives==1&&run.PlayerY==0,"Recovered player fell repeatedly through collapsed bridge");
+    }
+
+    private static void ItemShop()
+    {
+        var run=new RunnerSession(new RunnerSave{Wallet=6000},42); int notifications=0; run.SaveChanged+=()=>notifications++;
+        int start=run.Save.Wallet;
+        foreach(int price in new[]{200,400,700,1100})
+        {
+            Check(run.NextScoreBoostCost==price&&run.NextMagnetCost==price,"Duration upgrade price changed");
+            Check(run.BuyScoreBoostUpgrade()&&run.BuyMagnetUpgrade(),"Funded duration upgrade rejected");
+        }
+        Check(run.Save.Wallet==start-4800&&run.ScoreBoostDuration==16&&run.MagnetDuration==16,"Upgrade cost or duration incorrect");
+        Check(!run.BuyScoreBoostUpgrade()&&!run.BuyMagnetUpgrade()&&run.NextScoreBoostCost==0&&run.NextMagnetCost==0,"Max upgrade exceeded cap");
+        Check(run.BuyStartingShield()&&run.BuyWaterReserve()&&run.BuyWarmReserve(),"Funded consumable rejected");
+        Check(run.Save.Wallet==700&&run.Save.PurchasedShield&&run.Save.PurchasedWaterReserve&&run.Save.PurchasedWarmReserve,"Consumable prices or inventory incorrect");
+        Check(!run.BuyStartingShield()&&!run.BuyWaterReserve()&&!run.BuyWarmReserve(),"Consumables stacked more than one stock");
+        run.StartRun();
+        Check(run.ShieldReady&&run.WaterReserveReady&&run.WarmReserveReady&&!run.Save.PurchasedShield&&!run.Save.PurchasedWaterReserve&&!run.Save.PurchasedWarmReserve,
+            "Starting inventory was not consumed exactly once");
+        Check(!run.BuyScoreBoostUpgrade()&&!run.BuyStartingShield(),"Active run allowed shop purchase");
+        run.ReturnToMenu(); run.StartRun();
+        Check(!run.ShieldReady&&!run.WaterReserveReady&&!run.WarmReserveReady&&run.Save.ScoreBoostLevel==4&&run.Save.MagnetLevel==4,
+            "Next run retained consumables or lost permanent duration upgrades");
+        Check(notifications>=12,"Shop or consumption failed to notify persistence");
+        var invalid=new RunnerSession(new RunnerSave{ScoreBoostLevel=999,MagnetLevel=-5},4);
+        Check(invalid.Save.ScoreBoostLevel==4&&invalid.Save.MagnetLevel==0,"Saved duration levels were not sanitized");
+        Check(!new RunnerSession(new RunnerSave{Wallet=149},2).BuyWarmReserve(),"Unfunded survival purchase succeeded");
+    }
+
+    private static void SurvivalReserves()
+    {
+        foreach(District district in new[]{District.Snow,District.Sunset})
+        {
+            bool cold=district==District.Snow;
+            var run=new RunnerSession(new RunnerSave{PurchasedWarmReserve=cold,PurchasedWaterReserve=!cold,PurchasedHearts=1},31);
+            run.SetStartingDistrict(district); run.StartRun(); World(run).Clear(); StopSpawns(run);
+            SetProperty(run,"DistrictElapsed",3f); SetProperty(run,cold?"Warmth":"Water",0.01f); run.Update(0.02f);
+            Check(run.Lives==2&&!(cold?run.WarmReserveReady:run.WaterReserveReady),"Reserve did not absorb one depletion");
+            Near(cold?run.Warmth:run.Water,85,0.2f,"Reserve restored wrong resource amount");
+            SetProperty(run,cold?"Warmth":"Water",0.01f); run.Update(0.02f);
+            Check(run.Lives==1,"Spent reserve rescued a second depletion");
+            run.ReturnToMenu(); run.StartRun();
+            Check(!run.WarmReserveReady&&!run.WaterReserveReady,"Reserve became permanent");
+        }
+    }
+
+    private static void DoubleScoreAccounting()
+    {
+        RunnerSession run=EmptyRun(); Advance(run,2,false); float unboosted=run.Distance;
+        Inject(run,EntityKind.DoubleScore,10,30,30); run.Update(1f/120); float start=run.Distance;
+        Inject(run,EntityKind.Star,10,24,24); run.Update(1f/120);
+        Advance(run,1.2f,false); float boostedTravel=run.Distance-start;
+        int expected=(int)Math.Floor((run.Distance+boostedTravel)/20f);
+        Check(run.Score==expected,"Double score multiplied prior points or missed active travel");
+        Check(run.Save.Wallet==1&&run.RunStars==1,"Double score multiplied wallet credits");
+        Near(start-unboosted,run.Speed/120f,0.1f,"Pickup changed real travelled distance");
+        // Cross timer expiry inside a single public Update, keeping distance at
+        // double precision rather than multiplying the final displayed score.
+        SetField(run,"scoreBoostRemainingClock",0.004d); double priorBonus=(double)typeof(RunnerSession).GetField("bonusScoreDistance",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(run);
+        float before=run.Distance,speed=run.Speed; run.Update(0.02f);
+        double afterBonus=(double)typeof(RunnerSession).GetField("bonusScoreDistance",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(run);
+        Near((float)(afterBonus-priorBonus),speed*0.004f,0.002f,"Expiry frame received a full-frame bonus");
+        Check(run.ScoreBoostRemaining==0&&run.Distance>before,"Expiry stopped actual travel");
+        run.ReturnToMenu(); Check(run.Save.LastScore==run.Score&&run.Save.History[0].Score==run.Score,"Boosted result did not persist");
+        run.StartRun(); Check(run.Score==0&&run.ScoreBoostRemaining==0,"Restart retained score bonus");
+    }
+
+    private static void TimedItemLifecycle()
+    {
+        RunnerSession run=EmptyRun();
+        for(int i=0;i<4;i++){Inject(run,EntityKind.DoubleScore,10,30,30);Inject(run,EntityKind.Magnet,10,30,30);run.Update(1f/120);}
+        Check(run.ScoreBoostRemaining>15.9f&&run.ScoreBoostRemaining<=16&&run.MagnetRemaining>15.9f&&run.MagnetRemaining<=16,
+            "Repeated pickups exceeded twice-duration cap or failed to extend");
+        run.TogglePause(); float score=run.ScoreBoostRemaining,magnet=run.MagnetRemaining; run.Update(20);
+        Near(run.ScoreBoostRemaining,score,0,"Pause expired double score"); Near(run.MagnetRemaining,magnet,0,"Pause expired magnet");
+        run.TogglePause(); Advance(run,16.1f,false);
+        Check(run.ScoreBoostRemaining==0&&run.MagnetRemaining==0,"Timed pickup failed to expire");
+    }
+
+    private static void MagnetAttraction()
+    {
+        RunnerSession run=EmptyRun(); Inject(run,EntityKind.Magnet,10,30,30); run.Update(1f/120);
+        WorldEntity star=Inject(run,EntityKind.Star,160,24,24); star.X=run.PlayerX+140;
+        WorldEntity heart=Inject(run,EntityKind.Heart,160,30,30); heart.X=star.X;
+        WorldEntity water=Inject(run,EntityKind.Water,160,32,36); water.X=star.X;
+        WorldEntity far=Inject(run,EntityKind.Star,400,24,24); far.X=run.PlayerX+600;
+        float y=star.Y,farY=far.Y; run.Update(0.02f);
+        Check(star.Y<y,"Magnet did not pull nearby star vertically");
+        Near(heart.Y,160,0,"Magnet attracted a heart"); Near(water.Y,160,0,"Magnet attracted water"); Near(far.Y,farY,0,"Magnet attracted a star outside its radius");
+        Advance(run,0.3f,false); Check(star.Removed&&run.Save.Wallet==1,"Attracted star did not credit once");
+        SetField(run,"magnetRemainingClock",0.004d);
+        WorldEntity edge=Inject(run,EntityKind.Star,160,24,24); edge.X=run.PlayerX+140; float before=edge.Y;
+        run.Update(0.02f);
+        Check(before-edge.Y<10,"Magnet expiry pulled for an entire frame");
+        before=edge.Y; run.Update(0.02f); Near(edge.Y,before,0,"Expired magnet continued attracting");
+    }
+
+    private static void ShieldDamage()
+    {
+        RunnerSession run=EmptyRun(District.Day,1); Inject(run,EntityKind.Shield,10,30,30); run.Update(1f/120);
+        Inject(run,EntityKind.House); run.Update(1f/120);
+        Check(run.Lives==2&&!run.ShieldReady&&run.InvincibleRemaining>0,"Shield did not absorb exactly one contact");
+        Inject(run,EntityKind.Hydrant); run.Update(1f/120); Check(run.Lives==2,"Shield grace failed against same-frame contact");
+        World(run).Clear(); Advance(run,1.1f,false); Inject(run,EntityKind.House); run.Update(1f/120);
+        Check(run.Lives==1&&!run.ShieldReady,"Spent shield continued absorbing hits");
+        RunnerSession fall=EmptyRun(); Inject(fall,EntityKind.Shield,10,30,30); fall.Update(1f/120); Inject(fall,EntityKind.Gap,0,600,0);
+        Advance(fall,0.7f,false); Check(fall.State==RunState.GameOver&&fall.ShieldReady,"Physical shield incorrectly rescued falling");
+    }
+
+    private static void PowerupGeneration()
+    {
+        var kinds=new HashSet<EntityKind>(); int count=0;
+        for(int seed=0;seed<12;seed++)
+        {
+            RunnerSession run=New(seed); run.StartRun(); var seen=new HashSet<int>(); float previous=-100;
+            for(int i=0;i<120*95;i++)
+            {
+                IsolateWorld(run); run.Update(1f/120);
+                foreach(WorldEntity item in run.Entities.Where(e=>!e.Removed&&(e.Kind==EntityKind.DoubleScore||e.Kind==EntityKind.Magnet||e.Kind==EntityKind.Shield)))
+                {
+                    if(!seen.Add(item.Id)) continue;
+                    Check(run.Elapsed>=17.9f&&run.Elapsed-previous>=19.9f,"Powerups spawned too frequently"); previous=run.Elapsed;
+                    Check(item.Y==110&&item.X>=800&&item.X+item.Width<=RunnerSession.CanvasWidth,"Powerup lacks a visible approach lane");
+                    foreach(WorldEntity hazard in run.Entities.Where(e=>!e.Removed&&Hazard(e)))
+                        Check(item.X+item.Width<=hazard.X-hazard.MotionAmplitudeX*2-63||item.X>=hazard.X+hazard.Width+hazard.MotionAmplitudeX*2+63,
+                            "Powerup spawned inside swept hazard envelope");
+                    count++; kinds.Add(item.Kind);
+                }
+            }
+        }
+        Check(kinds.Count==3&&count>=36,"Random powerup stream omitted a kind or useful cadence");
+    }
+
     private static void SaveValidation()
     {
         var save = new RunnerSave { Wallet = -100, BestScore = -10, LastScore = -7, PurchasedHearts = 100, History = null };
         RunnerSession run = new RunnerSession(save, 1);
         Check(run.Save.Wallet >= 0 && run.Save.BestScore >= 0 && run.Save.LastScore >= 0, "Negative saved values remain");
         Check(run.Save.PurchasedHearts == 3 && run.Save.History != null, "Invalid upgrade/history not sanitized");
+        var v2=new RunnerSession(new RunnerSave{Version=2,Wallet=43,BestScore=900,LastScore=500,
+            PurchasedHearts=2,ExtraHeartsLevel=3,History=new List<RunRecord>{new RunRecord{Score=500,Distance=1234}}},1);
+        Check(v2.Save.Version==3&&v2.Save.Wallet==43&&v2.Save.PurchasedHearts==2&&v2.Save.BestScore==900&&v2.Save.History.Count==1,
+            "Version 2 migration refunded twice or lost consumable hearts/history");
+        v2.StartRun(); Check(v2.Lives==3,"Migrated reserved hearts were not usable");
         RunnerSession fresh = new RunnerSession(null, 1); fresh.StartRun();
         Check(fresh.Lives == 1, "Missing save did not use safe defaults");
         var valid = new RunnerSave { Wallet = 43, BestScore = 900, LastScore = 500, PurchasedHearts = 1 };

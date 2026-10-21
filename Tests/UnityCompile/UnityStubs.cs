@@ -204,6 +204,9 @@ namespace UnityEngine
         public Rect Position,UV;
         public Color Color;
         public Matrix4x4 Matrix;
+        // Screen-space group clipping is recorded independently of the draw
+        // transform. This checks road/snow holes without pretending to rasterize.
+        public Rect? Clip;
         public Vector3 Centre { get { return Matrix.MultiplyPoint3x4(Position.center); } }
     }
     public static class GUI
@@ -213,15 +216,31 @@ namespace UnityEngine
         public static bool enabled=true;
         public static GUISkin skin=new GUISkin { label=new GUIStyle(),button=new GUIStyle() };
         public static readonly List<RecordedDraw> DrawCalls=new List<RecordedDraw>();
-        private static readonly Stack<Matrix4x4> groups=new Stack<Matrix4x4>();
+        private struct GroupState { public Matrix4x4 Matrix; public Rect? Clip; }
+        private static readonly Stack<GroupState> groups=new Stack<GroupState>();
+        private static Rect? clip;
         public static void DrawTexture(Rect position,Texture texture,ScaleMode scaleMode=ScaleMode.StretchToFill,bool alphaBlend=true)
-        { DrawCalls.Add(new RecordedDraw { Kind="Texture",Position=position,Texture=texture,Color=color,Matrix=matrix }); }
+        { DrawCalls.Add(new RecordedDraw { Kind="Texture",Position=position,Texture=texture,Color=color,Matrix=matrix,Clip=clip }); }
         public static void DrawTextureWithTexCoords(Rect position,Texture texture,Rect texCoords,bool alphaBlend=true)
-        { DrawCalls.Add(new RecordedDraw { Kind="UV",Position=position,Texture=texture,UV=texCoords,Color=color,Matrix=matrix }); }
-        public static void BeginGroup(Rect rect) { groups.Push(matrix); matrix=matrix*Matrix4x4.TRS(new Vector3(rect.x,rect.y,0),Quaternion.identity,Vector3.one); }
-        public static void EndGroup() { matrix=groups.Pop(); }
+        { DrawCalls.Add(new RecordedDraw { Kind="UV",Position=position,Texture=texture,UV=texCoords,Color=color,Matrix=matrix,Clip=clip }); }
+        public static void BeginGroup(Rect rect)
+        {
+            groups.Push(new GroupState { Matrix=matrix,Clip=clip });
+            Vector3 first=matrix.MultiplyPoint3x4(new Vector3(rect.x,rect.y,0));
+            Vector3 last=matrix.MultiplyPoint3x4(new Vector3(rect.xMax,rect.yMax,0));
+            float left=Math.Min(first.x,last.x),top=Math.Min(first.y,last.y);
+            float right=Math.Max(first.x,last.x),bottom=Math.Max(first.y,last.y);
+            if(clip.HasValue)
+            {
+                left=Math.Max(left,clip.Value.x); top=Math.Max(top,clip.Value.y);
+                right=Math.Min(right,clip.Value.xMax); bottom=Math.Min(bottom,clip.Value.yMax);
+            }
+            clip=new Rect(left,top,Math.Max(0,right-left),Math.Max(0,bottom-top));
+            matrix=matrix*Matrix4x4.TRS(new Vector3(rect.x,rect.y,0),Quaternion.identity,Vector3.one);
+        }
+        public static void EndGroup() { GroupState previous=groups.Pop();matrix=previous.Matrix;clip=previous.Clip; }
         public static void Label(Rect rect,string text,GUIStyle style)
-        { DrawCalls.Add(new RecordedDraw { Kind="Label",Position=rect,Text=text,Color=color,Matrix=matrix }); }
+        { DrawCalls.Add(new RecordedDraw { Kind="Label",Position=rect,Text=text,Color=color,Matrix=matrix,Clip=clip }); }
         public static void Box(Rect rect,GUIContent content,GUIStyle style) { }
         public static bool Button(Rect rect,string text,GUIStyle style) { return false; }
     }

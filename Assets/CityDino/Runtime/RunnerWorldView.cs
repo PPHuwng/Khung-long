@@ -30,7 +30,7 @@ namespace CityDino
         private struct Palette
         {
             public Color Sky, Horizon, Backdrop, FarCity, Foundation, Road, Accent;
-            public float Rain, Night, Skyway, Sunset;
+            public float Rain, Snow, Night, Skyway, Sunset;
         }
 
         public RunnerWorldView(RunnerArt art)
@@ -64,8 +64,16 @@ namespace CityDino
                     DrawEntities(session, palette, clock);
                     DrawDino(session, clock);
                 }
+                if (!menu)
+                {
+                    DrawWind(session, clock);
+                    if (session.CurrentDistrict == District.Storm)
+                        Fill(new Rect(0f, 0f, Width, Height),
+                            new Color(0.025f, 0.04f, 0.075f, RunnerWeather.GetStormDarkness(session.DistrictElapsed)));
+                    DrawLightning(session);
+                }
+                // Storm rain stays in front of both the dark veil and flash.
                 DrawWeather(palette, scroll, clock);
-                if (!menu) DrawLightning(session);
                 if (!menu) DrawDarkness(session);
             }
             finally
@@ -103,13 +111,13 @@ namespace CityDino
             };
             switch (district)
             {
-                case District.Rain:
-                    p.Sky = Hex(0x5e7897); p.Horizon = Hex(0xb6c8d2); p.Backdrop = Hex(0xa1c4d7);
-                    p.FarCity = Hex(0x5c7899); p.Road = Hex(0xb2c7d1); p.Accent = Hex(0x8df5f0); p.Rain = 0.7f;
+                case District.Snow:
+                    p.Sky = Hex(0x8ca9c6); p.Horizon = Hex(0xe8f4fc); p.Backdrop = Hex(0xc6dded);
+                    p.FarCity = Hex(0x7698b6); p.Road = Hex(0xc8e5f4); p.Accent = Hex(0xb9f4ff); p.Snow = 1f;
                     break;
                 case District.Sunset:
-                    p.Sky = Hex(0x947db4); p.Horizon = Hex(0xffd5a0); p.Backdrop = Hex(0xffd8c4);
-                    p.FarCity = Hex(0x9a85a7); p.Road = Hex(0xf7d1b4); p.Accent = Hex(0xffc680); p.Sunset = 1f;
+                    p.Sky = Hex(0xf1b568); p.Horizon = Hex(0xffe2a7); p.Backdrop = Hex(0xffd8b0);
+                    p.FarCity = Hex(0xc19c91); p.Road = Hex(0xf7d1a4); p.Accent = Hex(0xffc475); p.Sunset = 1f;
                     break;
                 case District.Night:
                     p.Sky = Hex(0x101b37); p.Horizon = Hex(0x3c466b); p.Backdrop = Hex(0x91a5d5);
@@ -138,6 +146,7 @@ namespace CityDino
                 Backdrop = Color.Lerp(a.Backdrop, b.Backdrop, t), FarCity = Color.Lerp(a.FarCity, b.FarCity, t),
                 Foundation = Color.Lerp(a.Foundation, b.Foundation, t), Road = Color.Lerp(a.Road, b.Road, t),
                 Accent = Color.Lerp(a.Accent, b.Accent, t), Rain = Mathf.Lerp(a.Rain, b.Rain, t),
+                Snow = Mathf.Lerp(a.Snow, b.Snow, t),
                 Night = Mathf.Lerp(a.Night, b.Night, t), Skyway = Mathf.Lerp(a.Skyway, b.Skyway, t),
                 Sunset = Mathf.Lerp(a.Sunset, b.Sunset, t)
             };
@@ -163,7 +172,7 @@ namespace CityDino
             }
             float celestialY = Mathf.Lerp(152f, 230f, p.Sunset);
             Color sun = Color.Lerp(Hex(0xffe8b0), Hex(0xe6f7ff), p.Night);
-            sun.a = Mathf.Lerp(0.94f, 0.2f, p.Rain);
+            sun.a = Mathf.Lerp(0.94f, 0.2f, Mathf.Max(p.Rain, p.Snow * 0.65f));
             Disc(new Rect(974f, celestialY - 55f, 225f, 225f), WithAlpha(sun, sun.a * 0.24f), true);
             Disc(new Rect(1040f, celestialY + 5f, 88f, 88f), sun);
             if (p.Night > 0.4f)
@@ -279,7 +288,7 @@ namespace CityDino
             gaps.Clear();
             if (session.State == RunState.Menu) return;
             foreach (WorldEntity entity in session.Entities)
-                if (!entity.Removed && entity.Kind == EntityKind.Gap && entity.X < Width && entity.X + entity.Width > 0f)
+                if (!entity.Removed && entity.IsOpenGap && entity.X < Width && entity.X + entity.Width > 0f)
                     gaps.Add(new Vector2(Mathf.Max(0f, entity.X), Mathf.Min(Width, entity.X + entity.Width)));
             gaps.Sort((a, b) => a.x.CompareTo(b.x));
         }
@@ -333,6 +342,20 @@ namespace CityDino
                 }
                 Fill(new Rect(0f, 0f, width, 3f), Color.Lerp(Hex(0xc7e9e1), p.Accent, p.Night * 0.5f));
                 Fill(new Rect(0f, 4f, width, 3f), WithAlpha(Hex(0x172c42), 0.6f));
+                if (p.Snow > 0.05f)
+                {
+                    // These layers are clipped to solid road segments, so an
+                    // open hole can never acquire a painted snow floor.
+                    Fill(new Rect(0f, 0f, width, 7f), WithAlpha(Hex(0xf2fbff), p.Snow));
+                    Fill(new Rect(0f, 7f, width, 30f), WithAlpha(Hex(0x9ed8f1), p.Snow * 0.58f));
+                    for (int i = 0; i < 10; i++)
+                    {
+                        float x = Repeat(i * 161f - scroll, 1650f) - left;
+                        Disc(new Rect(x, -3f, 51f + i % 3 * 17f, 12f), WithAlpha(Hex(0xf5fcff), p.Snow * 0.82f));
+                        Line(new Vector2(x + 7f, 19f), new Vector2(x + 51f, 12f), WithAlpha(Hex(0xeafaff), p.Snow * 0.65f), 1.5f);
+                        Line(new Vector2(x + 35f, 35f), new Vector2(x + 68f, 29f), WithAlpha(Hex(0x6eb7da), p.Snow * 0.38f), 1f);
+                    }
+                }
                 // Road reflections move faster than the skyline, making acceleration visible.
                 for (int i = 0; i < 12; i++)
                 {
@@ -373,8 +396,19 @@ namespace CityDino
             foreach (WorldEntity entity in session.Entities)
             {
                 if (entity.Removed || entity.Kind == EntityKind.Gap || entity.X > Width + 100f || entity.X + entity.Width < -100f) continue;
+                if (entity.Kind == EntityKind.CollapsingFloor)
+                {
+                    DrawCollapsingFloor(entity, p, time);
+                    continue;
+                }
                 float bottom = GroundY - entity.Y;
                 Rect rect = new Rect(entity.X, bottom - entity.Height, entity.Width, entity.Height);
+                if (entity.Kind == EntityKind.Water || entity.Kind == EntityKind.HotDrink ||
+                    entity.Kind == EntityKind.DoubleScore || entity.Kind == EntityKind.Magnet || entity.Kind == EntityKind.Shield)
+                {
+                    DrawPickup(rect, entity.Kind, time);
+                    continue;
+                }
                 Texture2D texture = null;
                 bool drawn = false;
                 switch (entity.Kind)
@@ -453,6 +487,119 @@ namespace CityDino
             return true;
         }
 
+        private void DrawCollapsingFloor(WorldEntity entity, Palette p, float time)
+        {
+            float progress = Mathf.Clamp01(entity.CollapseProgress);
+            if (entity.IsOpenGap)
+            {
+                // The slab has already been removed by ReadGaps/DrawRoad.
+                // Falling fragments remain below the collision surface.
+                for (int i = 0; i < 4; i++)
+                {
+                    float fall = Repeat(time * 0.85f + entity.Id * 0.13f + i * 0.19f, 1f);
+                    float x = entity.X + 12f + i * (entity.Width - 38f) / 3f;
+                    Fill(new Rect(x, GroundY + 22f + fall * 100f, 24f, 10f),
+                        WithAlpha(Hex(0x7b8b9c), (1f - fall) * 0.7f));
+                }
+                return;
+            }
+
+            Fill(new Rect(entity.X, GroundY + 5f, entity.Width, 25f), Hex(0x8693a0));
+            Fill(new Rect(entity.X + 2f, GroundY, entity.Width - 4f, 5f), Hex(0xe0d6b0));
+            DrawWarningEdge(entity.X, Hex(0xffcf75));
+            DrawWarningEdge(entity.X + entity.Width - 14f, Hex(0xffcf75));
+            Color crack = Color.Lerp(Hex(0x28384d), Hex(0xffa253), progress);
+            for (int i = 0; i < 5; i++)
+            {
+                float x = entity.X + 24f + i * (entity.Width - 48f) / 4f;
+                float y = GroundY + 4f;
+                Line(new Vector2(x, y), new Vector2(x - 7f, y + 8f), crack, 1.5f + progress * 1.8f);
+                Line(new Vector2(x - 7f, y + 8f), new Vector2(x + 5f, y + 15f), crack, 1.5f + progress * 1.8f);
+                Line(new Vector2(x + 5f, y + 15f), new Vector2(x - 3f, y + 24f), crack, 1.5f + progress * 1.8f);
+            }
+            if (progress > 0.1f)
+                Disc(new Rect(entity.X - 5f, GroundY + 10f, entity.Width + 10f, 19f),
+                    WithAlpha(Hex(0xffb36b), progress * 0.22f), true);
+        }
+
+        private void DrawPickup(Rect rect, EntityKind kind, float time)
+        {
+            Color color = PickupColor(kind);
+            float pulse = 0.21f + 0.08f * Mathf.Sin(time * 3.4f);
+            Disc(new Rect(rect.x - rect.width * 0.35f, rect.y - rect.height * 0.3f,
+                rect.width * 1.7f, rect.height * 1.6f), WithAlpha(color, pulse), true);
+            if (art.PickupAtlas != null)
+            {
+                GUI.color = Color.white;
+                GUI.DrawTextureWithTexCoords(rect, art.PickupAtlas, art.GetPickupUV(kind), true);
+                return;
+            }
+
+            // Clear, shape-specific fallback icons keep supplies recognizable
+            // before the generated atlas has finished importing in the Editor.
+            GUI.BeginGroup(rect);
+            try
+            {
+                float w = rect.width, h = rect.height;
+                if (kind == EntityKind.Water)
+                {
+                    Fill(new Rect(w * 0.34f, 0f, w * 0.32f, h * 0.16f), Hex(0x2b638c));
+                    Fill(new Rect(w * 0.23f, h * 0.15f, w * 0.54f, h * 0.8f), Hex(0xe2f8ff));
+                    Fill(new Rect(w * 0.29f, h * 0.39f, w * 0.42f, h * 0.49f), color);
+                    Fill(new Rect(w * 0.32f, h * 0.24f, w * 0.09f, h * 0.43f), Color.white);
+                }
+                else if (kind == EntityKind.HotDrink)
+                {
+                    Fill(new Rect(w * 0.17f, h * 0.35f, w * 0.58f, h * 0.52f), color);
+                    Fill(new Rect(w * 0.21f, h * 0.35f, w * 0.5f, h * 0.1f), Hex(0x6a3926));
+                    Line(new Vector2(w * 0.75f, h * 0.44f), new Vector2(w * 0.92f, h * 0.48f), color, 3f);
+                    Line(new Vector2(w * 0.92f, h * 0.48f), new Vector2(w * 0.85f, h * 0.72f), color, 3f);
+                    Line(new Vector2(w * 0.85f, h * 0.72f), new Vector2(w * 0.75f, h * 0.73f), color, 3f);
+                    for (int i = 0; i < 2; i++)
+                    {
+                        float x = w * (0.32f + i * 0.23f);
+                        float drift = Mathf.Sin(time * 2f + i) * w * 0.035f;
+                        Line(new Vector2(x, h * 0.27f), new Vector2(x + drift, h * 0.1f), Hex(0xffeed7), 1.5f);
+                    }
+                }
+                else if (kind == EntityKind.Magnet)
+                {
+                    Fill(new Rect(w * 0.16f, h * 0.18f, w * 0.22f, h * 0.6f), Hex(0xf36b7b));
+                    Fill(new Rect(w * 0.62f, h * 0.18f, w * 0.22f, h * 0.6f), Hex(0x73c5ff));
+                    Fill(new Rect(w * 0.29f, h * 0.68f, w * 0.42f, h * 0.2f), Hex(0xb8c5d9));
+                    Fill(new Rect(w * 0.16f, h * 0.17f, w * 0.22f, h * 0.16f), Color.white);
+                    Fill(new Rect(w * 0.62f, h * 0.17f, w * 0.22f, h * 0.16f), Color.white);
+                }
+                else if (kind == EntityKind.Shield)
+                {
+                    for (int i = 0; i < 8; i++)
+                    {
+                        float half = w * (0.39f - Mathf.Max(0f, i - 2) * 0.055f);
+                        Fill(new Rect(w * 0.5f - half, h * (0.12f + i * 0.09f), half * 2f, h * 0.1f), color);
+                    }
+                    Line(new Vector2(w * 0.5f, h * 0.24f), new Vector2(w * 0.5f, h * 0.65f), Color.white, 2f);
+                }
+                else
+                {
+                    Disc(new Rect(w * 0.05f, h * 0.05f, w * 0.9f, h * 0.9f), color);
+                    Sign(new Rect(0f, h * 0.12f, w, h * 0.7f), "×2", Hex(0x5c3e23), Mathf.Max(11, (int)(h * 0.45f)));
+                }
+            }
+            finally { GUI.EndGroup(); }
+        }
+
+        private static Color PickupColor(EntityKind kind)
+        {
+            switch (kind)
+            {
+                case EntityKind.Water: return Hex(0x58d9ff);
+                case EntityKind.HotDrink: return Hex(0xffa05d);
+                case EntityKind.Magnet: return Hex(0xf199d8);
+                case EntityKind.Shield: return Hex(0x73baff);
+                default: return Hex(0xffd975);
+            }
+        }
+
         private void DrawBarrier(Rect rect, int variant, Palette p, float time)
         {
             Fill(rect, Hex(0x17263d));
@@ -499,6 +646,9 @@ namespace CityDino
             float width = session.IsDucking ? RunnerGeometry.PlayerDuckWidth : RunnerGeometry.PlayerStandingWidth;
             float height = session.IsDucking ? RunnerGeometry.PlayerDuckHeight : RunnerGeometry.PlayerStandingHeight;
             Rect rect = new Rect(x - width / 2f, GroundY - y - height + bob, width, height);
+            if (session.ShieldReady)
+                Disc(new Rect(rect.x - 13f, rect.y - 10f, rect.width + 26f, rect.height + 22f),
+                    new Color(0.3f, 0.8f, 1f, 0.22f), true);
             if (session.InvincibleRemaining > 0f)
             {
                 Disc(new Rect(rect.x - 14f, rect.y - 12f, rect.width + 28f, rect.height + 26f), new Color(0.65f, 1f, 0.87f, 0.3f), true);
@@ -602,8 +752,44 @@ namespace CityDino
             }
         }
 
+        private static void DrawWind(RunnerSession session, float time)
+        {
+            if (session.CurrentDistrict != District.Skyway) return;
+            float strength = Mathf.Clamp01(session.WindStrength);
+            for (int i = 0; i < 12; i++)
+            {
+                float x = Repeat(i * 147f - time * (170f + strength * 330f), Width + 260f) - 130f;
+                float y = 235f + (i * 49 % 280);
+                float span = 48f + strength * 94f + i % 3 * 13f;
+                Color tint = new Color(0.9f, 0.98f, 1f, 0.12f + strength * 0.27f);
+                Line(new Vector2(x + span, y), new Vector2(x, y), tint, 1.5f);
+                if (strength > 0.35f && i % 3 == 0)
+                {
+                    Line(new Vector2(x + 8f, y - 4f), new Vector2(x, y), tint, 1.5f);
+                    Line(new Vector2(x + 8f, y + 4f), new Vector2(x, y), tint, 1.5f);
+                }
+            }
+        }
+
         private void DrawWeather(Palette p, float scroll, float time)
         {
+            if (p.Snow > 0.05f)
+            {
+                for (int i = 0; i < 82; i++)
+                {
+                    float x = Repeat(i * 83.7f - time * (45f + i % 5 * 8f)
+                        + Mathf.Sin(time * 0.8f + i) * 14f, Width + 30f) - 15f;
+                    float y = Repeat(i * 47.3f + time * (75f + i % 7 * 10f), Height + 40f) - 20f;
+                    float size = 2f + i % 3;
+                    Color flake = new Color(0.94f, 0.98f, 1f, p.Snow * (0.65f + i % 3 * 0.12f));
+                    Fill(new Rect(x, y, size, size), flake);
+                    if (i % 6 == 0)
+                    {
+                        Fill(new Rect(x - 2f, y + size / 2f - 0.5f, size + 4f, 1f), flake);
+                        Fill(new Rect(x + size / 2f - 0.5f, y - 2f, 1f, size + 4f), flake);
+                    }
+                }
+            }
             if (p.Sunset > 0.1f)
                 Disc(new Rect(855f, 170f, 550f, 550f), new Color(1f, 0.75f, 0.43f, 0.12f * p.Sunset), true);
             if (p.Rain > 0.05f)
@@ -649,7 +835,7 @@ namespace CityDino
             if (strength <= 0f) return;
             // A single soft pulse per strike: the foreground remains readable,
             // and the later blackout pass can still cover this completely.
-            Fill(new Rect(0f, 0f, Width, Height), new Color(0.75f, 0.87f, 1f, strength * 0.23f));
+            Fill(new Rect(0f, 0f, Width, Height), new Color(0.75f, 0.87f, 1f, strength * 0.55f));
             float boltX = Mathf.Clamp(lightning.BoltX, 100f, Width - 100f);
             Vector2 from = new Vector2(boltX, 124f);
             Color halo = new Color(0.56f, 0.77f, 1f, strength * 0.35f);
