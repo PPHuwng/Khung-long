@@ -22,7 +22,9 @@ namespace CityDino
         public readonly Texture2D SkylineNear;
         public readonly Texture2D HazardAtlas;
         public readonly Texture2D DinoActionsAtlas;
+        public readonly Texture2D DinoRunAtlas;
         public readonly Texture2D PickupAtlas;
+        public readonly Texture2D BiomeHazardAtlas;
         public readonly Rect SkylineFarUV = new Rect(0f, 0f, 1f, 0.7651934f);
         public readonly Rect SkylineNearUV = new Rect(0f, 0.0441989f, 1f, 0.730663f);
         public readonly Texture2D[] DinoFrames;
@@ -50,6 +52,26 @@ namespace CityDino
             new Rect(0.684244792f, 0.440429688f, 0.292317708f, 0.435546875f),
         };
 
+        // Tight, non-overlapping crops from the 2172 x 724 running sheet.
+        // Their placement below preserves one common 434 x 354 body canvas;
+        // sampling a full-width cell would pick up adjacent frame pixels.
+        private static readonly Rect[] DinoRunUvs =
+        {
+            new Rect(0.008287293f, 0.243093923f, 0.190147330f, 0.482044199f),
+            new Rect(0.203038674f, 0.241712707f, 0.188766114f, 0.483425414f),
+            new Rect(0.392265193f, 0.243093923f, 0.194290976f, 0.482044199f),
+            new Rect(0.593001842f, 0.265193370f, 0.195211786f, 0.450276243f),
+            new Rect(0.793738490f, 0.243093923f, 0.197974217f, 0.479281768f),
+        };
+        private static readonly Rect[] DinoRunPlacement =
+        {
+            new Rect(0.043778802f, 0.005649718f, 0.951612903f, 0.985875706f),
+            new Rect(0.050691244f, 0.005649718f, 0.944700461f, 0.988700565f),
+            new Rect(0.023041475f, 0.005649718f, 0.972350230f, 0.985875706f),
+            new Rect(0.018433180f, 0.025423729f, 0.976958525f, 0.920903955f),
+            new Rect(0.004608295f, 0.011299435f, 0.990783410f, 0.980225989f),
+        };
+
         // Water, hot drink, shield, magnet, double score, warming thermos.
         // Square alpha-bounded viewports preserve each icon's proportions.
         private static readonly Rect[] PickupUvs =
@@ -62,6 +84,15 @@ namespace CityDino
             new Rect(0.694010417f, 0.050781250f, 0.287109375f, 0.430664062f),
         };
         public Rect WarmReserveUV { get { return PickupUvs[5]; } }
+
+        // Falling ice, geothermal plume, windblown metal sign. Bounds are
+        // sampled from the transparent atlas; physics owns each world rectangle.
+        private static readonly Rect[] BiomeHazardUvs =
+        {
+            new Rect(0.091620626f, 0.058011050f, 0.125690608f, 0.908839779f),
+            new Rect(0.357734807f, 0.034530387f, 0.209484346f, 0.932320442f),
+            new Rect(0.664825046f, 0.244475138f, 0.312615101f, 0.363259669f),
+        };
 
         public RunnerArt()
         {
@@ -82,7 +113,11 @@ namespace CityDino
             SkylineNear = Load("SkylineNear");
             HazardAtlas = Load("HazardAtlas");
             DinoActionsAtlas = Load("DinoActionsAtlas");
+            // Older copies of the project retain the five original frames as
+            // a fallback while the new running sheet finishes importing.
+            DinoRunAtlas = Resources.Load<Texture2D>("CityDino/DinoRunAtlas");
             PickupAtlas = Load("PickupAtlas");
+            BiomeHazardAtlas = Load("BiomeHazardAtlas");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
@@ -104,11 +139,32 @@ namespace CityDino
             return DinoActionUvs[index];
         }
 
+        public Rect GetDinoRunUV(int frame)
+        {
+            int index = System.Math.Max(0, System.Math.Min(DinoRunUvs.Length - 1, frame));
+            return DinoRunUvs[index];
+        }
+
+        public Rect GetDinoRunRect(int frame, Rect body, bool facingLeft = false)
+        {
+            int index = System.Math.Max(0, System.Math.Min(DinoRunPlacement.Length - 1, frame));
+            Rect placement = DinoRunPlacement[index];
+            float left = facingLeft ? 1f - placement.x - placement.width : placement.x;
+            return new Rect(body.x + left * body.width, body.y + placement.y * body.height,
+                placement.width * body.width, placement.height * body.height);
+        }
+
         public Rect GetPickupUV(EntityKind kind)
         {
             int index = kind == EntityKind.Water ? 0 : kind == EntityKind.HotDrink ? 1
                 : kind == EntityKind.Shield ? 2 : kind == EntityKind.Magnet ? 3 : 4;
             return PickupUvs[index];
+        }
+
+        public Rect GetBiomeHazardUV(EntityKind kind)
+        {
+            int index = kind == EntityKind.FallingIce ? 0 : kind == EntityKind.HeatVent ? 1 : 2;
+            return BiomeHazardUvs[index];
         }
 
         private static Texture2D Load(string name)

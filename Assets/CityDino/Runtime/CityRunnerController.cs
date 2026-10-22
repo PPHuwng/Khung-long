@@ -231,21 +231,36 @@ namespace CityDino
             if (Button(new Rect(98, 458, 418, 62), "BẮT ĐẦU CHẠY     →", mint, ink, 22)) BeginRun();
             if (Button(new Rect(98, 534, 202, 52), "Cửa hàng", ink, cream)) showShop = true;
             if (Button(new Rect(314, 534, 202, 52), "Thành tích", new Color32(231, 231, 215, 255), ink)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 06  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 07  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), "MỖI LƯỢT, MỘT THÀNH PHỐ.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
-            if (art.DinoFrames != null && art.DinoFrames.Length > 0)
-            {
-                int frame = Mathf.FloorToInt(ambientTime * 7) % art.DinoFrames.Length;
-                if (art.DinoFrames[frame] != null)
-                    GUI.DrawTexture(new Rect(900, 136 + Mathf.Sin(ambientTime * 2) * 5, 140, 151), art.DinoFrames[frame], ScaleMode.ScaleToFit);
-            }
+            DrawMenuDino();
             DrawMapSelection();
             Box(new Rect(806, 586, 376, 62), ink);
             Icon(art.Heart, new Rect(824, 602, 28, 26));
             Text(new Rect(866, 598, 304, 36), "Lượt tới: " + (1 + session.Save.PurchasedHearts) + " mạng", 17, cream, FontStyle.Bold, TextAnchor.MiddleLeft);
             if (Button(new Rect(1152, 654, 72, 36), muted ? "Âm: tắt" : "Âm: bật", cream, ink, 13)) ToggleSound();
+        }
+
+        private void DrawMenuDino()
+        {
+            int frame = Mathf.FloorToInt(ambientTime * 7) % 5;
+            float y = 136 + Mathf.Sin(ambientTime * 2) * 5;
+            if (art.DinoRunAtlas != null)
+            {
+                // Match the gameplay body's aspect rather than squeezing the
+                // wider atlas pose into the old portrait preview rectangle.
+                Rect body = new Rect(900, y, 164, 151);
+                GUI.DrawTextureWithTexCoords(art.GetDinoRunRect(frame, body),
+                    art.DinoRunAtlas, art.GetDinoRunUV(frame), true);
+            }
+            else if (art.DinoFrames != null && art.DinoFrames.Length > 0)
+            {
+                Texture2D texture = art.DinoFrames[frame % art.DinoFrames.Length];
+                if (texture != null)
+                    GUI.DrawTexture(new Rect(900, y, 140, 151), texture, ScaleMode.ScaleToFit);
+            }
         }
 
         private void DrawMapSelection()

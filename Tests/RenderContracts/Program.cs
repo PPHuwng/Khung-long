@@ -22,8 +22,14 @@ internal static class Program
         Test("snow has a visible icy surface and falling flakes",SnowSurface);
         Test("snow road cuts match open gaps and collapsed floors",SnowGapCuts);
         Test("all survival and power-up pickups are drawn at their physical positions",PickupSprites);
+        Test("biome hazard sprites stay at their physical bounds under canvas transforms",BiomeSprites);
+        Test("biome warnings are visible and inactive vents never draw a damaging plume",BiomeWarnings);
+        Test("vent plume drawing follows its shared active collision height",VentPlumeHeight);
+        Test("paused biome warnings and moving debris do not advance with ambient time",PausedBiomeHazards);
         Test("paused snow and storm weather do not advance with ambient wall time",PausedWeather);
         Test("jump and crouch poses draw their own atlas frames in both directions",ActionSprites);
+        Test("five running poses use their atlas frames and physical layout at every canvas scale",RunningSprites);
+        Test("running art stays consistent in menu, pause, death and legacy fallback",RunningLifecycle);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
         Console.WriteLine("Recorded production draw calls with affine API stubs; no Unity rasterization or Editor execution.");
         return failed==0?0:1;
@@ -123,6 +129,9 @@ internal static class Program
         Set(run,"NextBlackoutAt",2f); Set(run,"BlackoutDuration",2.5f); Set(run,"DistrictElapsed",2.21f);
         Check(run.DarknessAmount==1,"Night fixture is not at fully dark plateau");
         World(run).Add(new WorldEntity { Kind=EntityKind.Saw,X=450,Y=60,Width=76,Height=76,Rotation=80 });
+        World(run).Add(BiomeFixture(EntityKind.FallingIce));
+        World(run).Add(BiomeFixture(EntityKind.HeatVent));
+        World(run).Add(BiomeFixture(EntityKind.StormDebris));
         using(var view=new RunnerWorldView(art)) Draw(view,run,Canvas(1.5f));
         RecordedDraw last=GUI.DrawCalls.Last();
         Check(last.Kind=="Texture"&&last.Texture==Texture2D.whiteTexture&&last.Position.x==0&&last.Position.y==0&&last.Position.width==1280&&last.Position.height==720,"World was drawn over night blackout");
@@ -255,7 +264,105 @@ internal static class Program
     private static string DrawSnapshot()
     {
         return string.Join(";",GUI.DrawCalls.Select(d=>d.Kind+":"+d.Position.x+":"+d.Position.y+":"+
-            d.Position.width+":"+d.Position.height+":"+d.Centre.x+":"+d.Centre.y+":"+d.Color.a));
+            d.Position.width+":"+d.Position.height+":"+d.Centre.x+":"+d.Centre.y+":"+
+            d.Color.r+":"+d.Color.g+":"+d.Color.b+":"+d.Color.a+":"+
+            d.UV.x+":"+d.UV.y+":"+d.UV.width+":"+d.UV.height+":"+(d.Texture==null?"":d.Texture.name)));
+    }
+    private static WorldEntity BiomeFixture(EntityKind kind,int id=101)
+    {
+        return new WorldEntity { Id=id,Kind=kind,X=420,Y=kind==EntityKind.HeatVent?0:120,
+            Width=kind==EntityKind.StormDebris?104:48,Height=kind==EntityKind.StormDebris?54:100,
+            HazardActive=true,HazardPhase=1,HazardHeight=100,HazardAge=2,HazardWarning=1,Rotation=37 };
+    }
+    private static void BiomeSprites()
+    {
+        var art=new RunnerArt();Check(art.BiomeHazardAtlas!=null,"Biome hazard atlas is missing from resources");
+        var kinds=new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris};
+        foreach(EntityKind kind in kinds)
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(0.68f,119,28),Canvas(1.5f,320,140)})
+        {
+            var run=New();var entity=BiomeFixture(kind);World(run).Add(entity);
+            using(var view=new RunnerWorldView(art)) Draw(view,run,canvas);
+            RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BiomeHazardAtlas);
+            Rect uv=art.GetBiomeHazardUV(kind);
+            Check(uv.width>0&&uv.height>0&&uv.x>=0&&uv.y>=0&&uv.xMax<=1.001f&&uv.yMax<=1.001f,"Invalid hazard atlas bounds for "+kind);
+            Near(draw.UV.x,uv.x,"Hazard sampled wrong sprite X");Near(draw.UV.y,uv.y,"Hazard sampled wrong sprite Y");
+            Near(draw.UV.width,uv.width,"Hazard sampled wrong sprite width");Near(draw.UV.height,uv.height,"Hazard sampled wrong sprite height");
+            float height=kind==EntityKind.HeatVent?entity.HazardHeight:entity.Height;
+            float top=RunnerSession.GroundY-entity.Y-height;
+            Near(draw.Position.x,entity.X,"Hazard image X differs from physics");Near(draw.Position.y,top,"Hazard image Y differs from physics");
+            Near(draw.Position.width,entity.Width,"Hazard image width differs from physics");Near(draw.Position.height,height,"Hazard image height differs from physics");
+            Point(draw.Centre,canvas.MultiplyPoint3x4(new Vector3(entity.X+entity.Width/2,top+height/2,0)),"Hazard centre moved under letterboxing");
+            Point(draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.x,draw.Position.y,0)),canvas.MultiplyPoint3x4(new Vector3(entity.X,top,0)),"Hazard art rotated away from its collision rectangle");
+            Check(!GUI.DrawCalls.Any(d=>d.Kind=="Label"&&(d.Text=="CÚI"||d.Text=="NHẢY")),"Biome hazard restored floating action words");
+        }
+        Check(kinds.Select(kind=>art.GetBiomeHazardUV(kind).x+":"+art.GetBiomeHazardUV(kind).y).Distinct().Count()==3,"Biome hazards share the same atlas icon");
+    }
+    private static void BiomeWarnings()
+    {
+        var art=new RunnerArt();
+        foreach(EntityKind kind in new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris})
+        {
+            var run=New();var entity=BiomeFixture(kind);entity.HazardPhase=0;entity.HazardActive=false;entity.HazardWarning=0.7f;
+            World(run).Add(entity);
+            using(var view=new RunnerWorldView(art))
+            {
+                Draw(view,run,Canvas(1));
+                Check(!RunnerBiomeHazards.IsDamaging(entity),"Warning fixture is physically damaging: "+kind);
+                var warning=GUI.DrawCalls.Where(d=>d.Kind=="UV"&&d.Texture==art.BiomeHazardAtlas).ToList();
+                if(kind==EntityKind.HeatVent)
+                {
+                    Check(warning.Count==0,"Inactive vent has a visible lethal plume");
+                    Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.x>=entity.X&&d.Position.xMax<=entity.X+entity.Width
+                        &&d.Position.y<RunnerSession.GroundY&&d.Position.y>=RunnerSession.GroundY-16&&d.Position.height<=4&&d.Color.a>0.2f),
+                        "Heating vent has no readable warning above the road before its plume");
+                    entity.HazardPhase=2;Draw(view,run,Canvas(1));
+                    Check(!GUI.DrawCalls.Any(d=>d.Kind=="UV"&&d.Texture==art.BiomeHazardAtlas),"Safe vent retained its lethal plume sprite");
+                }
+                else
+                {
+                    Check(warning.Count==1&&warning[0].Color.a>0,"Warning hazard has no readable visible object: "+kind);
+                    float alpha=warning[0].Color.a;
+                    entity.HazardPhase=1;entity.HazardActive=true;
+                    Draw(view,run,Canvas(1));
+                    var active=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BiomeHazardAtlas);
+                    Check(active.Color.a>alpha,"Ghost warning art is indistinguishable from its active damaging sprite: "+kind);
+                }
+            }
+        }
+    }
+    private static void VentPlumeHeight()
+    {
+        var art=new RunnerArt();var run=New(District.Sunset);var entity=BiomeFixture(EntityKind.HeatVent);World(run).Add(entity);
+        using(var view=new RunnerWorldView(art))
+        foreach(float height in new[]{0f,6f,38f,95f,132f})
+        {
+            entity.HazardHeight=height;entity.HazardActive=height>0;entity.HazardPhase=height>0?1:2;
+            Draw(view,run,Canvas(1.5f,90,25));
+            var plume=GUI.DrawCalls.Where(d=>d.Kind=="UV"&&d.Texture==art.BiomeHazardAtlas).ToList();
+            Check(plume.Count==(height>0?1:0),"Vent flame does not match its active/safe phase at height "+height);
+            if(height>0)
+            {
+                Near(plume[0].Position.height,height,"Vent flame and collision height diverged");
+                Near(plume[0].Position.yMax,RunnerSession.GroundY-entity.Y,"Vent flame floats away from its physical origin");
+            }
+        }
+    }
+    private static void PausedBiomeHazards()
+    {
+        var art=new RunnerArt();
+        foreach(EntityKind kind in new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris})
+        foreach(int phase in new[]{0,1,2})
+        {
+            var run=New();Set(run,"Elapsed",7);var entity=BiomeFixture(kind);entity.HazardPhase=phase;entity.HazardActive=phase==1;
+            entity.HazardWarning=0.6f;World(run).Add(entity);run.TogglePause();
+            using(var view=new RunnerWorldView(art))
+            {
+                Draw(view,run,Canvas(1));string first=DrawSnapshot();
+                GUI.DrawCalls.Clear();view.Draw(run,90f);
+                Check(DrawSnapshot()==first,"Biome art advanced on ambient wall time during pause: "+kind+" phase "+phase);
+            }
+        }
     }
     private static void ActionSprites()
     {
@@ -280,5 +387,124 @@ internal static class Program
             Near(draw.Position.width,duck?109:99,"Action draw width differs from collision layout");
             Near(draw.Position.height,duck?44:91,"Action draw height differs from collision layout");
         }
+    }
+
+    private static RecordedDraw RunningDraw(RunnerArt art)
+    {
+        return GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.DinoRunAtlas);
+    }
+
+    private static RunnerSession RunningPose(int frame,bool left=false)
+    {
+        var run=New();
+        float rate=9f+run.Speed/150f;
+        Set(run,"Elapsed",(frame+0.35f)/rate);
+        typeof(RunnerSession).GetProperty("FacingLeft").GetSetMethod(true).Invoke(run,new object[]{left});
+        Check(RunnerGeometry.GetPlayerFrame(run)==frame,"Running fixture did not choose frame "+frame);
+        return run;
+    }
+
+    private static void RunningSprites()
+    {
+        var art=new RunnerArt();
+        Check(art.DinoRunAtlas!=null,"Running atlas is missing from build-safe resources");
+        // Opaque bounds measured independently from the generated PNG. Crops
+        // vary, while their common canvas and pixel scale must stay unchanged.
+        int[][] bounds={new[]{18,199,431,548},new[]{441,199,851,549},new[]{852,199,1274,548},
+            new[]{1288,206,1712,532},new[]{1724,201,2154,548}};
+        var sources=Enumerable.Range(0,5).Select(art.GetDinoRunUV).ToList();
+        Check(sources.Select(uv=>uv.x+":"+uv.y).Distinct().Count()==5,"Running poses share the same source frame");
+        for(int frame=0;frame<5;frame++)
+        {
+            Rect source=sources[frame];int[] box=bounds[frame];
+            Check(source.x>=0&&source.y>=0&&source.xMax<=1.000001f&&source.yMax<=1.000001f,
+                "Running viewport leaves the atlas");
+            Near(source.x*art.DinoRunAtlas.width,box[0],"Running crop samples adjacent frame pixels at left edge");
+            Near(source.xMax*art.DinoRunAtlas.width,box[2],"Running crop samples adjacent frame pixels at right edge");
+            Near((1-source.yMax)*art.DinoRunAtlas.height,box[1],"Running crop top differs from generated artwork");
+            Near((1-source.y)*art.DinoRunAtlas.height,box[3],"Running crop bottom differs from generated artwork");
+        }
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(0.68f,119,28),Canvas(1.5f,320,0)})
+        foreach(bool left in new[]{false,true})
+        for(int frame=0;frame<5;frame++)
+        {
+            RunnerSession run=RunningPose(frame,left);
+            using(var view=new RunnerWorldView(art)) Draw(view,run,canvas);
+            RecordedDraw draw=RunningDraw(art);
+            Rect source=art.GetDinoRunUV(frame);
+            Near(draw.UV.x,left?source.xMax:source.x,"Running frame source X mismatch");
+            Near(draw.UV.y,source.y,"Running frame source Y mismatch");
+            Near(draw.UV.width,left?-source.width:source.width,"Running frame was not mirrored correctly");
+            Near(draw.UV.height,source.height,"Running frame source height mismatch");
+            int[] box=bounds[frame];float pixelWidth=box[2]-box[0],pixelHeight=box[3]-box[1];
+            Near(draw.Position.width/pixelWidth,RunnerGeometry.PlayerStandingWidth/434f,"Running horizontal pixel scale changes between poses");
+            Near(draw.Position.height/pixelHeight,RunnerGeometry.PlayerStandingHeight/354f,"Running vertical pixel scale changes between poses");
+            float feet=RunnerSession.GroundY+RunnerGeometry.GetPlayerBob(run.Elapsed,0,false,run.State);
+            float leftPixel=left?2f:432f-pixelWidth;
+            float targetX=run.PlayerX-RunnerGeometry.PlayerStandingWidth/2+leftPixel/434f*RunnerGeometry.PlayerStandingWidth;
+            float targetY=feet-RunnerGeometry.PlayerStandingHeight+(box[1]-197f)/354f*RunnerGeometry.PlayerStandingHeight;
+            Near(draw.Position.x,targetX,"Running crop lost its shared nose anchor when mirrored");
+            Near(draw.Position.y,targetY,"Running crop differs from common feet baseline");
+            Near(draw.Position.yMax,feet-(551f-box[3])/354f*RunnerGeometry.PlayerStandingHeight,
+                "Running leg motion was incorrectly snapped to each crop's bottom");
+            Point(draw.Centre,canvas.MultiplyPoint3x4(new Vector3(targetX+draw.Position.width/2,targetY+draw.Position.height/2,0)),
+                "Running frame moved away from physical body under canvas transform");
+            Check(!GUI.DrawCalls.Any(d=>art.DinoFrames.Contains(d.Texture)),"Legacy running frame was drawn over the new atlas");
+        }
+    }
+
+    private static void RunningLifecycle()
+    {
+        var art=new RunnerArt();Check(art.DinoRunAtlas!=null,"Running atlas is missing");
+        for(int frame=0;frame<5;frame++)
+        {
+            RunnerSession run=RunningPose(frame);
+            using(var view=new RunnerWorldView(art))
+            {
+                Draw(view,run,Canvas(1));RecordedDraw before=RunningDraw(art);
+                run.TogglePause();run.Update(5);
+                GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);view.Draw(run,1000);
+                RecordedDraw paused=RunningDraw(art);
+                Near(paused.UV.x,before.UV.x,"Pause changed the selected run frame");
+                Near(paused.Position.y,before.Position.y,"Pause changed the running foot baseline");
+                run.TogglePause();
+                World(run).Add(new WorldEntity{Kind=EntityKind.Barrier,X=run.PlayerX-80,Y=0,Width=160,Height=200});
+                run.Update(1f/120);
+                Check(run.State==RunState.GameOver,"Fatal-contact fixture did not end the run");
+                Draw(view,run,Canvas(1));RecordedDraw dead=RunningDraw(art);
+                int deathFrame=RunnerGeometry.GetPlayerFrame(run);
+                run.Update(5);GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);view.Draw(run,2000);
+                RecordedDraw frozen=RunningDraw(art);
+                Near(dead.UV.x,art.GetDinoRunUV(deathFrame).x,"Death drew a different run pose than collision geometry");
+                Near(frozen.UV.x,dead.UV.x,"Death animation continued running");
+                Near(frozen.Position.y,dead.Position.y,"Dead run pose continued bobbing");
+            }
+
+            var controller=new CityRunnerController();
+            typeof(CityRunnerController).GetField("art",Private).SetValue(controller,art);
+            typeof(CityRunnerController).GetField("ambientTime",Private).SetValue(controller,(frame+0.35f)/7f);
+            GUI.DrawCalls.Clear();GUI.matrix=Canvas(1.5f,100,0);GUI.color=Color.white;
+            typeof(CityRunnerController).GetMethod("DrawMenuDino",Private).Invoke(controller,null);
+            RecordedDraw menu=RunningDraw(art);Rect source=art.GetDinoRunUV(frame);
+            Near(menu.UV.x,source.x,"Menu does not use the gameplay running atlas frame");
+            Near(menu.UV.y,source.y,"Menu running source row differs");
+            float worldPixelWidth=source.width*art.DinoRunAtlas.width;
+            float worldPixelHeight=source.height*art.DinoRunAtlas.height;
+            Near(menu.Position.width/worldPixelWidth,164f/434f,"Menu changes running horizontal pixel scale between frames");
+            Near(menu.Position.height/worldPixelHeight,151f/354f,"Menu changes running vertical pixel scale between frames");
+        }
+
+        // Optional atlas fallback retains the supplied original frames if the
+        // new resource is absent during an incremental Editor import.
+        UnityEngine.Object atlas=Resources.TestAssets["CityDino/DinoRunAtlas"];
+        try
+        {
+            Resources.TestAssets.Remove("CityDino/DinoRunAtlas");
+            var legacy=new RunnerArt();RunnerSession run=RunningPose(3,true);
+            using(var view=new RunnerWorldView(legacy)) Draw(view,run,Canvas(1));
+            RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==legacy.DinoFrames[3]);
+            Near(draw.UV.x,1,"Legacy running fallback lost its facing");Near(draw.UV.width,-1,"Legacy running fallback is not mirrored");
+        }
+        finally { Resources.TestAssets["CityDino/DinoRunAtlas"]=atlas; }
     }
 }

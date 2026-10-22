@@ -207,6 +207,7 @@ namespace CityDino
         private static bool IsPowerupObstacle(EntityKind kind)
         {
             return kind == EntityKind.House || kind == EntityKind.Hydrant ||
+                RunnerBiomeHazards.IsBiomeHazard(kind) ||
                 kind == EntityKind.Plane || kind == EntityKind.Gap ||
                 kind == EntityKind.Spike || kind == EntityKind.Saw ||
                 kind == EntityKind.Barrier || kind == EntityKind.CollapsingFloor;

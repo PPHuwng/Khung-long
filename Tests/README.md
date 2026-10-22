@@ -8,13 +8,14 @@ Cần **.NET SDK 8**. Từ thư mục gốc dự án:
 
 Console chạy trực tiếp các file trong `Assets/CityDino/Core/` bằng C# 9,
 không dùng bản sao logic game, không cần thư viện kiểm thử bên ngoài.
-Bộ kiểm tra có **76 nhóm hành vi**, gồm:
+Bộ kiểm tra có **86 nhóm hành vi**, gồm:
 
 - Nhảy kép, coyote time, cúi, di chuyển trái/phải trên đất/trên không, giới hạn màn hình và input không hợp lệ.
 - Va chạm, nhặt đồ, mặt đường và hồi sau rơi dùng vị trí X hiện tại; chết chỉ ghi kết quả một lần và đóng băng tư thế.
 - Tốc độ tăng từ từ không giới hạn, vượt 20.000 điểm, đồng hồ 1/10 giờ và va chạm thích ứng ở tốc độ 8.280/79.560.
 - Ngẫu nhiên có seed, khoảng nghỉ giữa các cụm tính cả vùng quét chuyển động; không ghép làn cúi và làn nhảy bất khả thi.
 - Gai dùng tam giác; cưa dùng vòng tròn và bóng dáng theo alpha nhân vật, bỏ qua góc/cổ trong suốt; cả hai hướng, sáu khung nhảy/cúi và độ nhấp nhô.
+- Năm khung chạy mới dùng alpha thật từ `DinoRunAtlas.png`: đầu giữ vị trí, chân đổi tư thế; kiểm tra đầu/cổ trống ở cả năm khung và hai hướng, rìa răng cưa và bob theo vùng ảnh mới.
 - Cưa/rào tuần tra và máy bay dao động; biên độ/tần số tăng theo thời gian, vẫn giữ làn cúi; không trôi sai, pause/reset và bước thời gian nhất quán.
 - Tim hiếm, nhặt sao một lần, giới hạn ví/mạng; tim mua dùng một lượt giá **100/300/600**; hoàn nâng cấp v1 đúng một lần và chuyển lưu v2 sang v3 giữ ví/kỷ lục/lịch sử/tim dự trữ.
 - Chọn map khởi đầu hoặc ngẫu nhiên; túi sáu map đi đủ sáu map trước khi lặp, không lặp liền nhau ở ranh giới hai túi.
@@ -28,6 +29,11 @@ Bộ kiểm tra có **76 nhóm hành vi**, gồm:
 - ×2 chỉ nhân quãng đường ghi điểm trong thời gian hiệu lực, gồm bước hết hạn lẻ; không nhân điểm cũ, quãng đường thật hoặc ví sao.
 - Nam châm chỉ hút sao trong bán kính, không hút tim/nước; thời gian hết hạn lẻ, gia hạn có giới hạn, pause/chơi lại đúng trạng thái.
 - Hai nâng cấp thời lượng **200/400/700/1.100**, từ 8 lên tối đa 16 giây; ba loại powerup sinh ngẫu nhiên trong làn trống.
+- Băng rơi, khe phun nóng và biển cuốn mở từ giây thứ 15, chỉ sinh trong map tương ứng và có một lần giới thiệu trong lượt sinh cụm bình thường.
+- Cảnh báo không gây sát thương; băng có hình tam giác chúc xuống, cột nóng dùng đúng chiều cao/tam giác đang hiện, miệng khe nguội vô hại. Cả ba bẫy dùng đường bao alpha nhân vật ở hai hướng và mọi tư thế hành động.
+- Biển cuốn dùng vị trí dao động thật, không trôi sau nhiều chu kỳ; giai đoạn báo trước/hoạt động đóng băng khi pause và đặt lại khi chơi lại.
+- Nhịp khe nóng/biển cuốn tăng theo tốc độ, vẫn có cảnh báo nhìn thấy và trạng thái nguy hiểm thật ở các mốc 600/1.200/3.600 giây; khe có bốn biến thể nhịp.
+- Khoảng phục hồi tuyết/bão tăng để dành chỗ phanh và quan sát; tiếp tế/powerup tránh vùng quét của cả ba loại bẫy mới.
 
 Các bài va chạm tạo tình huống cụ thể trong danh sách thực thể rồi chạy bước
 mô phỏng production. Fixture cơ bản chọn map ngày để tách điều kiện thời tiết.
@@ -35,29 +41,33 @@ Các bài đo sinh cụm loại vật cản sau khi ghi đủ cụm, loại powe
 thanh sinh tồn để chỉ đo generator; chúng không được dùng làm bằng chứng sống sót.
 
 Kiểm tra cụm ghi **12 seed × 215 giây**, mở đầu trên đủ sáu map. Phát lại
-**108 hình học thực tế × 4 tốc độ 360/900/1.800/3.600 × 2 biên X = 864 tình huống**,
+**131 hình học thực tế × 4 tốc độ 360/900/1.800/3.600 × 2 biên X = 1.048 tình huống**,
 tìm nhịp nhảy/nhảy kép/cúi bằng va chạm thật. Mẫu muộn sinh trên **6 map × 3 mốc
-600/1.200/3.600 giây × 20 giây**, phát lại 18 hình học chuyển động ở tốc độ
-thực, hai biên X và bốn pha (**144 tình huống**).
+600/1.200/3.600 giây × 20 giây**, phát lại 21 hình học chuyển động ở tốc độ
+thực, hai biên X và bốn pha (**168 tình huống**). Ba bẫy theo map được phát lại
+riêng thêm **36 tình huống** ở ba mốc muộn và hai biên X, trong đó biển cuốn
+thử đủ bốn pha chuyển động ngang.
 
 Bài chạy liên tục dùng **6 seed × 2 vị trí X × 215 giây**, mỗi seed bắt đầu ở
 một map, giữ vật cản và nguồn nước/đồ ấm production, không bất tử hoặc hồi thanh
 miễn phí. Powerup khiên/nam châm/×2 được loại khỏi bài này để tránh che lỗi.
 Bot bù gió theo X mục tiêu, tìm nhịp nhảy có dung sai ±25 ms và bốn pha chuyển
-động ngang. Có **37.154 khung hình đồ tiếp tế hiện trong màn hình** được kiểm tra
+động ngang. Với bẫy theo map, replay giữ nguyên vị trí X và đồng hồ giai đoạn;
+bot nhảy dựa trên khoảng cách đang thay đổi, dùng cùng quy tắc trong replay và
+lượt liên tục. Có **36.224 khung hình đồ tiếp tế hiện trong màn hình** được kiểm tra
 không giao vật cản/hố thật trong suốt đường đi, kể cả sau thời điểm sinh. Đây là kiểm tra đường vượt tồn tại, không thay đánh giá độ khó bởi
 người chơi và không khẳng định mọi tốc độ lớn tùy ý đều dễ phản ứng.
 
 Bài sinh tồn riêng chạy **12 seed × 2 map tuyết/nắng × 34 giây**, giữ hao thanh,
 nhịp sinh, quãng đường di chuyển và va chạm nhặt đồ thật; chỉ bỏ vật cản để tách
-độ đủ của nguồn tiếp tế. Nó ghi nhận **206 lần sinh và 190 lần nhặt hồi thanh**,
+độ đủ của nguồn tiếp tế. Nó ghi nhận **208 lần sinh và 192 lần nhặt hồi thanh**,
 không tự hồi tài nguyên. Bài tiếp cận muộn thử vị trí sinh production trước/sau
 các cụm thật tại 600/1.200/3.600 giây, kiểm tra vùng quét và thời gian tiếp cận;
-đây là kiểm tra bố trí, không phải lượt chơi muộn hoàn chỉnh. Có 222 vị trí
-sinh được thử, thời gian tiếp cận bằng cuộn đường dài nhất là 0,38 giây.
+đây là kiểm tra bố trí, không phải lượt chơi muộn hoàn chỉnh. Có 216 vị trí
+sinh được thử, thời gian tiếp cận bằng cuộn đường dài nhất là 0,36 giây.
 
-Đo mây trên **12 seed × 2 mốc 0/90 giây × 34 giây** có **258/427 cụm thuộc nhóm
-hố (60,4%)**, gồm 58 hố kép và 84 nền sập. Túi map được kiểm tra thêm ba vòng
+Đo mây trên **12 seed × 2 mốc 0/90 giây × 34 giây** có **256/422 cụm thuộc nhóm
+hố (60,7%)**, gồm 59 hố kép và 84 nền sập. Túi map được kiểm tra thêm ba vòng
 sáu map cho cả sáu lựa chọn khởi đầu và chế độ ngẫu nhiên.
 
 Có thể chỉ chạy một nhóm khi chẩn đoán lỗi:
@@ -67,7 +77,7 @@ Có thể chỉ chạy một nhóm khi chẩn đoán lỗi:
 ```
 
 Console ghi rõ những bài không được chọn chưa chạy; không truyền tham số sẽ
-chạy toàn bộ 76 nhóm.
+chạy toàn bộ 86 nhóm.
 
 ## Ánh xạ input và đa điểm chạm
 
@@ -86,7 +96,7 @@ tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc in
 ./scripts/test-core.sh --render-contracts
 ```
 
-**11 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
+**17 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
 
 - Tâm cưa đúng tâm va chạm qua 5 góc xoay × 5 scale/offset; đầu đường không lệch khi letterbox.
 - Mỗi loại vật cản có ảnh, không nhãn CÚI/NHẢY nổi; nền sập/hố cắt mặt đường đúng vùng clip.
@@ -94,6 +104,9 @@ tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc in
 - Blackout đêm phủ RGB=0, alpha=1, không có vật thể thế giới vẽ đè sau.
 - Năm pickup mới dùng vùng ảnh atlas riêng, đúng vị trí/UV; gió giữ nguyên khi pause.
 - Sáu khung nhảy/cúi đúng UV và hướng lật; ảnh/va chạm dùng cùng tư thế.
+- Ba bẫy mới dùng vùng atlas riêng tại đúng vị trí vật lý qua nhiều scale/letterbox; cảnh báo khác trạng thái hoạt động, khe nguội không vẽ cột sát thương và chiều cao cột khớp dữ liệu core.
+- Giai đoạn bẫy theo map và hình biển di chuyển không chạy tiếp bằng thời gian ambient khi pause; blackout đêm vẫn phủ kín các vật thể mới.
+- Năm khung chạy dùng đúng UV atlas và vị trí trong khung 434×354 chung, lật cả ảnh lẫn vị trí theo hướng; menu dùng ảnh mới, pause/chết giữ khung và có fallback khi thiếu atlas.
 
 Stub dùng phép toán affine `System.Numerics`, texture giả lấy kích thước từ
 PNG thật và ghi lệnh draw, **không raster hoá ảnh hoặc chạy Unity**. Hợp đồng

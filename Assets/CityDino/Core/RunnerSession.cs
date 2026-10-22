@@ -5,7 +5,7 @@ namespace CityDino
 {
     public enum RunState { Menu, Playing, Paused, GameOver }
     public enum District { Day, Snow, Sunset, Night, Skyway, Storm }
-    public enum EntityKind { House, Hydrant, Plane, Star, Heart, Gap, Spike, Saw, Barrier, Water, HotDrink, DoubleScore, Magnet, Shield, CollapsingFloor }
+    public enum EntityKind { House, Hydrant, Plane, Star, Heart, Gap, Spike, Saw, Barrier, Water, HotDrink, DoubleScore, Magnet, Shield, CollapsingFloor, FallingIce, HeatVent, StormDebris }
 
     [Serializable]
     public sealed class RunRecord
@@ -51,6 +51,14 @@ namespace CityDino
         public float MotionSpeed = 2.1f;
         public float CollapseProgress;
         public bool Collapsed;
+        // The renderer consumes these exact production states. Warnings and
+        // cooldown hardware are never invisible damage volumes.
+        public float HazardAge;
+        public float HazardWarning;
+        public float HazardHeight;
+        public float HazardVelocityY;
+        public bool HazardActive;
+        public int HazardPhase;
         public bool IsOpenGap { get { return Kind == EntityKind.Gap || (Kind == EntityKind.CollapsingFloor && Collapsed); } }
     }
 
@@ -101,7 +109,7 @@ namespace CityDino
         {
             Hydrant, House, SingleSpike, DoubleSpike, TripleSpike, Barrier,
             BarrierSteps, GroundSaw, FloatingSaw, Plane, Gap, PatrolSaw, MovingBarrier,
-            MovingPlane, DoubleGap, CollapsingBridge
+            MovingPlane, DoubleGap, CollapsingBridge, FallingIce, HeatVent, StormDebris
         }
         private bool grounded;
         private bool duckRequested;
@@ -124,6 +132,7 @@ namespace CityDino
         private bool bagSkyway;
         private District bagDistrict;
         private PatternType previousPattern;
+        private bool biomeShowcaseSpawned;
 
         public RunnerSession(RunnerSave save, int seed)
         {
@@ -320,6 +329,12 @@ namespace CityDino
                 if (entity.Removed) continue;
                 motionX = Math.Max(motionX, Math.Abs(entity.MotionAmplitudeX * entity.MotionSpeed));
                 motionY = Math.Max(motionY, Math.Abs(entity.MotionAmplitude * entity.MotionSpeed));
+                motionY = Math.Max(motionY, Math.Abs(entity.HazardVelocityY));
+                if (entity.Kind == EntityKind.FallingIce)
+                    motionY = Math.Max(motionY, Speed * 1.6f);
+                else if (entity.Kind == EntityKind.HeatVent)
+                    motionY = Math.Max(motionY, entity.Height / 0.12f * Speed / InitialSpeed /
+                        RunnerBiomeHazards.GetVentCycleScale(entity));
             }
             // Bound displacement, not speed. At high runner/moving-hazard speeds
             // smaller physics steps still detect thin spikes, pickups and ledges.
@@ -456,6 +471,7 @@ namespace CityDino
                     if (entity.MotionAmplitude > 0f)
                         entity.Y = entity.BaseY + motion * entity.MotionAmplitude;
                 }
+                RunnerBiomeHazards.Tick(entity, dt, Speed);
             }
 
             distanceToPattern -= travel;
@@ -549,6 +565,7 @@ namespace CityDino
 
         private void EnterDistrict()
         {
+            biomeShowcaseSpawned = false;
             Water = Warmth = 100f;
             HorizontalVelocity = 0f;
             nextSurvivalSupplyAt = elapsedClock + 0.75d;
@@ -632,6 +649,7 @@ namespace CityDino
         private static bool BlocksGroundSupply(WorldEntity entity)
         {
             return entity.Kind == EntityKind.Gap || entity.Kind == EntityKind.CollapsingFloor ||
+                RunnerBiomeHazards.IsBiomeHazard(entity.Kind) ||
                 entity.Kind == EntityKind.House || entity.Kind == EntityKind.Hydrant ||
                 entity.Kind == EntityKind.Spike || entity.Kind == EntityKind.Barrier ||
                 (entity.Kind == EntityKind.Saw && entity.BaseY < 56f);
@@ -695,10 +713,14 @@ namespace CityDino
                 WorldEntity e = entities[i];
                 if (e.Removed || e.Kind == EntityKind.Gap || e.Kind == EntityKind.CollapsingFloor)
                     continue;
+                if (RunnerBiomeHazards.IsBiomeHazard(e.Kind) && !RunnerBiomeHazards.IsDamaging(e))
+                    continue;
                 // A rectangle includes the transparent space behind the neck
                 // and misses the nose. Saws use the same animated silhouette,
                 // pose and facing as the renderer instead.
-                bool touches = e.Kind == EntityKind.Saw
+                bool touches = RunnerBiomeHazards.IsBiomeHazard(e.Kind)
+                    ? RunnerGeometry.BiomeTouchesPlayer(e, this)
+                    : e.Kind == EntityKind.Saw
                     ? RunnerGeometry.SawTouchesPlayer(e, PlayerX, PlayerY, IsDucking, FacingLeft,
                         RunnerGeometry.GetPlayerFrame(this),
                         RunnerGeometry.GetPlayerBob(Elapsed, PlayerY, IsDucking, State))
@@ -828,6 +850,20 @@ namespace CityDino
 
         private PatternType ChoosePattern()
         {
+            // Show the district's signature trap on an ordinary authored pack
+            // slot, never by inserting an extra surprise beneath the player.
+            if (!biomeShowcaseSpawned && Elapsed >= 15f && DistrictElapsed >= 4f)
+            {
+                PatternType signature = CurrentDistrict == District.Snow ? PatternType.FallingIce
+                    : CurrentDistrict == District.Sunset ? PatternType.HeatVent
+                    : CurrentDistrict == District.Storm ? PatternType.StormDebris : PatternType.Hydrant;
+                if (CurrentDistrict == District.Snow || CurrentDistrict == District.Sunset || CurrentDistrict == District.Storm)
+                {
+                    biomeShowcaseSpawned = true;
+                    previousPattern = signature;
+                    return signature;
+                }
+            }
             int tier = Elapsed < 15f ? 0 : Elapsed < 30f ? 1 : Elapsed < 60f ? 2 : 3;
             // Starting on Skyway still grants time to learn the jump controls.
             bool skyway = CurrentDistrict == District.Skyway && Elapsed >= 10f;
@@ -911,7 +947,12 @@ namespace CityDino
                     if (tier >= 2) patternBag.Add(PatternType.PatrolSaw);
                     break;
                 case District.Snow:
-                    if (tier >= 1) patternBag.Add(PatternType.Barrier);
+                    if (tier >= 1)
+                    {
+                        patternBag.Add(PatternType.Barrier);
+                        patternBag.Add(PatternType.FallingIce);
+                        patternBag.Add(PatternType.FallingIce);
+                    }
                     if (tier >= 2)
                     {
                         patternBag.Add(PatternType.Plane);
@@ -921,7 +962,12 @@ namespace CityDino
                     }
                     break;
                 case District.Sunset:
-                    if (tier >= 1) patternBag.Add(PatternType.DoubleSpike);
+                    if (tier >= 1)
+                    {
+                        patternBag.Add(PatternType.DoubleSpike);
+                        patternBag.Add(PatternType.HeatVent);
+                        patternBag.Add(PatternType.HeatVent);
+                    }
                     if (tier >= 2)
                     {
                         patternBag.Add(PatternType.TripleSpike);
@@ -943,6 +989,8 @@ namespace CityDino
                     {
                         patternBag.Add(PatternType.GroundSaw);
                         patternBag.Add(PatternType.DoubleSpike);
+                        patternBag.Add(PatternType.StormDebris);
+                        patternBag.Add(PatternType.StormDebris);
                     }
                     if (tier >= 2)
                     {
@@ -977,7 +1025,39 @@ namespace CityDino
             float width;
             float height;
             float starBase;
-            if (kind == PatternType.DoubleGap)
+            if (kind == PatternType.FallingIce)
+            {
+                biomeShowcaseSpawned = true;
+                width = 50f;
+                WorldEntity ice = Add(EntityKind.FallingIce, SpawnX, RunnerBiomeHazards.IceHangHeight,
+                    width, RunnerBiomeHazards.IceHeight);
+                ice.BaseY = ice.Y;
+                starBase = 110f;
+            }
+            else if (kind == PatternType.HeatVent)
+            {
+                biomeShowcaseSpawned = true;
+                width = 82f;
+                height = Elapsed < 60f ? 96f : 108f;
+                Add(EntityKind.HeatVent, SpawnX, 0f, width, height, random.Next(4));
+                starBase = height + 28f;
+            }
+            else if (kind == PatternType.StormDebris)
+            {
+                biomeShowcaseSpawned = true;
+                const float objectWidth = 104f;
+                WorldEntity debris = Add(EntityKind.StormDebris, SpawnX, 0f, objectWidth, 52f);
+                SetMotion(debris, 36f, 0f, 1.65f);
+                // Keep the panel a ground-jump obstacle throughout every gust,
+                // rather than sliding into an impossible jump/duck mixture.
+                debris.MotionAmplitude = Math.Min(18f, 10f * MotionRangeScale);
+                debris.BaseY = debris.MotionAmplitude;
+                debris.Y = debris.BaseY + debris.MotionAmplitude *
+                    (float)Math.Sin(elapsedClock * debris.MotionSpeed + debris.MotionPhase);
+                width = objectWidth + debris.MotionAmplitudeX * 2f;
+                starBase = 112f;
+            }
+            else if (kind == PatternType.DoubleGap)
             {
                 float firstWidth = Range(135f, 160f);
                 float island = Range(115f, 145f);
@@ -1124,7 +1204,9 @@ namespace CityDino
             // the scroll. The small speed look-ahead covers travel from spawn
             // to the player; short clusters still feel rhythmic rather than sparse.
             float approachSpeed = Speed + SpeedAcceleration * 4f;
-            float recoveryGap = Math.Max((approachSpeed + HorizontalSpeed) * 0.72f,
+            float steeringRecovery = CurrentDistrict == District.Snow ? 1.00f
+                : CurrentDistrict == District.Storm ? 0.90f : 0.72f;
+            float recoveryGap = Math.Max((approachSpeed + HorizontalSpeed + Math.Abs(WindPush)) * steeringRecovery,
                 approachSpeed * 1.05f);
             return previousWidth + recoveryGap + Range(25f, 120f);
         }
@@ -1177,11 +1259,11 @@ namespace CityDino
         {
             switch (district)
             {
-                case District.Snow: return "Đường trơn; nhặt đồ nóng để giữ ấm.";
-                case District.Sunset: return "Nắng gắt; nhặt nước để duy trì thể lực.";
+                case District.Snow: return "Đường trơn và băng rơi; nhặt đồ nóng giữ ấm.";
+                case District.Sunset: return "Khe phun nóng có báo trước; nhớ nhặt nước.";
                 case District.Night: return "Nhiều cưa xoay; đèn tắt ngắn có báo trước.";
                 case District.Skyway: return "Gió đẩy lùi; hố đôi và cầu sập liên tiếp.";
-                case District.Storm: return "Mưa xuyên suốt; tối và sấm chớp liên tục.";
+                case District.Storm: return "Biển cuốn theo gió; mưa và sấm chớp liên tục.";
                 default: return "Vượt nhà và trụ nước, làm quen nhịp chạy.";
             }
         }

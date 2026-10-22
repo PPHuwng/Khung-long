@@ -72,6 +72,16 @@ internal static class Program
         Test("late generated motion packs retain a real jump or duck solution", LatePatternReplay);
         Test("faster pace keeps increasing beyond the old ceiling", FasterPacing);
         Test("seeded full runs can traverse successive packs without taking damage", SequentialRunner);
+        Test("biome signature packs unlock in their own districts and guarantee an introduction", BiomeGeneration);
+        Test("falling ice warns before dropping and keeps its real triangular body", FallingIceTimeline);
+        Test("heat vents warn, expose their live plume and become harmless when cooling", HeatVentTimeline);
+        Test("production vent contacts ignore dormant hardware and damage only active plumes", HeatVentContacts);
+        Test("storm debris contacts follow its live body and moving envelope", StormDebrisContacts);
+        Test("biome contacts use opaque heads and exclude neck gaps in every action pose", BiomeSilhouettes);
+        Test("biome hazard phases pause, reset and preserve frame partition", BiomeStateTransitions);
+        Test("late biome hazards visibly warn and become real threats before passing the player", LateBiomeThreats);
+        Test("late real biome packs retain a physical jump or duck solution", LateBiomeReplay);
+        Test("snow and storm packs retain extra steering recovery", BiomeRecovery);
         Test("six-map shuffle bags visit every map before repeating", MapShuffleBag);
         Test("snow slides on release and brakes gradually when reversing", SnowInertia);
         Test("skyway wind pushes airborne players and allows counter steering", SkyWind);
@@ -137,7 +147,8 @@ internal static class Program
         return entity.Kind == EntityKind.House || entity.Kind == EntityKind.Hydrant ||
             entity.Kind == EntityKind.Plane || entity.Kind == EntityKind.Gap ||
             entity.Kind == EntityKind.Spike || entity.Kind == EntityKind.Saw ||
-            entity.Kind == EntityKind.Barrier || entity.Kind == EntityKind.CollapsingFloor;
+            entity.Kind == EntityKind.Barrier || entity.Kind == EntityKind.CollapsingFloor ||
+            RunnerBiomeHazards.IsBiomeHazard(entity.Kind);
     }
 
     private static void ClearHazards(RunnerSession run)
@@ -177,7 +188,7 @@ internal static class Program
     {
         return string.Join("|", run.State, run.Distance, run.Elapsed, run.Score, run.Speed, run.PlayerX, run.PlayerY, run.VelocityY,
             run.Lives, run.IsDucking, run.CurrentDistrict, run.StageNumber,
-            string.Join(";", run.Entities.Where(e => !e.Removed).Select(e => e.Kind + ":" + e.Variant + ":" + e.PatternId + ":" + e.X + ":" + e.Y + ":" + e.Width + ":" + e.Rotation)));
+            string.Join(";", run.Entities.Where(e => !e.Removed).Select(e => e.Kind + ":" + e.Variant + ":" + e.PatternId + ":" + e.X + ":" + e.Y + ":" + e.Width + ":" + e.Rotation + ":" + e.HazardAge + ":" + e.HazardPhase + ":" + e.HazardHeight + ":" + e.HazardWarning)));
     }
 
     private static void MenuAndStart()
@@ -677,20 +688,21 @@ internal static class Program
         public float Start;
         public float End;
         public float SpawnTime;
+        public float ReplayLeft = float.NaN;
         public List<WorldEntity> Entities;
     }
 
     private static List<PackSpec> catalog;
 
+    private static readonly MethodInfo CloneEntityMethod = typeof(object).GetMethod(
+        "MemberwiseClone", BindingFlags.NonPublic | BindingFlags.Instance);
+
     private static WorldEntity CopyEntity(WorldEntity source)
     {
-        return new WorldEntity
-        {
-            Id = source.Id, PatternId = source.PatternId, Kind = source.Kind, Variant = source.Variant,
-            X = source.X, Y = source.Y, BaseY = source.BaseY, Width = source.Width, Height = source.Height,
-            Rotation = source.Rotation, MotionPhase = source.MotionPhase, MotionAmplitude = source.MotionAmplitude,
-            MotionAmplitudeX = source.MotionAmplitudeX, MotionSpeed = source.MotionSpeed, CollapseProgress=source.CollapseProgress, Collapsed=source.Collapsed
-        };
+        // Replay the exact production entity state, including biome warning and
+        // active-phase clocks. WorldEntity owns only value fields, so a shallow
+        // copy deliberately preserves every field without restarting a hazard.
+        return (WorldEntity)CloneEntityMethod.Invoke(source, null);
     }
 
     private static List<PackSpec> Packs()
@@ -927,8 +939,11 @@ internal static class Program
         foreach (bool left in new[] {false,true})
         {
             float sign=left ? -1 : 1;
-            Check(!BladeTouches(-15*sign,75,left), "Transparent space behind the neck caused damage");
-            Check(BladeTouches(30*sign,80,left), "Visible head was missed outside the old player rectangle");
+            for(int frame=0;frame<5;frame++)
+            {
+                Check(!BladeTouches(-15*sign,75,left,frame), "Transparent space behind the neck caused damage in run frame "+frame);
+                Check(BladeTouches(30*sign,80,left,frame), "Visible head was missed outside the old player rectangle in run frame "+frame);
+            }
             RunnerSession safe=New(); safe.StartRun(); World(safe).Clear();
             SetProperty(safe,"FacingLeft",left);
             World(safe).Add(BladeAt(-15*sign,75)); safe.Update(1f/120);
@@ -953,9 +968,11 @@ internal static class Program
         foreach (bool left in new[] {false,true})
         {
             float sign=left ? -1 : 1;
-            Check(BladeTouches(70*sign,80,left,diameter:66),
+            // The new running PNG has a longer visible nose (opaque through
+            // X48 at Y80). Keep this tooth-edge probe outside its real alpha.
+            Check(BladeTouches(76*sign,80,left,diameter:66),
                 "Visible blade teeth overlapped the head without registering contact");
-            Check(!BladeTouches(76*sign,80,left,diameter:66),
+            Check(!BladeTouches(84*sign,80,left,diameter:66),
                 "Blade damaged the dinosaur with a clear gap beyond its tooth tips");
             Check(!BladeTouches(70*sign,125,left,diameter:66),
                 "An empty diagonal corner of the blade caused damage");
@@ -964,14 +981,18 @@ internal static class Program
 
     private static void SawAnimatedPose()
     {
-        Check(BladeTouches(46,80,frame:2),"Airborne sprite's visible extended nose was missed");
-        Check(!BladeTouches(46,80,frame:0),"Ground pose incorrectly used the jump frame's extended nose");
+        // Independently sampled from DinoRunAtlas: the head stays anchored
+        // while the rear leg changes pose. Frames0..4 are all running frames;
+        // airborne poses are the dedicated action frames8..10 below.
+        Check(BladeTouches(46,80,frame:2)&&BladeTouches(46,80,frame:0),"Anchored running nose was missed");
+        Check(BladeTouches(-12,8,frame:0),"Running frame0's opaque rear leg was missed");
+        Check(!BladeTouches(-12,8,frame:2),"Running frame2 reused frame0's extended rear leg");
         Check(!BladeTouches(0,75,frame:2),"Jump-frame neck transparency caused damage");
         Check(BladeTouches(33,38,duck:true),"Crouched head was missed");
         Check(!BladeTouches(-15,36,duck:true),"Crouched neck transparency caused damage");
         Check(!BladeTouches(33,80,duck:true),"Crouched dinosaur retained the standing silhouette");
-        Check(BladeTouches(30,89.8f,diameter:1),"Fixture did not touch the visible top edge before bob");
-        Check(!BladeTouches(30,89.8f,diameter:1,bob:1.3f),"Saw collision ignored the rendered downward bob");
+        Check(BladeTouches(34,89.8f,diameter:1),"Fixture did not touch the visible top edge before bob");
+        Check(!BladeTouches(34,89.8f,diameter:1,bob:1.3f),"Saw collision ignored the rendered downward bob");
         RunnerSession airborne=New(); airborne.StartRun(); World(airborne).Clear();
         SetProperty(airborne,"PlayerY",40f); SetField(airborne,"grounded",false);
         // New hang pose has a lower, tucked head; use a PNG-alpha-confirmed
@@ -1163,14 +1184,15 @@ internal static class Program
     {
         HashSet<EntityKind> kinds = new HashSet<EntityKind>(Packs().SelectMany(p => p.Entities).Select(e => e.Kind));
         foreach (EntityKind expected in new[] { EntityKind.House, EntityKind.Hydrant, EntityKind.Plane,
-            EntityKind.Gap, EntityKind.Spike, EntityKind.Saw, EntityKind.Barrier })
+            EntityKind.Gap, EntityKind.Spike, EntityKind.Saw, EntityKind.Barrier,
+            EntityKind.FallingIce, EntityKind.HeatVent, EntityKind.StormDebris })
             Check(kinds.Contains(expected), "Endless generation omitted " + expected);
         Check(Packs().Any(p => p.Entities.Count(e => e.Kind==EntityKind.Spike)==3), "No triple spike rhythm appeared");
         Check(Packs().Any(p => p.Entities.Count(e => e.Kind==EntityKind.Barrier)==2), "No stepped barrier rhythm appeared");
         Check(Packs().Any(p => p.Entities.Any(e => e.Kind==EntityKind.Saw && e.MotionAmplitude>0)), "No floating moving blade appeared");
         Check(Packs().Any(p => p.Entities.Any(e => e.Kind==EntityKind.Saw && e.MotionAmplitudeX>0)), "No horizontally patrolling saw appeared");
         Check(Packs().Any(p => p.Entities.Any(e => e.Kind==EntityKind.Barrier && e.MotionAmplitudeX>0)), "No moving barrier appeared");
-        Check(Packs().Where(p=>p.SpawnTime<30).All(p=>p.Entities.All(e=>e.MotionAmplitudeX==0)),
+        Check(Packs().Where(p=>p.SpawnTime<30).All(p=>p.Entities.All(e=>e.MotionAmplitudeX==0||e.Kind==EntityKind.StormDebris)),
             "Advanced moving packs appeared before their unlock time");
     }
 
@@ -1179,6 +1201,16 @@ internal static class Program
         return string.Join(";", pack.Entities.Select(e => e.Kind + ":" +
             Math.Ceiling(e.X/10) + ":" + Math.Ceiling(e.Width/10) + ":" + Math.Ceiling(e.Height/10) + ":" + Math.Ceiling(e.BaseY/8f) +
             ":motion=" + Math.Ceiling(e.MotionAmplitudeX/16f) + "," + Math.Ceiling(e.MotionAmplitude/8f) + "," + Math.Ceiling(e.MotionSpeed*2f)));
+    }
+
+    private static IEnumerable<float> CandidateLeads(PackSpec pack, bool late=false)
+    {
+        // A falling icicle can still be overhead at the right screen edge;
+        // actual collision replay decides whether crouching safely passes it.
+        // NaN is a planner-only sentinel for holding crouch without jumping.
+        if(pack.Entities.Any(e=>RunnerBiomeHazards.IsBiomeHazard(e.Kind))) yield return float.NaN;
+        if(late) yield return 0.1f;
+        foreach(float lead in new[]{0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f}) yield return lead;
     }
 
     private static bool ReplayPack(PackSpec pack, float speed, float playerX, float lead, float secondJumpDelay, float phaseShift=0)
@@ -1196,18 +1228,29 @@ internal static class Program
             // Preserve the recorded motion phase even when testing another speed
             // whose elapsed clock differs from the original generated pack.
             clone.MotionPhase += (pack.SpawnTime-run.Elapsed)*e.MotionSpeed + phaseShift;
-            clone.X += playerX + speed*0.65f;
+            clone.X += float.IsNaN(pack.ReplayLeft) ? playerX + speed*0.65f : pack.ReplayLeft;
             obstacles.Add(clone); World(run).Add(clone);
         }
-        bool duck = obstacles.All(e => e.Kind==EntityKind.Plane || (e.Kind==EntityKind.Saw && e.BaseY>RunnerSession.DuckHeight));
+        bool duck = float.IsNaN(lead) || obstacles.All(e => e.Kind==EntityKind.Plane || (e.Kind==EntityKind.Saw && e.BaseY>RunnerSession.DuckHeight));
         run.SetDucking(duck);
         bool jumped = false, jumpedAgain = false;
-        float firstAt = 0.65f-lead;
-        for (int i=0; i<120*4; i++)
+        float approach = float.IsNaN(pack.ReplayLeft) ? 0.65f : (pack.ReplayLeft-playerX)/speed;
+        float firstAt = approach-lead;
+        float jumpedAt = -1f;
+        bool liveDistancePolicy = !float.IsNaN(pack.ReplayLeft);
+        float replaySeconds = Math.Max(4f, approach+2f);
+        for (int i=0; i<120*replaySeconds; i++)
         {
             float t = i/120f;
-            if (!duck && !jumped && t>=firstAt) { jumped=run.Jump(); }
-            if (!duck && jumped && secondJumpDelay>=0 && !jumpedAgain && t>=firstAt+secondJumpDelay)
+            bool jumpNow = liveDistancePolicy
+                ? obstacles.Min(e=>e.X)-run.PlayerX<=run.Speed*lead
+                : t>=firstAt;
+            if (!duck && !jumped && run.PlayerY<=0.01f && jumpNow)
+            {
+                jumped=run.Jump();
+                if(jumped) jumpedAt=run.Elapsed;
+            }
+            if (!duck && jumped && secondJumpDelay>=0 && !jumpedAgain && run.Elapsed-jumpedAt>=secondJumpDelay)
                 jumpedAgain=run.Jump();
             run.Update(1f/120);
             if (run.State!=RunState.Playing || run.Lives!=1) return false;
@@ -1230,7 +1273,7 @@ internal static class Program
                 foreach (float x in new[] {RunnerSession.MinimumPlayerX, RunnerSession.MaximumPlayerX})
                 {
                     bool pass = false;
-                    foreach (float lead in new[] {0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
+                    foreach (float lead in CandidateLeads(pack))
                     {
                         foreach (float second in new[] {-1f,0.28f,0.4f,0.52f,0.64f})
                             if (ReplayPack(pack,speed,x,lead,second)) { pass=true; break; }
@@ -1277,12 +1320,13 @@ internal static class Program
                             var copies=group.Select(CopyEntity).ToList();
                             float left=copies.Min(e=>e.X);
                             foreach (WorldEntity e in copies) e.X-=left;
-                            var livePack=new PackSpec { Entities=copies, SpawnTime=run.Elapsed };
+                            var livePack=new PackSpec { Entities=copies, SpawnTime=run.Elapsed,
+                                ReplayLeft=copies.Any(e=>RunnerBiomeHazards.IsBiomeHazard(e.Kind)) ? left : float.NaN };
                             description=PackSignature(livePack);
                             float arrival=Math.Max(0,(left-run.PlayerX)/run.Speed);
-                            float approach=run.Speed+arrival*RunnerSession.SpeedAcceleration;
+                            float approach=float.IsNaN(livePack.ReplayLeft) ? run.Speed+arrival*RunnerSession.SpeedAcceleration : run.Speed;
                             bool found=false;
-                            foreach (float lead in new[] {0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
+                            foreach (float lead in CandidateLeads(livePack))
                             {
                                 foreach (float delay in new[] {-1f,0.28f,0.4f,0.52f,0.64f})
                                     if (RobustReplay(livePack,approach,run.PlayerX,lead,delay))
@@ -1291,7 +1335,7 @@ internal static class Program
                             }
                             Check(found,"No sequential plan for "+description);
                         }
-                        bool overhead=group.All(e=>e.Kind==EntityKind.Plane ||
+                        bool overhead=float.IsNaN(jumpLead)||group.All(e=>e.Kind==EntityKind.Plane ||
                             (e.Kind==EntityKind.Saw && e.BaseY>RunnerSession.DuckHeight));
                         run.SetDucking(overhead);
                         float distance=group.Min(e=>e.X)-run.PlayerX;
@@ -1401,7 +1445,7 @@ internal static class Program
                         Check(e.MotionAmplitudeX>40&&e.MotionSpeed>2,"Late patrol did not move wider and faster");
                         Check(e.Width+e.MotionAmplitudeX*2<=pack.End-pack.Start+2,"Spawn width omitted a moving hazard's swept envelope");
                     }
-                    if(e.MotionAmplitude>0)
+                    if(e.MotionAmplitude>0 && (e.Kind==EntityKind.Saw||e.Kind==EntityKind.Plane))
                     {
                         Check(e.BaseY-e.MotionAmplitude>=55.99f,"Growing vertical motion invaded the crouch lane");
                         verticalSaw|=e.Kind==EntityKind.Saw;
@@ -1425,7 +1469,7 @@ internal static class Program
         foreach(float phase in new[]{0f,1.5707963f,3.1415927f,4.712389f})
         {
             bool pass=false;
-            foreach(float lead in new[]{0.1f,0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f})
+            foreach(float lead in CandidateLeads(pack,true))
             {
                 foreach(float second in new[]{-1f,0.28f,0.4f,0.52f,0.64f})
                     if(ReplayPack(pack,pack.Speed,x,lead,second,phase)){pass=true;break;}
@@ -1451,6 +1495,256 @@ internal static class Program
     {
         RunnerSession run=New(123,hearts); run.SetStartingDistrict(district); run.StartRun();
         World(run).Clear(); StopSpawns(run); return run;
+    }
+
+    private static WorldEntity BiomeEntity(EntityKind kind, float x=1100f)
+    {
+        return new WorldEntity { Id=99001,Kind=kind,X=x,
+            Y=kind==EntityKind.FallingIce?260f:0f,
+            BaseY=kind==EntityKind.FallingIce?260f:0f,
+            Width=kind==EntityKind.FallingIce?50f:kind==EntityKind.HeatVent?82f:104f,
+            Height=kind==EntityKind.FallingIce?72f:kind==EntityKind.HeatVent?108f:52f };
+    }
+
+    private static void BiomeGeneration()
+    {
+        foreach(EntityKind kind in new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris})
+        {
+            District expected=kind==EntityKind.FallingIce?District.Snow:kind==EntityKind.HeatVent?District.Sunset:District.Storm;
+            var packs=Packs().Where(p=>p.Entities.Any(e=>e.Kind==kind)).ToList();
+            Check(packs.Count>=6,"Too few actual biome packs: "+kind);
+            Check(packs.All(p=>p.District==expected&&p.SpawnTime>=14.99f),"Biome pack escaped its district or opening grace: "+kind);
+            Check(packs.All(p=>p.Entities.All(e=>e.Kind==kind)),"Biome pack combines incompatible physical lanes: "+kind);
+            // Each selected biome gets its own trap in the first district, not
+            // only by chance after a later shuffled visit.
+            for(int seed=0;seed<12;seed++)
+            {
+                RunnerSession run=New(seed);run.SetStartingDistrict(expected);run.StartRun();
+                float first=float.PositiveInfinity;
+                for(int step=0;step<120*34;step++)
+                {
+                    foreach(WorldEntity entity in run.Entities)
+                        if(!entity.Removed&&entity.Kind==kind) first=Math.Min(first,run.Elapsed);
+                    IsolateWorld(run);run.Update(1f/120);
+                }
+                Check(first>=14.99f&&first<21f,"Selected biome did not introduce its own trap promptly: "+kind+" seed="+seed+" first="+first);
+            }
+        }
+    }
+
+    private static void FallingIceTimeline()
+    {
+        WorldEntity ice=BiomeEntity(EntityKind.FallingIce,1260);
+        float previousWarning=0,previousY=260;
+        foreach(float x in new[]{1260f,1150f,1000f,850f,840f,780f,700f,600f,500f,200f})
+        {
+            ice.X=x;RunnerBiomeHazards.Tick(ice,1f/120,360);
+            Check(ice.HazardWarning>=previousWarning&&ice.Y<=previousY,"Icicle warning/drop reversed during approach");
+            previousWarning=ice.HazardWarning;previousY=ice.Y;
+            if(x>840)
+            {
+                Check(!RunnerBiomeHazards.IsDamaging(ice)&&ice.Y==260,"Suspended warning was damaging or moved before release");
+                Check(!RunnerBiomeHazards.TouchesPlayer(ice,x+15,x+35,ice.Y+5,ice.Y+60),"Warning art became a damage volume");
+            }
+            else Check(RunnerBiomeHazards.IsDamaging(ice),"Released icicle never became solid");
+        }
+        Near(ice.Y,0,0,"Landed ice left the road");Near(ice.Height,72,0,"Grounded shard became a full-height invisible wall");
+        Check(!RunnerBiomeHazards.TouchesPlayer(ice,ice.X+4,ice.X+9,4,15),"Empty lower corner of downward shard caused early damage");
+        Check(RunnerBiomeHazards.TouchesPlayer(ice,ice.X+22,ice.X+28,5,25),"Visible icicle tip did not cause contact");
+        Check(!RunnerBiomeHazards.TouchesPlayer(ice,ice.X+20,ice.X+30,74,100),"Icicle damaged above its real top");
+        ice.Removed=true;Check(!RunnerBiomeHazards.IsDamaging(ice),"Removed ice retained contact");
+    }
+
+    private static void HeatVentTimeline()
+    {
+        WorldEntity vent=BiomeEntity(EntityKind.HeatVent,1100);
+        RunnerBiomeHazards.Tick(vent,0.01f,360);
+        Check(vent.HazardPhase==0&&!RunnerBiomeHazards.IsDamaging(vent)&&vent.HazardHeight==0,"Vent starts with active invisible heat");
+        bool active=false,cooling=false,secondWarning=false;float firstActive=0;
+        for(int i=0;i<380;i++)
+        {
+            RunnerBiomeHazards.Tick(vent,0.01f,360);
+            if(vent.HazardPhase==1&&vent.HazardHeight>vent.Height*0.8f)
+            {
+                if(!active)firstActive=vent.HazardAge;
+                active=true;float h=vent.HazardHeight;
+                Check(RunnerBiomeHazards.TouchesPlayer(vent,vent.X+38,vent.X+44,h*0.45f,h*0.7f),"Bright vent core does not collide");
+                Check(!RunnerBiomeHazards.TouchesPlayer(vent,vent.X+4,vent.X+10,h*0.8f,h*0.95f),"Vent's empty upper corner causes early damage");
+                Check(!RunnerBiomeHazards.TouchesPlayer(vent,vent.X+38,vent.X+44,h+1,h+30),"Vent damages above its visible plume height");
+            }
+            if(vent.HazardPhase==2)
+            {
+                cooling=true;
+                Check(vent.HazardHeight==0&&!RunnerBiomeHazards.TouchesPlayer(vent,vent.X+20,vent.X+60,0,88),"Cooling vent hardware still causes damage");
+            }
+            if(cooling&&vent.HazardPhase==0)secondWarning=true;
+        }
+        Check(active&&cooling&&secondWarning&&firstActive>=0.65f,"Vent omitted a full warning/active/cooling cycle");
+        var durations=new HashSet<int>();
+        for(int variant=0;variant<4;variant++)
+        {
+            WorldEntity sample=BiomeEntity(EntityKind.HeatVent);sample.Variant=variant;
+            int steps=0;
+            while(!sample.HazardActive&&steps<180){RunnerBiomeHazards.Tick(sample,0.01f,360);steps++;}
+            durations.Add(steps);
+        }
+        Check(durations.Count==4,"Vent variants always erupt at the same approach phase");
+    }
+
+    private static void HeatVentContacts()
+    {
+        RunnerSession run=EmptyRun(District.Day,1);
+        WorldEntity vent=BiomeEntity(EntityKind.HeatVent,run.PlayerX-41);vent.HazardAge=2f;World(run).Add(vent);
+        run.Update(1f/120);Check(run.Lives==2&&!vent.Removed,"Dormant vent hardware damaged the grounded player");
+        vent.HazardAge=0.8f;run.Update(1f/120);
+        Check(run.Lives==1&&vent.Removed&&run.InvincibleRemaining>0,"Active vent plume did not cause one production hit");
+        World(run).Clear();Advance(run,2.1f,false);
+        WorldEntity warning=BiomeEntity(EntityKind.HeatVent,run.PlayerX-41);World(run).Add(warning);
+        run.Update(1f/120);Check(run.Lives==1&&!warning.Removed,"Heating warning caused an invisible hit");
+    }
+
+    private static void StormDebrisContacts()
+    {
+        PackSpec pack=Packs().First(p=>p.Entities.Any(e=>e.Kind==EntityKind.StormDebris));
+        RunnerSession run=EmptyRun();SetProperty(run,"Elapsed",pack.SpawnTime);SetProperty(run,"Speed",pack.Speed);
+        // Keep this motion probe ahead of the player throughout the sample.
+        // Contact has its own production fixture below; a removed body is no
+        // longer damaging and cannot be used to audit the moving shape.
+        WorldEntity debris=CopyEntity(pack.Entities.Single());debris.X=2100;debris.HazardAge=1f;World(run).Add(debris);
+        float anchor=debris.X-MotionOffset(debris,run.Elapsed);float min=float.PositiveInfinity,max=float.NegativeInfinity;
+        for(int i=0;i<180;i++)
+        {
+            run.Update(1f/120);
+            Near(debris.X+run.Distance-MotionOffset(debris,run.Elapsed),anchor,0.2f,"Windblown panel accumulated sine drift");
+            min=Math.Min(min,debris.Y);max=Math.Max(max,debris.Y);
+            Check(debris.Y>=debris.BaseY-debris.MotionAmplitude-0.01f&&debris.Y<=debris.BaseY+debris.MotionAmplitude+0.01f,
+                "Panel left its reserved vertical sweep");
+            Check(!RunnerBiomeHazards.TouchesPlayer(debris,debris.X-40,debris.X-2,debris.Y+5,debris.Y+30),"Panel damaged before its visible left edge");
+            Check(RunnerBiomeHazards.TouchesPlayer(debris,debris.X+20,debris.X+60,debris.Y+8,debris.Y+35),"Panel's visible live body failed to collide");
+        }
+        Check(max-min>5&&debris.MotionAmplitudeX>0,"Windblown panel never moved in both axes");
+        RunnerSession collision=EmptyRun(District.Day,1);WorldEntity body=BiomeEntity(EntityKind.StormDebris,collision.PlayerX-52);
+        body.HazardAge=1;World(collision).Add(body);collision.Update(1f/120);
+        Check(collision.Lives==1&&body.Removed,"Moving panel did not use production hazard damage");
+    }
+
+    private static void BiomeSilhouettes()
+    {
+        foreach(EntityKind kind in new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris})
+        foreach(bool left in new[]{false,true})
+        for(int pose=0;pose<11;pose++)
+        {
+            RunnerSession run=EmptyRun();SetProperty(run,"FacingLeft",left);float sign=left?-1:1;
+            float headX=30*sign,headY=80,clearX=-15*sign,clearY=75;
+            if(pose<5)
+            {
+                SetProperty(run,"Elapsed",(pose+0.1f)/(9f+run.Speed/150f));
+                Check(RunnerGeometry.GetPlayerFrame(run)==pose,"Running silhouette probe selected the wrong frame");
+            }
+            else if(pose<=7)
+            {
+                SetProperty(run,"Elapsed",0.02f+(pose-5)*0.1f);run.SetDucking(true);
+                headX=40*sign;headY=24;clearX=-45*sign;clearY=42;
+            }
+            else
+            {
+                SetProperty(run,"PlayerY",40f);SetField(run,"grounded",false);
+                SetProperty(run,"AnimationVelocityY",pose==8?500f:pose==9?0f:-500f);
+                headX=34*sign;headY=112;clearX=-15*sign;clearY=115;
+            }
+            WorldEntity head=new WorldEntity{Kind=kind,X=run.PlayerX+headX-5,Y=headY-5,Width=10,Height=10,HazardHeight=10,HazardActive=true,HazardPhase=1};
+            WorldEntity clear=new WorldEntity{Kind=kind,X=run.PlayerX+clearX-5,Y=clearY-5,Width=10,Height=10,HazardHeight=10,HazardActive=true,HazardPhase=1};
+            Check(RunnerGeometry.BiomeTouchesPlayer(head,run),"Visible head missed by "+kind+" facingLeft="+left+" pose="+pose);
+            Check(!RunnerGeometry.BiomeTouchesPlayer(clear,run),"Transparent neck/tail gap hit by "+kind+" facingLeft="+left+" pose="+pose);
+            head.HazardActive=false;Check(!RunnerGeometry.BiomeTouchesPlayer(head,run),"Warning overlay damaged an opaque head for "+kind);
+        }
+    }
+
+    private static void BiomeStateTransitions()
+    {
+        foreach(EntityKind kind in new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris})
+        {
+            RunnerSession a=EmptyRun(),b=EmptyRun();WorldEntity ea=BiomeEntity(kind,1150),eb=BiomeEntity(kind,1150);
+            World(a).Add(ea);World(b).Add(eb);
+            for(int n=0;n<7;n++){a.Update(0.2f);Advance(b,0.2f,false);}
+            Near(ea.X,eb.X,0.2f,"Frame partition changed biome X "+kind);Near(ea.Y,eb.Y,0.2f,"Frame partition changed biome Y "+kind);
+            Near(ea.HazardAge,eb.HazardAge,0.02f,"Frame partition changed visible warning clock "+kind);
+            Near(ea.HazardHeight,eb.HazardHeight,2,"Frame partition changed live plume "+kind);
+            Check(ea.HazardPhase==eb.HazardPhase&&ea.HazardActive==eb.HazardActive,"Frame partition changed biome phase "+kind);
+            a.TogglePause();string before=Snapshot(a);float warning=ea.HazardWarning,age=ea.HazardAge;
+            a.Update(3);Check(Snapshot(a)==before&&ea.HazardWarning==warning&&ea.HazardAge==age,"Pause advanced biome warning/motion "+kind);
+            a.TogglePause();a.Update(0.02f);Check(ea.X<eb.X,"Resume did not continue biome scroll "+kind);
+            a.ReturnToMenu();a.StartRun();Check(!a.Entities.Any(e=>RunnerBiomeHazards.IsBiomeHazard(e.Kind)),"Restart retained a previous biome trap "+kind);
+        }
+    }
+
+    private static void LateBiomeThreats()
+    {
+        int cases=0;
+        foreach(float age in new[]{0f,600f,1200f,3600f})
+        foreach(EntityKind kind in new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris})
+        {
+            RunnerSession run=EmptyRun();SetProperty(run,"Elapsed",age);SetProperty(run,"Speed",RunnerSession.InitialSpeed+age*RunnerSession.SpeedAcceleration);
+            SetProperty(run,"PlayerX",RunnerSession.MinimumPlayerX);WorldEntity entity=BiomeEntity(kind,1420);World(run).Add(entity);
+            bool warning=false,active=false;float warnedSeconds=0;
+            for(int i=0;i<120*5&&entity.X+entity.Width>RunnerSession.MinimumPlayerX;i++)
+            {
+                run.Update(1f/120);
+                if(entity.X<RunnerSession.CanvasWidth&&entity.HazardPhase==0&&!entity.HazardActive)
+                {warning=true;warnedSeconds+=1f/120;}
+                if(RunnerBiomeHazards.IsDamaging(entity)&&entity.X<RunnerSession.MaximumPlayerX+80&&entity.X+entity.Width>RunnerSession.MinimumPlayerX)
+                    active=true;
+            }
+            Check(warning,"Biome trap had no visible warning at age="+age+" kind="+kind);
+            Check(active,"Biome trap crossed the controllable area as a harmless ghost at age="+age+" kind="+kind);
+            if(age==0)Check(warnedSeconds>=0.6f,"Opening-speed biome warning too short: "+kind+" seconds="+warnedSeconds);
+            cases++;
+        }
+        Check(cases==12,"Late danger audit omitted an age or biome");
+    }
+
+    private static void LateBiomeReplay()
+    {
+        int cases=0;
+        foreach(float age in new[]{600f,1200f,3600f})
+        foreach(EntityKind kind in new[]{EntityKind.FallingIce,EntityKind.HeatVent,EntityKind.StormDebris})
+        {
+            PackSpec pack=LatePacks().First(p=>p.SpawnTime>=age&&p.SpawnTime<age+20&&p.Entities.Any(e=>e.Kind==kind));
+            foreach(float x in new[]{RunnerSession.MinimumPlayerX,RunnerSession.MaximumPlayerX})
+            foreach(float phase in kind==EntityKind.StormDebris?new[]{0f,1.5707963f,3.1415927f,4.712389f}:new[]{0f})
+            {
+                bool passed=false;
+                foreach(float lead in CandidateLeads(pack,true))
+                {
+                    foreach(float second in new[]{-1f,0.28f,0.4f,0.52f,0.64f})
+                        if(ReplayPack(pack,pack.Speed,x,lead,second,phase)){passed=true;break;}
+                    if(passed)break;
+                }
+                Check(passed,"Late biome pack has no physical path age="+age+" kind="+kind+" X="+x+" phase="+phase);
+                cases++;
+            }
+        }
+        Console.WriteLine("  Replayed "+cases+" late biome cases across three ages and both X bounds.");
+    }
+
+    private static void BiomeRecovery()
+    {
+        int snow=0,storm=0;
+        foreach(var seed in Packs().GroupBy(p=>p.Seed))
+        {
+            PackSpec previous=null;
+            foreach(PackSpec pack in seed.OrderBy(p=>p.Id))
+            {
+                if(previous!=null)
+                {
+                    float seconds=(pack.Start-previous.End)/(previous.Speed+RunnerSession.HorizontalSpeed);
+                    if(previous.District==District.Snow){Check(seconds>=0.90f,"Snow left too little recovery for inertia: "+seconds);snow++;}
+                    if(previous.District==District.Storm){Check(seconds>=0.80f,"Storm left too little recovery around moving debris: "+seconds);storm++;}
+                }
+                previous=pack;
+            }
+        }
+        Check(snow>80&&storm>80,"Recovery audit omitted enough snow/storm transitions");
     }
 
     private static void MapShuffleBag()

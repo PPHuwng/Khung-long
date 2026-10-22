@@ -19,6 +19,7 @@ namespace CityDino
         private readonly Texture2D glow;
         private readonly Texture2D spike;
         private readonly Texture2D saw;
+        private readonly Texture2D ice;
         private readonly List<Vector2> gaps = new List<Vector2>(12);
         private GUIStyle signStyle;
         private District shownDistrict = District.Day;
@@ -40,6 +41,7 @@ namespace CityDino
             glow = MakeCircle(true);
             spike = MakeSpike();
             saw = MakeSaw();
+            ice = MakeIcicle();
         }
 
         public void Draw(RunnerSession session, float ambientTime)
@@ -401,6 +403,11 @@ namespace CityDino
                     DrawCollapsingFloor(entity, p, time);
                     continue;
                 }
+                if (entity.Kind == EntityKind.FallingIce || entity.Kind == EntityKind.HeatVent || entity.Kind == EntityKind.StormDebris)
+                {
+                    DrawBiomeHazard(entity, time);
+                    continue;
+                }
                 float bottom = GroundY - entity.Y;
                 Rect rect = new Rect(entity.X, bottom - entity.Height, entity.Width, entity.Height);
                 if (entity.Kind == EntityKind.Water || entity.Kind == EntityKind.HotDrink ||
@@ -485,6 +492,132 @@ namespace CityDino
             Rect uv = art.GetHazardUV(cell);
             GUI.DrawTextureWithTexCoords(target, art.HazardAtlas, uv, true);
             return true;
+        }
+
+        private bool DrawBiomeAtlas(Rect target, EntityKind kind, Color tint)
+        {
+            if (art.BiomeHazardAtlas == null) return false;
+            GUI.color = tint;
+            GUI.DrawTextureWithTexCoords(target, art.BiomeHazardAtlas, art.GetBiomeHazardUV(kind), true);
+            return true;
+        }
+
+        private void DrawBiomeHazard(WorldEntity entity, float time)
+        {
+            // Core owns every position and phase. The only visual motion outside
+            // these bounds is harmless warning dust and wind, never the body.
+            Rect rect = new Rect(entity.X, GroundY - entity.Y - entity.Height, entity.Width, entity.Height);
+            bool warning = entity.HazardPhase == 0;
+            float progress = Mathf.Clamp01(entity.HazardWarning);
+            if (entity.Kind == EntityKind.FallingIce)
+            {
+                if (warning)
+                {
+                    float pulse = 0.45f + Mathf.Sin(time * 11f) * 0.15f;
+                    // A thin footprint and hanging support show where ice will
+                    // land without painting an invisible damaging rectangle.
+                    Fill(new Rect(rect.x - 10f, GroundY - 3f, rect.width + 20f, 4f),
+                        WithAlpha(Hex(0x7edbff), pulse + progress * 0.25f));
+                    Line(new Vector2(rect.x - 8f, rect.y - 5f), new Vector2(rect.xMax + 8f, rect.y - 5f), Hex(0x7895ac), 4f);
+                    for (int i = 0; i < 3; i++)
+                    {
+                        float fall = Repeat(time * 2.1f + i * 0.31f, 1f);
+                        Fill(new Rect(rect.x + rect.width * (0.25f + i * 0.25f), rect.yMax + 8f + fall * 22f,
+                            3f, 3f), new Color(0.85f, 0.98f, 1f, (1f - fall) * (0.35f + progress * 0.55f)));
+                    }
+                }
+                else GroundShadow(entity.X, entity.Width);
+
+                Color tint = warning ? new Color(0.87f, 0.98f, 1f, 0.68f) : Color.white;
+                if (!DrawBiomeAtlas(rect, entity.Kind, tint))
+                {
+                    GUI.color = tint;
+                    GUI.DrawTexture(rect, ice, ScaleMode.StretchToFill, true);
+                }
+                if (warning)
+                {
+                    Color crack = WithAlpha(Hex(0x315a83), 0.45f + progress * 0.55f);
+                    Vector2 start = new Vector2(rect.x + rect.width * 0.34f, rect.y + rect.height * 0.05f);
+                    Vector2 middle = new Vector2(rect.x + rect.width * 0.51f, rect.y + rect.height * 0.22f);
+                    Line(start, middle, crack, 1.5f);
+                    Line(middle, new Vector2(rect.x + rect.width * 0.40f, rect.y + rect.height * (0.30f + progress * 0.16f)), crack, 1.5f);
+                }
+                GUI.color = Color.white;
+                return;
+            }
+
+            if (entity.Kind == EntityKind.HeatVent)
+            {
+                // Hardware sits below the road. Only the shared active plume
+                // can hurt the dinosaur, and its drawn height is the collider.
+                Fill(new Rect(entity.X - 4f, GroundY + 1f, entity.Width + 8f, 13f), Hex(0x26364a));
+                Fill(new Rect(entity.X, GroundY + 3f, entity.Width, 7f), Hex(0x657988));
+                Color opening = warning ? Color.Lerp(Hex(0x77523c), Hex(0xffa846), progress)
+                    : entity.HazardActive ? Hex(0xffdf87) : Hex(0x31485d);
+                for (float x = entity.X + 5f; x < entity.X + entity.Width - 3f; x += 10f)
+                    Fill(new Rect(x, GroundY + 2f, 5f, 7f), opening);
+                if (warning)
+                {
+                    float pulse = 0.45f + Mathf.Sin(time * 12f) * 0.15f;
+                    Fill(new Rect(entity.X, GroundY - 2f, entity.Width, 3f),
+                        WithAlpha(Hex(0xff9b42), pulse + progress * 0.3f));
+                    for (int i = 0; i < 4; i++)
+                    {
+                        float phase = Repeat(time * 1.8f + i * 0.24f, 1f);
+                        Fill(new Rect(entity.X + entity.Width * (0.14f + i * 0.23f), GroundY - 3f - phase * 10f,
+                            2f, 2f), new Color(1f, 0.57f, 0.21f, (1f - phase) * progress));
+                    }
+                }
+                if (entity.HazardActive && entity.HazardHeight > 0f)
+                {
+                    Rect plume = new Rect(entity.X, GroundY - entity.Y - entity.HazardHeight, entity.Width, entity.HazardHeight);
+                    if (!DrawBiomeAtlas(plume, entity.Kind, Color.white))
+                    {
+                        GUI.BeginGroup(plume);
+                        try
+                        {
+                            for (int i = 0; i < 7; i++)
+                            {
+                                float fraction = i / 6f;
+                                float inset = plume.width * ((i + 0.5f) / 14f);
+                                Fill(new Rect(inset, plume.height * (1f - (i + 1f) / 7f), plume.width - inset * 2f,
+                                    plume.height / 7f + 1f), Color.Lerp(Hex(0xff783b), Hex(0xffe8aa), 1f - fraction));
+                            }
+                        }
+                        finally { GUI.EndGroup(); }
+                    }
+                }
+                GUI.color = Color.white;
+                return;
+            }
+
+            // The entire billboard stays axis-aligned with its collider.
+            // Wind streaks carry the sense of tumbling without rotating the
+            // visible body away from the live collision rectangle.
+            for (int i = 0; i < 3; i++)
+            {
+                float y = rect.y + rect.height * (0.2f + i * 0.3f);
+                Line(new Vector2(rect.xMax + 7f, y), new Vector2(rect.xMax + 33f + i * 9f, y - 4f),
+                    new Color(0.85f, 0.96f, 1f, warning ? 0.24f : 0.48f), 1.5f);
+            }
+            if (warning)
+            {
+                Line(new Vector2(rect.center.x, rect.y - 20f), new Vector2(rect.center.x, rect.y), Hex(0x8499a9), 2f);
+                Fill(new Rect(rect.x - 4f, rect.yMax + 3f, rect.width + 8f, 3f),
+                    WithAlpha(Hex(0xffcc78), 0.35f + progress * 0.5f));
+            }
+            Color debrisTint = warning ? new Color(0.9f, 0.96f, 1f, 0.68f) : Color.white;
+            if (!DrawBiomeAtlas(rect, entity.Kind, debrisTint))
+            {
+                Fill(rect, WithAlpha(Hex(0x233a50), debrisTint.a));
+                Fill(new Rect(rect.x + 4f, rect.y + 4f, rect.width - 8f, rect.height - 8f),
+                    WithAlpha(Hex(0xe4964b), debrisTint.a));
+                Line(new Vector2(rect.x + 10f, rect.y + rect.height * 0.35f),
+                    new Vector2(rect.xMax - 10f, rect.y + rect.height * 0.35f), Hex(0xfff0b6), 3f);
+                Line(new Vector2(rect.x + 10f, rect.y + rect.height * 0.68f),
+                    new Vector2(rect.xMax - 10f, rect.y + rect.height * 0.68f), Hex(0x31546b), 4f);
+            }
+            GUI.color = Color.white;
         }
 
         private void DrawCollapsingFloor(WorldEntity entity, Palette p, float time)
@@ -662,6 +795,12 @@ namespace CityDino
             {
                 texture = art.DinoActionsAtlas;
                 uv = art.GetDinoActionUV(frame);
+            }
+            else if (frame < 5 && art.DinoRunAtlas != null)
+            {
+                texture = art.DinoRunAtlas;
+                uv = art.GetDinoRunUV(frame);
+                rect = art.GetDinoRunRect(frame, rect, facingLeft);
             }
             else if (art.DinoFrames != null && art.DinoFrames.Length > 0)
             {
@@ -1016,12 +1155,38 @@ namespace CityDino
             return texture;
         }
 
+        private static Texture2D MakeIcicle()
+        {
+            const int size = 64;
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "CityDino icicle fallback";
+            texture.filterMode = FilterMode.Point;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float fraction = (y + 0.5f) / size;
+                    float distance = Mathf.Abs((x + 0.5f) / size - 0.5f);
+                    float half = fraction * 0.5f;
+                    Color tint = Color.clear;
+                    if (distance <= half)
+                        tint = half - distance < 0.05f || fraction > 0.94f ? Hex(0x4a8db7)
+                            : Color.Lerp(Hex(0x92dcfa), Hex(0xedfcff), fraction);
+                    pixels[y * size + x] = tint;
+                }
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
         public void Dispose()
         {
             if (circle != null) UnityEngine.Object.Destroy(circle);
             if (glow != null) UnityEngine.Object.Destroy(glow);
             if (spike != null) UnityEngine.Object.Destroy(spike);
             if (saw != null) UnityEngine.Object.Destroy(saw);
+            if (ice != null) UnityEngine.Object.Destroy(ice);
         }
     }
 }
