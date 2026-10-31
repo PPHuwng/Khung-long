@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="Program.V8.cs" />
     <Compile Include="../Assets/CityDino/Core/*.cs" />
   </ItemGroup>
 </Project>

@@ -3,6 +3,8 @@
 // Android/iOS, rendering, or Play Mode test.
 using System;
 using System.Reflection;
+using System.Collections.Generic;
+using System.Linq;
 using CityDino;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -16,7 +18,7 @@ internal static class Program
     private struct Inputs
     {
         public float Horizontal;
-        public bool Jump, Duck;
+        public bool Jump, Duck, Shoot, Skill;
     }
 
     private static int Main()
@@ -36,6 +38,19 @@ internal static class Program
         Test("active touch suppresses duplicate synthetic mouse input", SyntheticMouse);
         Test("inactive touch slots permit real mouse input", MouseFallback);
         Test("ignored pointer preserves an existing keyboard intent", ExistingKeyboardIntent);
+        Test("held boss fire touch does not jump", BossFireTouch);
+        Test("skill touch triggers once without jumping", SkillTouch);
+        Test("hidden combat controls do not request shooting or skills", HiddenCombatControls);
+        Test("three touches can move jump and shoot together", MultitouchCombat);
+        Test("combat touch suppresses duplicate synthetic mouse input", CombatSyntheticMouse);
+        Test("combat controls preserve scale and pillarbox mapping", CombatScale);
+        Test("every character fires with J during boss combat", BossKeyboardFire);
+        Test("J cannot fire during ordinary running", RunningKeyboardFire);
+        Test("E is a special skill for the two purchased characters", CharacterSkillKey);
+        Test("pause blocks boss fire and character skills", PausedCombatKeys);
+        Test("arena transition controls consume touches without firing or jumping", ArenaTransitionControls);
+        Test("menu modals block starting and special action keys", ModalStartKeys);
+        Test("game over modals block restart keys", ModalRestartKeys);
         Console.WriteLine();
         Console.WriteLine("Input mapping: " + passed + " passed, " + failed + " failed.");
         Console.WriteLine("Production mapping ran against math/device stubs; Unity event delivery and device hardware were not executed.");
@@ -50,7 +65,8 @@ internal static class Program
     private static void Test(string name, Action body)
     {
         Screen.width = 1280; Screen.height = 720;
-        Touchscreen.current = null; Mouse.current = null;
+        Touchscreen.current = null; Mouse.current = null; Keyboard.current = null;
+        Time.unscaledDeltaTime=0.016f; Time.unscaledTime=0; GUI.enabled=true;
         try { body(); passed++; Console.WriteLine("PASS " + name); }
         catch (Exception error) { failed++; Console.WriteLine("FAIL " + name + ": " + error.GetBaseException().Message); }
     }
@@ -162,4 +178,165 @@ internal static class Program
         Inputs input = Point(1100, 640, true, true, new Inputs { Horizontal = -1, Jump = true });
         Check(input.Horizontal == -1 && input.Jump && !input.Duck, "Ignored HUD pointer overwrote keyboard intent");
     }
+    private static Inputs CombatPoint(float x,float y,bool canShoot=true,bool canSkill=true,bool down=true,bool held=true)
+    {
+        MethodInfo apply=typeof(CityRunnerController).GetMethod("ApplyCombatPointer",BindingFlags.NonPublic|BindingFlags.Static);
+        Check(apply!=null,"Production combat pointer entry point is missing");
+        object[] args={new Vector2(x,y),down,held,canShoot,canSkill,0f,false,false,false,false};
+        apply.Invoke(null,args);
+        return new Inputs{Horizontal=(float)args[5],Jump=(bool)args[6],Duck=(bool)args[7],Shoot=(bool)args[8],Skill=(bool)args[9]};
+    }
+    private static Inputs ReadCombat(bool canShoot=true,bool canSkill=true)
+    {
+        MethodInfo read=typeof(CityRunnerController).GetMethod("ReadCombatPointers",BindingFlags.NonPublic|BindingFlags.Static);
+        Check(read!=null,"Production combat touch reader is missing");
+        object[] args={canShoot,canSkill,0f,false,false,false,false};read.Invoke(null,args);
+        return new Inputs{Horizontal=(float)args[2],Jump=(bool)args[3],Duck=(bool)args[4],Shoot=(bool)args[5],Skill=(bool)args[6]};
+    }
+    private static void BossFireTouch()
+    {
+        foreach(bool down in new[]{true,false})
+        {
+            Inputs input=CombatPoint(784,67,down:down);
+            Check(input.Shoot&&!input.Skill&&!input.Jump&&!input.Duck&&input.Horizontal==0,"Held boss fire leaked to jumping or another action");
+        }
+    }
+    private static void SkillTouch()
+    {
+        Inputs down=CombatPoint(914,67);
+        Check(down.Skill&&!down.Shoot&&!down.Jump,"Skill button leaked to jump or fire");
+        Inputs held=CombatPoint(914,67,down:false);
+        Check(!held.Skill&&!held.Shoot&&!held.Jump,"Holding skill requested repeated activations or a jump");
+    }
+    private static void HiddenCombatControls()
+    {
+        foreach(float x in new[]{784f,914f})
+        {
+            Inputs input=CombatPoint(x,67,false,false);
+            Check(!input.Shoot&&!input.Skill,"Hidden combat button still requested a special action");
+        }
+    }
+    private static void MultitouchCombat()
+    {
+        Touchscreen.current=new Touchscreen();
+        Touchscreen.current.touches.Add(Touch(180,67,false,true));
+        Touchscreen.current.touches.Add(Touch(1182,67));
+        Touchscreen.current.touches.Add(Touch(784,67,false,true));
+        Inputs input=ReadCombat();
+        Check(input.Horizontal==1&&input.Jump&&input.Shoot&&!input.Skill,"Move+jump+shoot could not be held with separate fingers");
+        Touchscreen.current.touches.Clear();
+        Touchscreen.current.touches.Add(Touch(82,67,false,true));Touchscreen.current.touches.Add(Touch(914,67));
+        input=ReadCombat(false,true);
+        Check(input.Horizontal==-1&&input.Skill&&!input.Jump&&!input.Shoot,"Move+skill touch was ignored or leaked to jump");
+    }
+    private static void CombatSyntheticMouse()
+    {
+        Touchscreen.current=new Touchscreen();Touchscreen.current.touches.Add(Touch(784,67));
+        Mouse.current=new Mouse{leftButton=new ButtonControl{wasPressedThisFrame=true,isPressed=true},position=new Vector2Control{TestValue=new Vector2(500,320)}};
+        Inputs input=ReadCombat();Check(input.Shoot&&!input.Jump,"Boss touch was double-counted as a synthetic mouse jump");
+    }
+    private static void CombatScale()
+    {
+        Screen.width=1920;Screen.height=1080;
+        Check(CombatPoint(1176,100.5f).Shoot,"Scaled boss fire box moved");
+        Screen.width=1920;Screen.height=720;
+        Check(CombatPoint(1104,67).Shoot,"Letterboxed boss fire box moved");
+        Inputs margin=CombatPoint(100,320);Check(!margin.Shoot&&!margin.Skill&&!margin.Jump,"Pillarbox margin requested combat input");
+    }
+    private static readonly BindingFlags PrivateInstance=BindingFlags.Instance|BindingFlags.NonPublic;
+    private static void SetField(object instance,string name,object value)
+    {
+        FieldInfo field=instance.GetType().GetField(name,PrivateInstance);
+        Check(field!=null,"Fixture field missing: "+name);field.SetValue(instance,value);
+    }
+    private static RunnerSession Session(CharacterKind kind)
+    {
+        var run=new RunnerSession(new RunnerSave{OwnsTriceratops=true,OwnsRaptor=true,SelectedCharacter=kind},413);
+        run.SetStartingDistrict(District.Day);run.StartRun();
+        ((IList<WorldEntity>)typeof(RunnerSession).GetField("entities",PrivateInstance).GetValue(run)).Clear();
+        SetField(run,"distanceToPattern",float.MaxValue);SetField(run,"nextHeartAt",float.MaxValue);
+        return run;
+    }
+    private static RunnerSession Arena(CharacterKind kind)
+    {
+        RunnerSession run=Session(kind);
+        SetField(run,"distanceClock",199999d);SetField(run,"<Distance>k__BackingField",199999f);
+        run.Update(0.02f);Check(run.IsBossArena,"Milestone fixture did not enter the arena");
+        for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+        Check(run.ArenaPhase==BossPhase.Fighting,"Arena intro did not complete");return run;
+    }
+    private static CityRunnerController Controller(RunnerSession run)
+    {
+        var controller=new CityRunnerController();SetField(controller,"session",run);return controller;
+    }
+    private static void Frame(CityRunnerController controller)
+    { typeof(CityRunnerController).GetMethod("Update",PrivateInstance).Invoke(controller,null); }
+    private static void BossKeyboardFire()
+    {
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        {
+            RunnerSession run=Arena(kind);var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.jKey.isPressed=true;
+            Frame(controller);Check(run.BossProjectiles.Any(p=>p.Friendly&&!p.Removed),kind+" cannot fire with J in boss combat");
+        }
+    }
+    private static void RunningKeyboardFire()
+    {
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        {
+            RunnerSession run=Session(kind);var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.jKey.isPressed=true;
+            Frame(controller);Check(!run.IsBossArena&&!run.BossProjectiles.Any(p=>p.Friendly&&!p.Removed),kind+" fires outside boss combat");
+        }
+    }
+    private static void CharacterSkillKey()
+    {
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        {
+            RunnerSession run=Session(kind);var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.eKey.wasPressedThisFrame=true;
+            Frame(controller);
+            Check((run.SkillCooldownRemaining>0)==(kind!=CharacterKind.Classic),"E skill ownership differs for "+kind);
+        }
+    }
+    private static void PausedCombatKeys()
+    {
+        RunnerSession run=Arena(CharacterKind.Triceratops);run.TogglePause();var controller=Controller(run);
+        Keyboard.current=new Keyboard();Keyboard.current.jKey.isPressed=true;Keyboard.current.eKey.wasPressedThisFrame=true;
+        Frame(controller);Check(run.State==RunState.Paused&&run.SkillCooldownRemaining==0&&!run.BossProjectiles.Any(p=>p.Friendly&&!p.Removed),"Pause accepted boss shooting or skills");
+    }
+    private static void ArenaTransitionControls()
+    {
+        RunnerSession run=Session(CharacterKind.Triceratops);
+        SetField(run,"distanceClock",199999d);SetField(run,"<Distance>k__BackingField",199999f);run.Update(.02f);
+        Check(run.ArenaPhase==BossPhase.Intro,"Intro fixture skipped transition");
+        var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.jKey.isPressed=true;Keyboard.current.eKey.wasPressedThisFrame=true;
+        Touchscreen.current=new Touchscreen();Touchscreen.current.touches.Add(Touch(784,67));Touchscreen.current.touches.Add(Touch(914,67));
+        Frame(controller);Check(!run.BossProjectiles.Any(p=>p.Friendly&&!p.Removed)&&run.SkillCooldownRemaining==0&&run.PlayerY==0,
+            "Intro fire/skill controls leaked to shooting, a skill or tap-jump");
+        for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+        SetField(run,"<ArenaPhase>k__BackingField",BossPhase.Victory);SetField(run,"<BossPhaseRemaining>k__BackingField",1f);
+        ((IList<BossProjectile>)run.BossProjectiles).Clear();
+        Frame(controller);Check(run.ArenaPhase==BossPhase.Victory&&!run.BossProjectiles.Any(p=>p.Friendly&&!p.Removed)&&run.SkillCooldownRemaining==0&&run.PlayerY==0,
+            "Victory fire/skill controls leaked to shooting, a skill or tap-jump");
+    }
+    private static void ModalStartKeys()
+    {
+        foreach(string modal in new[]{"showCharacters","showShop","showHistory"})
+        {
+            var run=new RunnerSession(new RunnerSave{OwnsTriceratops=true,SelectedCharacter=CharacterKind.Triceratops},3);
+            var controller=Controller(run);SetField(controller,modal,true);
+            Keyboard.current=new Keyboard();Keyboard.current.spaceKey.wasPressedThisFrame=true;Keyboard.current.eKey.wasPressedThisFrame=true;Keyboard.current.jKey.isPressed=true;
+            Frame(controller);Check(run.State==RunState.Menu&&run.SkillCooldownRemaining==0,modal+" leaked menu keys into gameplay");
+        }
+    }
+    private static void ModalRestartKeys()
+    {
+        foreach(string modal in new[]{"showCharacters","showShop","showHistory"})
+        {
+            RunnerSession run=Session(CharacterKind.Classic);
+            ((IList<WorldEntity>)typeof(RunnerSession).GetField("entities",PrivateInstance).GetValue(run)).Add(new WorldEntity{Kind=EntityKind.Barrier,X=run.PlayerX-80,Y=0,Width=160,Height=200});
+            run.Update(1f/120);Check(run.State==RunState.GameOver,"Fatal contact fixture did not finish the run");
+            var controller=Controller(run);SetField(controller,modal,true);Keyboard.current=new Keyboard();Keyboard.current.rKey.wasPressedThisFrame=true;
+            Frame(controller);Check(run.State==RunState.GameOver,modal+" leaked R into restart");
+        }
+    }
+
 }

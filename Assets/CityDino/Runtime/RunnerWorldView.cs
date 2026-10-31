@@ -8,7 +8,7 @@ namespace CityDino
     /// World art in the same virtual canvas as RunnerSession. Layers and effects
     /// never move collision geometry: every player/hazard position comes from core.
     /// </summary>
-    public sealed class RunnerWorldView : IDisposable
+    public sealed partial class RunnerWorldView : IDisposable
     {
         private const float Width = RunnerSession.CanvasWidth;
         private const float Height = RunnerSession.CanvasHeight;
@@ -51,6 +51,11 @@ namespace CityDino
             Matrix4x4 oldMatrix = GUI.matrix;
             try
             {
+                if (session.IsBossArena)
+                {
+                    DrawBossArena(session);
+                    return;
+                }
                 Palette palette = CurrentPalette(session.CurrentDistrict, ambientTime);
                 bool menu = session.State == RunState.Menu;
                 float scroll = menu ? ambientTime * 75f : session.Distance;
@@ -64,7 +69,7 @@ namespace CityDino
                 if (!menu)
                 {
                     DrawEntities(session, palette, clock);
-                    DrawDino(session, clock);
+                    DrawDino(session, session.PlayerAnimationTime);
                 }
                 if (!menu)
                 {
@@ -782,6 +787,21 @@ namespace CityDino
             if (session.ShieldReady)
                 Disc(new Rect(rect.x - 13f, rect.y - 10f, rect.width + 26f, rect.height + 22f),
                     new Color(0.3f, 0.8f, 1f, 0.22f), true);
+            if (session.SkillActiveRemaining > 0f)
+            {
+                Color skillTint = session.CurrentCharacter == CharacterKind.Triceratops
+                    ? new Color(1f, 0.77f, 0.28f, 0.3f) : new Color(0.65f, 0.65f, 1f, 0.25f);
+                Disc(new Rect(rect.x - 11f, rect.y - 9f, rect.width + 22f, rect.height + 18f), skillTint, true);
+                if (session.IsDashing)
+                {
+                    float behind = session.DashVelocity < 0f ? rect.xMax : rect.x;
+                    float direction = session.DashVelocity < 0f ? 1f : -1f;
+                    for (int i = 0; i < 3; i++)
+                        Line(new Vector2(behind, rect.y + rect.height * (.3f + i * .2f)),
+                            new Vector2(behind + direction * (27f + i * 12f), rect.y + rect.height * (.3f + i * .2f)),
+                            new Color(.7f, .78f, 1f, .42f - i * .08f), 2f);
+                }
+            }
             if (session.InvincibleRemaining > 0f)
             {
                 Disc(new Rect(rect.x - 14f, rect.y - 12f, rect.width + 28f, rect.height + 26f), new Color(0.65f, 1f, 0.87f, 0.3f), true);
@@ -789,24 +809,9 @@ namespace CityDino
             }
             else GUI.color = Color.white;
             int frame = RunnerGeometry.GetPlayerFrame(session);
-            Texture2D texture = null;
-            Rect uv = new Rect(0f, 0f, 1f, 1f);
-            if (frame >= 5 && art.DinoActionsAtlas != null)
-            {
-                texture = art.DinoActionsAtlas;
-                uv = art.GetDinoActionUV(frame);
-            }
-            else if (frame < 5 && art.DinoRunAtlas != null)
-            {
-                texture = art.DinoRunAtlas;
-                uv = art.GetDinoRunUV(frame);
-                rect = art.GetDinoRunRect(frame, rect, facingLeft);
-            }
-            else if (art.DinoFrames != null && art.DinoFrames.Length > 0)
-            {
-                int runningFrame = frame < 5 ? frame : RunnerGeometry.GetPlayerFrame(time, session.Speed, y, session.State);
-                texture = art.DinoFrames[runningFrame % art.DinoFrames.Length];
-            }
+            Texture2D texture = art.GetCharacterTexture(session.CurrentCharacter, frame);
+            Rect uv = art.GetCharacterUV(session.CurrentCharacter, frame);
+            rect = art.GetCharacterRect(session.CurrentCharacter, frame, rect, facingLeft);
             if (facingLeft) uv = new Rect(uv.x + uv.width, uv.y, -uv.width, uv.height);
             if (texture != null)
                 GUI.DrawTextureWithTexCoords(rect, texture, uv, true);
@@ -821,6 +826,22 @@ namespace CityDino
                 }
             }
             GUI.color = Color.white;
+        }
+
+        public void DrawCharacterPreview(CharacterKind kind, int frame, Rect body, bool facingLeft = false)
+        {
+            Color previous = GUI.color;
+            try
+            {
+                GUI.color = Color.white;
+                Texture2D texture = art.GetCharacterTexture(kind, frame);
+                Rect uv = art.GetCharacterUV(kind, frame);
+                Rect target = art.GetCharacterRect(kind, frame, body, facingLeft);
+                if (facingLeft) uv = new Rect(uv.x + uv.width, uv.y, -uv.width, uv.height);
+                if (texture != null) GUI.DrawTextureWithTexCoords(target, texture, uv, true);
+                else Fill(body, Hex(0x7fbd72));
+            }
+            finally { GUI.color = previous; }
         }
 
         private void DrawDistrictAtmosphere(District district, Palette p, float scroll, float time, float speedRatio)

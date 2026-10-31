@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using CityDino;
@@ -10,6 +11,7 @@ internal static class Program
 {
     private static int passed,failed;
     private static readonly BindingFlags Private=BindingFlags.Instance|BindingFlags.NonPublic;
+    private static string assetDirectory;
     private static int Main()
     {
         SetUpResources();
@@ -30,6 +32,16 @@ internal static class Program
         Test("jump and crouch poses draw their own atlas frames in both directions",ActionSprites);
         Test("five running poses use their atlas frames and physical layout at every canvas scale",RunningSprites);
         Test("running art stays consistent in menu, pause, death and legacy fallback",RunningLifecycle);
+        Test("boss arenas replace the scrolling world and all district weather",ArenaIsolation);
+        Test("all three bosses stay at their shared physical bounds under canvas transforms",BossSprites);
+        Test("boss projectiles and attack telegraphs use exact live collision rectangles",BossAttackGeometry);
+        Test("boss weak point clearly changes between protected and vulnerable states",BossWeakPoint);
+        Test("boss arena effects and dead encounter remain frozen with gameplay",ArenaLifecycle);
+        Test("purchased characters draw every pose and facing from their own atlases",CharacterSprites);
+        Test("companion collision silhouettes follow independent opaque and clear PNG samples",CharacterAlphaContacts);
+        Test("character previews use the same atlas pose and physical layout",CharacterPreviews);
+        Test("combat HUD shows boss health and limits fire and skill controls",CombatHud);
+        Test("character and shop modals disable every underlying action button",ModalButtonIsolation);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
         Console.WriteLine("Recorded production draw calls with affine API stubs; no Unity rasterization or Editor execution.");
         return failed==0?0:1;
@@ -50,7 +62,8 @@ internal static class Program
         DirectoryInfo root=new DirectoryInfo(Directory.GetCurrentDirectory());
         while(root!=null&&!Directory.Exists(Path.Combine(root.FullName,"Assets","CityDino"))) root=root.Parent;
         Check(root!=null,"Run from the project directory");
-        foreach(string file in Directory.GetFiles(Path.Combine(root.FullName,"Assets","CityDino","Resources","CityDino"),"*.png"))
+        assetDirectory=Path.Combine(root.FullName,"Assets","CityDino","Resources","CityDino");
+        foreach(string file in Directory.GetFiles(assetDirectory,"*.png"))
         {
             using(var stream=File.OpenRead(file))
             {
@@ -507,4 +520,335 @@ internal static class Program
         }
         finally { Resources.TestAssets["CityDino/DinoRunAtlas"]=atlas; }
     }
+    private static void Field(object instance,string name,object value)
+    {
+        FieldInfo field=instance.GetType().GetField(name,Private);
+        Check(field!=null,"Fixture field missing: "+name);field.SetValue(instance,value);
+    }
+    private static RunnerSession NewCharacter(CharacterKind character,District district=District.Day)
+    {
+        var run=new RunnerSession(new RunnerSave{OwnsTriceratops=true,OwnsRaptor=true,SelectedCharacter=character},18);
+        run.SetStartingDistrict(district);run.StartRun();World(run).Clear();return run;
+    }
+    private static RunnerSession ArenaFixture(BossKind kind=BossKind.Tank,CharacterKind character=CharacterKind.Classic,District district=District.Day)
+    {
+        RunnerSession run=NewCharacter(character,district);
+        Field(run,"distanceToPattern",float.MaxValue);Field(run,"nextHeartAt",float.MaxValue);
+        Field(run,"distanceClock",199999d);Set(run,"Distance",199999f);run.Update(.02f);
+        Check(run.IsBossArena,"Milestone fixture failed to enter arena");
+        for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+        Check(run.ArenaPhase==BossPhase.Fighting&&run.CurrentBoss!=null,"Arena fixture did not reach fighting");
+        BossEncounter boss=run.CurrentBoss;boss.Kind=kind;boss.X=970;boss.Y=kind==BossKind.Gunship?180:0;
+        boss.Width=kind==BossKind.Sentinel?158:238;boss.Height=kind==BossKind.Sentinel?216:128;
+        boss.Vulnerable=true;return run;
+    }
+    private static void ArenaIsolation()
+    {
+        var art=new RunnerArt();Check(art.BossAtlas!=null,"Boss atlas missing");
+        foreach(District district in new[]{District.Night,District.Storm,District.Snow})
+        {
+            RunnerSession run=ArenaFixture(district:district);Set(run,"DistrictElapsed",1.16f);Set(run,"NextBlackoutAt",1f);Set(run,"BlackoutDuration",2.5f);
+            World(run).Add(new WorldEntity{Kind=EntityKind.Saw,X=350,Y=0,Width=80,Height=80});
+            World(run).Add(new WorldEntity{Kind=EntityKind.Gap,X=450,Y=0,Width=200,Height=160});
+            using(var view=new RunnerWorldView(art))Draw(view,run,Canvas(1.5f,120,0));
+            Check(GUI.DrawCalls.Any(d=>d.Texture==art.BossAtlas),"Boss disappeared behind ordinary map rendering");
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==art.HazardAtlas||d.Texture==art.Road||d.Texture==art.SkylineFar||d.Texture==art.SkylineNear),"Scrolling world leaked into boss arena");
+            Check(!GUI.DrawCalls.Any(FullCanvas),"District blackout or lightning covered the arena");
+            // Actual arena ground is continuous even when the retained run had a hole.
+            Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.x==0&&d.Position.y==RunnerSession.GroundY&&d.Position.width==1280&&d.Position.height>=100),"Arena lacks a continuous safe floor");
+        }
+    }
+    private static void BossSprites()
+    {
+        var art=new RunnerArt();Check(art.BossAtlas!=null,"Boss atlas missing");
+        var distinct=new HashSet<string>();
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        {
+            Rect uv=art.GetBossUV(kind);distinct.Add(uv.x+":"+uv.y);
+            Check(uv.width>0&&uv.height>0&&uv.x>=0&&uv.y>=0&&uv.xMax<=1.000001f&&uv.yMax<=1.000001f,"Boss UV is outside atlas");
+            foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+            {
+                RunnerSession run=ArenaFixture(kind);BossEncounter boss=run.CurrentBoss;
+                using(var view=new RunnerWorldView(art))Draw(view,run,canvas);
+                RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BossAtlas);
+                Near(draw.Position.x,boss.X,"Boss image moved away from physical X");Near(draw.Position.y,RunnerSession.GroundY-boss.Y-boss.Height,"Boss image moved away from physical height");
+                Near(draw.Position.width,boss.Width,"Boss image width differs from collision body");Near(draw.Position.height,boss.Height,"Boss image height differs from collision body");
+                Near(draw.UV.x,uv.x,"Boss selected another body sprite");Near(draw.UV.y,uv.y,"Boss source row differs");
+                Point(draw.Centre,canvas.MultiplyPoint3x4(new Vector3(boss.X+boss.Width/2,RunnerSession.GroundY-boss.Y-boss.Height/2,0)),"Boss centre drifts under canvas scale");
+            }
+        }
+        Check(distinct.Count==3,"Three bosses reuse the same source image");
+    }
+    private static bool SameRect(Rect a,Rect b)
+    {return Math.Abs(a.x-b.x)<.025f&&Math.Abs(a.y-b.y)<.025f&&Math.Abs(a.width-b.width)<.025f&&Math.Abs(a.height-b.height)<.025f;}
+    private static void BossAttackGeometry()
+    {
+        var art=new RunnerArt();RunnerSession run=ArenaFixture();
+        var shots=(IList<BossProjectile>)run.BossProjectiles;shots.Clear();
+        var signals=(IList<BossTelegraph>)run.BossTelegraphs;signals.Clear();
+        var friendly=new BossProjectile{Id=100,Friendly=true,X=321,Y=123,Width=18,Height=8};
+        var enemy=new BossProjectile{Id=101,Friendly=false,X=564,Y=51,Width=24,Height=15};
+        var removed=new BossProjectile{Id=102,Friendly=false,X=631,Y=66,Width=31,Height=17,Removed=true};
+        shots.Add(friendly);shots.Add(enemy);shots.Add(removed);
+        var signal=new BossTelegraph{Id=103,Kind=BossAttackKind.Artillery,X=428,Y=0,Width=73,Height=113,Remaining=.4f,Duration=1,Active=false};signals.Add(signal);
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        {
+            using(var view=new RunnerWorldView(art))Draw(view,run,canvas);
+            foreach(BossProjectile shot in new[]{friendly,enemy})
+            {
+                Rect physical=new Rect(shot.X,RunnerSession.GroundY-shot.Y-shot.Height,shot.Width,shot.Height);
+                RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
+                Point(draw.Centre,canvas.MultiplyPoint3x4(physical.center),"Projectile left its physical position under letterbox");
+                Check(shot.Friendly?draw.Color.b>draw.Color.r:draw.Color.r>draw.Color.b,"Friendly/enemy projectiles are visually indistinguishable");
+            }
+            Check(!GUI.DrawCalls.Any(d=>SameRect(d.Position,new Rect(removed.X,RunnerSession.GroundY-removed.Y-removed.Height,removed.Width,removed.Height))),"Removed projectile is still visible");
+            Rect warning=new Rect(signal.X,RunnerSession.GroundY-signal.Y-signal.Height,signal.Width,signal.Height);
+            RecordedDraw fill=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,warning));
+            Check(fill.Color.a<.3f,"Harmless attack warning looks like a fully active hitbox");
+            signal.Active=true;using(var view=new RunnerWorldView(art))Draw(view,run,canvas);
+            RecordedDraw active=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,warning));
+            Check(active.Color.a>=.6f&&active.Color.r>active.Color.b,"Active attack does not paint its whole physical area");
+            Point(active.Centre,canvas.MultiplyPoint3x4(warning.center),"Telegraph hitbox shifted under scaling");signal.Active=false;
+        }
+    }
+    private static void BossWeakPoint()
+    {
+        var art=new RunnerArt();RunnerSession run=ArenaFixture();BossEncounter boss=run.CurrentBoss;
+        using(var view=new RunnerWorldView(art))
+        {
+            boss.Vulnerable=true;Draw(view,run,Canvas(1));
+            float cx=boss.X+boss.Width/2,cy=RunnerSession.GroundY-boss.Y-boss.Height*.55f;
+            var open=GUI.DrawCalls.Where(d=>Math.Abs(d.Position.center.x-cx)<.01&&Math.Abs(d.Position.center.y-cy)<.01&&d.Texture!=art.BossAtlas).ToList();
+            Check(open.Any(d=>d.Color.r>.9&&d.Color.g>.7&&d.Color.b<.6),"Open weak point has no visible golden core");
+            boss.Vulnerable=false;Draw(view,run,Canvas(1));
+            var locked=GUI.DrawCalls.Where(d=>Math.Abs(d.Position.center.x-cx)<.01&&Math.Abs(d.Position.center.y-cy)<.01&&d.Texture!=art.BossAtlas).ToList();
+            Check(locked.Any(d=>d.Color.b>d.Color.r&&d.Color.g>.5),"Protected weak point does not change to blue shielding");
+            Check(GUI.DrawCalls.Count(d=>d.Texture==Texture2D.whiteTexture&&d.Position.height==3&&Math.Abs(d.Centre.x-cx)<.025f&&Math.Abs(d.Centre.y-cy)<.025f)>=2,"Protected core lacks crossed shield marks");
+        }
+    }
+    private static string DrawSignature()
+    {
+        return string.Join(";",GUI.DrawCalls.Select(d=>d.Kind+":"+d.Text+":"+(d.Texture==null?"":d.Texture.name)+":"+d.Position.x+":"+d.Position.y+":"+d.Position.width+":"+d.Position.height+":"+d.UV.x+":"+d.UV.y+":"+d.UV.width+":"+d.Color.r+":"+d.Color.g+":"+d.Color.b+":"+d.Color.a));
+    }
+    private static void ArenaLifecycle()
+    {
+        var art=new RunnerArt();RunnerSession run=ArenaFixture(BossKind.Gunship);
+        using(var view=new RunnerWorldView(art))
+        {
+            Draw(view,run,Canvas(1));run.TogglePause();GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);view.Draw(run,1000);string paused=DrawSignature();
+            run.Update(5);GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);view.Draw(run,2000);
+            Check(DrawSignature()==paused,"Boss arena rendering ran from ambient time while paused");
+            run.TogglePause();
+            typeof(RunnerSession).GetMethod("FinishRun",Private).Invoke(run,new object[]{"Fixture fatal boss contact"});
+            Check(run.State==RunState.GameOver&&run.IsBossArena,"Dead boss encounter was discarded before drawing results");
+            Draw(view,run,Canvas(1));string dead=DrawSignature();run.Update(5);GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);view.Draw(run,3000);
+            Check(DrawSignature()==dead,"Dead boss encounter continued to animate");
+        }
+    }
+    private static RunnerSession CharacterPose(CharacterKind kind,int frame,bool left)
+    {
+        RunnerSession run=NewCharacter(kind);typeof(RunnerSession).GetProperty("FacingLeft").GetSetMethod(true).Invoke(run,new object[]{left});
+        if(frame<5)Set(run,"Elapsed",(frame+.35f)/(9+run.Speed/150));
+        else if(frame<8){Set(run,"Elapsed",(.2f+frame-5)/10);run.SetDucking(true);}
+        else
+        {
+            Set(run,"PlayerY",40);Field(run,"grounded",false);
+            typeof(RunnerSession).GetProperty("AnimationVelocityY").GetSetMethod(true).Invoke(run,new object[]{frame==8?500f:frame==9?0f:-500f});
+        }
+        Check(RunnerGeometry.GetPlayerFrame(run)==frame,"Character fixture selected wrong pose "+frame);return run;
+    }
+    private static void CharacterSprites()
+    {
+        var art=new RunnerArt();Check(art.TriceratopsAtlas!=null&&art.RaptorAtlas!=null,"Purchased character atlases are missing");
+        foreach(CharacterKind kind in new[]{CharacterKind.Triceratops,CharacterKind.Raptor})
+        {
+            var uvCells=new HashSet<string>();
+            foreach(int frame in new[]{0,1,2,5,8,10}){Rect uv=art.GetCharacterUV(kind,frame);uvCells.Add(uv.x+":"+uv.y);Check(uv.width>0&&uv.height>0&&uv.x>=0&&uv.y>=0&&uv.xMax<=1.000001f&&uv.yMax<=1.000001f,"Character UV leaves atlas");}
+            Check(uvCells.Count==6,"Character atlas does not contain all six distinctive poses");
+            foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+            foreach(bool left in new[]{false,true})
+            for(int frame=0;frame<11;frame++)
+            {
+                RunnerSession run=CharacterPose(kind,frame,left);
+                using(var view=new RunnerWorldView(art))Draw(view,run,canvas);
+                Texture2D texture=art.GetCharacterTexture(kind,frame);RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==texture);
+                Rect uv=art.GetCharacterUV(kind,frame);Near(draw.UV.x,left?uv.xMax:uv.x,"Character source facing differs from body");Near(draw.UV.width,left?-uv.width:uv.width,"Character sprite not mirrored");Near(draw.UV.y,uv.y,"Character selected another source pose");
+                bool duck=frame>=5&&frame<8;float w=duck?RunnerGeometry.PlayerDuckWidth:RunnerGeometry.PlayerStandingWidth,h=duck?RunnerGeometry.PlayerDuckHeight:RunnerGeometry.PlayerStandingHeight;
+                float bob=RunnerGeometry.GetPlayerBob(run.PlayerAnimationTime,run.PlayerY,duck,run.State);
+                Rect body=new Rect(run.PlayerX-w/2,RunnerSession.GroundY-run.PlayerY-h+bob,w,h);
+                Rect expected=art.GetCharacterRect(kind,frame,body,left);
+                Check(SameRect(draw.Position,expected),"Character crop or mirror differs from its physical pose");
+                Point(draw.Centre,canvas.MultiplyPoint3x4(expected.center),"Character source moved away from the physical canvas");
+                Check(!GUI.DrawCalls.Any(d=>d.Kind=="UV"&&(d.Texture==art.DinoRunAtlas||d.Texture==art.DinoActionsAtlas)),"Purchased character draws the classic dinosaur over itself");
+            }
+        }
+    }
+    private sealed class PngAlpha
+    {
+        internal int Width,Height;
+        internal byte[] Pixels;
+        internal int At(int x,int y)
+        {return x<0||y<0||x>=Width||y>=Height?0:Pixels[y*Width+x];}
+    }
+    private static int BigEndian(byte[] bytes,int offset)
+    {return (bytes[offset]<<24)|(bytes[offset+1]<<16)|(bytes[offset+2]<<8)|bytes[offset+3];}
+    private static int Paeth(int a,int b,int c)
+    {
+        int p=a+b-c,da=Math.Abs(p-a),db=Math.Abs(p-b),dc=Math.Abs(p-c);
+        return da<=db&&da<=dc?a:db<=dc?b:c;
+    }
+    private static PngAlpha ReadPngAlpha(string path)
+    {
+        // Independent test-only decoder for the generated non-interlaced RGBA8
+        // source images. It does not read production collision bands or bake data.
+        using(var file=File.OpenRead(path))
+        using(var reader=new BinaryReader(file))
+        using(var compressed=new MemoryStream())
+        {
+            byte[] signature=reader.ReadBytes(8);
+            Check(signature.SequenceEqual(new byte[]{137,80,78,71,13,10,26,10}),"Invalid source PNG");
+            var image=new PngAlpha();
+            while(file.Position<file.Length)
+            {
+                byte[] length=reader.ReadBytes(4);int count=BigEndian(length,0);
+                string kind=System.Text.Encoding.ASCII.GetString(reader.ReadBytes(4));
+                byte[] data=reader.ReadBytes(count);Check(data.Length==count,"Truncated PNG data");
+                Check(reader.ReadBytes(4).Length==4,"Truncated PNG checksum");
+                if(kind=="IHDR")
+                {
+                    image.Width=BigEndian(data,0);image.Height=BigEndian(data,4);
+                    Check(data[8]==8&&data[9]==6&&data[12]==0,"RGBA8 non-interlaced source PNG required");
+                }
+                else if(kind=="IDAT")compressed.Write(data,0,data.Length);
+                else if(kind=="IEND")break;
+            }
+            Check(image.Width>0&&image.Height>0,"Source PNG has no dimensions");
+            int stride=image.Width*4;byte[] raw=new byte[(stride+1)*image.Height];compressed.Position=0;
+            using(var zlib=new ZLibStream(compressed,CompressionMode.Decompress,true))zlib.ReadExactly(raw);
+            byte[] previous=new byte[stride],row=new byte[stride];image.Pixels=new byte[image.Width*image.Height];
+            int position=0;
+            for(int y=0;y<image.Height;y++)
+            {
+                int filter=raw[position++];Check(filter<=4,"Unsupported PNG scanline filter");
+                for(int x=0;x<stride;x++)
+                {
+                    int a=x>=4?row[x-4]:0,b=previous[x],c=x>=4?previous[x-4]:0;
+                    int prediction=filter==0?0:filter==1?a:filter==2?b:filter==3?(a+b)/2:Paeth(a,b,c);
+                    row[x]=unchecked((byte)(raw[position++]+prediction));
+                }
+                for(int x=0;x<image.Width;x++)image.Pixels[y*image.Width+x]=row[x*4+3];
+                byte[] old=previous;previous=row;row=old;
+            }
+            return image;
+        }
+    }
+    private static int RenderedAlpha(PngAlpha png,Rect placed,Rect uv,bool left,float x,float screenY)
+    {
+        float u=(x-placed.x)/placed.width,v=(screenY-placed.y)/placed.height;
+        if(u<0||u>=1||v<0||v>=1)return 0;
+        float sourceX=(left?uv.xMax-u*uv.width:uv.x+u*uv.width)*png.Width;
+        float sourceY=(1f-uv.y-(1f-v)*uv.height)*png.Height;
+        return png.At((int)Math.Floor(sourceX),(int)Math.Floor(sourceY));
+    }
+    private static void CharacterAlphaContacts()
+    {
+        var art=new RunnerArt();int checkedOpaque=0,checkedClear=0;
+        foreach(CharacterKind kind in new[]{CharacterKind.Triceratops,CharacterKind.Raptor})
+        {
+            Texture2D texture=art.GetCharacterTexture(kind,0);Check(texture!=null,"Companion source atlas is missing");
+            PngAlpha png=ReadPngAlpha(Path.Combine(assetDirectory,texture.name+".png"));
+            foreach(int frame in new[]{0,1,2,5,8,10})
+            foreach(bool left in new[]{false,true})
+            {
+                RunnerSession run=CharacterPose(kind,frame,left);bool duck=run.IsDucking;
+                float width=duck?RunnerGeometry.PlayerDuckWidth:RunnerGeometry.PlayerStandingWidth;
+                float height=duck?RunnerGeometry.PlayerDuckHeight:RunnerGeometry.PlayerStandingHeight;
+                float bob=RunnerGeometry.GetPlayerBob(run.PlayerAnimationTime,run.PlayerY,duck,run.State);
+                float feet=run.PlayerY-bob;
+                Rect body=new Rect(run.PlayerX-width/2,RunnerSession.GroundY-feet-height,width,height);
+                Rect placed=art.GetCharacterRect(kind,frame,body,left),uv=art.GetCharacterUV(kind,frame);
+                int opaque=0,clear=0;
+                for(float y=5;y<height-4;y+=6)
+                for(float x=-width/2+5;x<width/2-4;x+=6)
+                {
+                    float px=run.PlayerX+x,py=feet+y,screenY=RunnerSession.GroundY-py;
+                    bool allOpaque=true,allClear=true;
+                    // Stay beyond the forgiving one-pixel outline and the
+                    // two-logical-row approximation used by production masks.
+                    foreach(float dy in new[]{-3f,0f,3f})
+                    foreach(float dx in new[]{-3f,0f,3f})
+                    {
+                        int alpha=RenderedAlpha(png,placed,uv,left,px+dx,screenY+dy);
+                        allOpaque&=alpha>=128;allClear&=alpha<128;
+                    }
+                    if(!allOpaque&&!allClear)continue;
+                    bool contact=RunnerGeometry.CircleTouchesPlayer(px,py,.6f,run);
+                    Check(contact==allOpaque,"PNG opacity/contact differs for "+kind+" frame="+frame+" left="+left+" point="+x+","+y+" opaque="+allOpaque);
+                    if(allOpaque)opaque++;else clear++;
+                }
+                Check(opaque>=5&&clear>=5,"Opacity sampling missed body or transparent space for "+kind+" frame="+frame);
+                checkedOpaque+=opaque;checkedClear+=clear;
+            }
+        }
+        Console.WriteLine("  PNG alpha independently checked "+checkedOpaque+" opaque and "+checkedClear+" clear character points.");
+    }
+    private static void CharacterPreviews()
+    {
+        var art=new RunnerArt();using(var view=new RunnerWorldView(art))
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        foreach(int frame in new[]{0,1,2,5,8,10})
+        {
+            GUI.DrawCalls.Clear();GUI.matrix=Canvas(1.5f,140,0);GUI.color=Color.white;
+            Rect body=new Rect(350,220,198,182);view.DrawCharacterPreview(kind,frame,body,true);
+            Texture2D texture=art.GetCharacterTexture(kind,frame);RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==texture);
+            Rect expected=art.GetCharacterRect(kind,frame,body,true),uv=art.GetCharacterUV(kind,frame);
+            Check(SameRect(draw.Position,expected),"Menu preview differs from selected character body");Near(draw.UV.x,uv.xMax,"Menu preview lost facing");Near(draw.UV.width,-uv.width,"Menu preview did not mirror source");
+        }
+    }
+    private static CityRunnerController Ui(RunnerSession run,RunnerArt art,RunnerWorldView view)
+    {
+        var controller=new CityRunnerController();Field(controller,"session",run);Field(controller,"art",art);Field(controller,"world",view);
+        typeof(CityRunnerController).GetMethod("EnsureStyles",Private).Invoke(controller,null);return controller;
+    }
+    private static void DrawUi(CityRunnerController controller)
+    {
+        GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);GUI.color=Color.white;GUI.enabled=true;
+        typeof(CityRunnerController).GetMethod("OnGUI",Private).Invoke(controller,null);
+    }
+    private static void CombatHud()
+    {
+        var art=new RunnerArt();
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=NewCharacter(kind);var controller=Ui(run,art,view);DrawUi(controller);
+            Check(!GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.StartsWith("BẮN")),"Shooting button appeared outside the arena");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&Math.Abs(d.Position.x-854)<.01f&&Math.Abs(d.Position.width-120)<.01f)==(kind!=CharacterKind.Classic),"Skill button visibility differs from selected character");
+            run=ArenaFixture(character:kind);run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.5f;controller=Ui(run,art,view);DrawUi(controller);
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.StartsWith("BẮN")),kind+" lacks boss fire control");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&Math.Abs(d.Position.x-854)<.01f&&Math.Abs(d.Position.width-120)<.01f)==(kind!=CharacterKind.Classic),"Boss skill button differs from selected character");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("K-01")),"Boss HUD has no encounter name");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text==run.Score.ToString("D5")),"Frozen running score is missing in combat");
+            Check(!GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&(d.Text.StartsWith("THÂN NHIỆT")||d.Text.StartsWith("NƯỚC "))),"Survival HUD leaked into the arena");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Box"&&SameRect(d.Position,new Rect(340,148,332,17))),"Half-health boss HUD does not show a half-width health bar");
+        }
+    }
+
+    private static void ModalButtonIsolation()
+    {
+        var art=new RunnerArt();using(var view=new RunnerWorldView(art))
+        foreach(string modal in new[]{"showCharacters","showShop","showHistory"})
+        foreach(bool dead in new[]{false,true})
+        {
+            var run=new RunnerSession(new RunnerSave{Wallet=10000},4);
+            if(dead){run.StartRun();World(run).Clear();World(run).Add(new WorldEntity{Kind=EntityKind.Barrier,X=run.PlayerX-80,Y=0,Width=160,Height=200});run.Update(1f/120);Check(run.State==RunState.GameOver,"Fatal fixture remained alive");}
+            var controller=Ui(run,art,view);Field(controller,modal,true);DrawUi(controller);
+            var underlying=GUI.DrawCalls.Where(d=>d.Kind=="Button"&&d.Text!=null&&
+                (d.Text.StartsWith("BẮT ĐẦU")||d.Text.StartsWith("CHẠY LẠI")||d.Text=="Cửa hàng"||d.Text=="Thành tích"||d.Text.StartsWith("Về menu"))).ToList();
+            Check(underlying.Count>=2&&underlying.All(d=>!d.Enabled),modal+" leaves an underlying action button clickable");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Text=="×"&&d.Enabled),modal+" accidentally disables its own close button");
+            Check(GUI.enabled,"Modal drawing left GUI disabled for the next frame");
+        }
+    }
+
 }

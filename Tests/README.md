@@ -8,7 +8,7 @@ Cần **.NET SDK 8**. Từ thư mục gốc dự án:
 
 Console chạy trực tiếp các file trong `Assets/CityDino/Core/` bằng C# 9,
 không dùng bản sao logic game, không cần thư viện kiểm thử bên ngoài.
-Bộ kiểm tra có **86 nhóm hành vi**, gồm:
+Bộ kiểm tra có **100 nhóm hành vi**, gồm:
 
 - Nhảy kép, coyote time, cúi, di chuyển trái/phải trên đất/trên không, giới hạn màn hình và input không hợp lệ.
 - Va chạm, nhặt đồ, mặt đường và hồi sau rơi dùng vị trí X hiện tại; chết chỉ ghi kết quả một lần và đóng băng tư thế.
@@ -23,8 +23,8 @@ Bộ kiểm tra có **86 nhóm hành vi**, gồm:
 - Bão mưa có chớp mỗi 1,8 giây sau mở đầu 1 giây, pha chớp/tia sét dùng chung danh tính sấm; mức tối thay đổi liên tục; tuyết và các map khác không sấm chớp.
 - Tuyết có quán tính khi thả/phanh/đổi hướng; gió trên mây đẩy mạnh hơn trên không và có thể điều khiển ngược để giữ X.
 - Map mây có 10 giây mở đầu an toàn, sinh nhiều hố, hố kép và nền nứt/sập; nền sập là hố thật và hồi sau rơi không lặp vô hạn.
-- Nhiệt/nước có 2 giây nghỉ đầu map, hao đúng tốc độ, nhặt đồ nóng/nước để hồi; cạn mất một mạng, hồi ngắn khi còn sống và không hồi giả sau khi chết.
-- Bình nước/gói ấm dùng một lần giá **150**, khiên dùng một lần giá **200**; mua lưu vào lượt sau, tiêu kho khi bắt đầu, không trở thành nâng cấp vĩnh viễn.
+- Nhiệt/nước có 2 giây nghỉ đầu map, hao đúng tốc độ; nước hồi 30 trong 3 giây, đồ nóng hồi 35 trong 3,5 giây bằng hàng đợi hữu hạn, không nhảy thanh tức thì. Hồi và hao chạy đồng thời; nhặt tiếp chỉ thêm lượng chờ, pause/đấu trường dừng cả hai, chuyển map đặt lại hàng đợi.
+- Bình nước/gói ấm dùng một lần giá **150**, khiên dùng một lần giá **200**; mua lưu vào lượt sau, tiêu kho khi bắt đầu. Bình cứu 10 ngay và hồi thêm 50 trong 5 giây, không lặp lại ở lần cạn tiếp theo.
 - Khiên chặn đúng một va chạm vật lý, có khoảng miễn thương ngắn; không cứu rơi hố.
 - ×2 chỉ nhân quãng đường ghi điểm trong thời gian hiệu lực, gồm bước hết hạn lẻ; không nhân điểm cũ, quãng đường thật hoặc ví sao.
 - Nam châm chỉ hút sao trong bán kính, không hút tim/nước; thời gian hết hạn lẻ, gia hạn có giới hạn, pause/chơi lại đúng trạng thái.
@@ -34,11 +34,18 @@ Bộ kiểm tra có **86 nhóm hành vi**, gồm:
 - Biển cuốn dùng vị trí dao động thật, không trôi sau nhiều chu kỳ; giai đoạn báo trước/hoạt động đóng băng khi pause và đặt lại khi chơi lại.
 - Nhịp khe nóng/biển cuốn tăng theo tốc độ, vẫn có cảnh báo nhìn thấy và trạng thái nguy hiểm thật ở các mốc 600/1.200/3.600 giây; khe có bốn biến thể nhịp.
 - Khoảng phục hồi tuyết/bão tăng để dành chỗ phanh và quan sát; tiếp tế/powerup tránh vùng quét của cả ba loại bẫy mới.
+- Giáp Sừng/Tốc Ảnh mở vĩnh viễn ở giá 2.500/5.000, chọn trước lượt và không đổi nhân vật chết khi chọn cho lượt sau; dữ liệu cũ chuyển schema 4 giữ ví, tim, nâng cấp và thành tích.
+- Giáp đỡ một đòn vật lý trước khi dùng khiên mua; phản đúng một đạn boss. Lướt dùng chuyển động X thật, bảo vệ va chạm trong 0,35 giây; hai kỹ năng có hồi chiêu, đóng băng khi pause và không cứu rơi/cạn thanh.
+- Cả ba khủng long đều bắn được chỉ trong giai đoạn chiến đấu boss; Classic không có kỹ năng riêng. Kiểm tra nhịp bắn, projectile thật, intro/victory/menu/pause/death chặn bắn.
+- Mốc boss dựa trên điểm hiển thị kể cả ×2; ba boss đầu Tank/Sentinel/Gunship đúng thứ tự, các vòng sau xáo đủ ba loại, không lặp sát nhau. Mốc đã xử lý không tái kích hoạt, kể cả khi điểm chạm giới hạn int.
+- Đấu trường giữ điểm/quãng đường/tốc độ/đồng hồ map/nước/thân nhiệt/hồi tài nguyên/×2/nam châm; kỹ năng và đạn vẫn chạy theo đồng hồ chiến đấu. Tạm dừng dừng toàn bộ; tốc độ đạn và chu kỳ boss không đổi khi tốc độ chạy đã là 8.280.
+- Boss chết chỉ thưởng sao một lần, không cộng điểm chạy hoặc hồi tim; trở lại làn sạch với bảo vệ ngắn. Tuyết/nắng có đồ uống thay thế nhặt thật, không tự hồi thanh 45 khi miễn thương bỏ qua sát thương.
+- Ba boss đầy máu được khủng long miễn phí hạ bằng đạn và né thật, một mạng, không dùng kỹ năng, không xoá đạn hoặc bật bất tử; chiêu có cảnh báo trước rồi mới tạo vùng sát thương thật.
 
 Các bài va chạm tạo tình huống cụ thể trong danh sách thực thể rồi chạy bước
 mô phỏng production. Fixture cơ bản chọn map ngày để tách điều kiện thời tiết.
 Các bài đo sinh cụm loại vật cản sau khi ghi đủ cụm, loại powerup và giữ đầy
-thanh sinh tồn để chỉ đo generator; chúng không được dùng làm bằng chứng sống sót.
+thanh sinh tồn để chỉ đo generator; đồng thời đặt mốc boss ở int.MaxValue để tách cơ chế chạy. Các bài đồng hồ/tốc độ kéo dài dùng cùng kiểu cô lập. Chúng không được dùng làm bằng chứng sống sót hoặc đánh boss.
 
 Kiểm tra cụm ghi **12 seed × 215 giây**, mở đầu trên đủ sáu map. Phát lại
 **131 hình học thực tế × 4 tốc độ 360/900/1.800/3.600 × 2 biên X = 1.048 tình huống**,
@@ -70,6 +77,10 @@ sinh được thử, thời gian tiếp cận bằng cuộn đường dài nhấ
 hố (60,7%)**, gồm 59 hố kép và 84 nền sập. Túi map được kiểm tra thêm ba vòng
 sáu map cho cả sáu lựa chọn khởi đầu và chế độ ngẫu nhiên.
 
+Kiểm tra boss tạo lượt chạy ngay trước **mốc điểm thật**, để chỉ rút ngắn phần chạy trước trận. Ba trận đầy máu giữ nguyên 750/840/800 HP, đạn, cảnh báo, cửa sổ lộ lõi và sát thương production. Bot Classic không dùng vật phẩm/kỹ năng hoặc thay máu boss; cả ba trận không mất mạng, lần lượt khoảng **41,3 / 51,1 / 43,3 giây**. Một bài riêng quan sát **23 đạn địch và 14 vùng laser/nổ đang hoạt động** sau cảnh báo, thử cả nửa máu và toàn bộ loại chiêu.
+
+Các fixture thưởng/chuyển cảnh và chuỗi 12 mốc đặt boss còn 1 HP, loại đạn địch rồi kết liễu bằng đạn người chơi thật để tách ghi nhận thưởng/trở về; chúng không phải bằng chứng vượt boss. Bài đầy máu nói trên không dùng cách cô lập này. Bài nhịp boss so sánh cùng đòn ở tốc độ chạy lưu 360 và 8.280; bài trở về map tuyết/nắng giữ tài nguyên 0 rồi nhặt đồ uống production, không cấp hồi miễn phí.
+
 Có thể chỉ chạy một nhóm khi chẩn đoán lỗi:
 
 ```bash
@@ -77,7 +88,7 @@ Có thể chỉ chạy một nhóm khi chẩn đoán lỗi:
 ```
 
 Console ghi rõ những bài không được chọn chưa chạy; không truyền tham số sẽ
-chạy toàn bộ 86 nhóm.
+chạy toàn bộ 100 nhóm.
 
 ## Ánh xạ input và đa điểm chạm
 
@@ -85,10 +96,9 @@ chạy toàn bộ 86 nhóm.
 ./scripts/test-core.sh --input-mapping
 ```
 
-**14 kiểm tra** gọi trực tiếp `ApplyPointer`/`ReadPointers` controller production
+**27 kiểm tra** gọi trực tiếp `ApplyPointer`/`ReadPointers` controller production
 bằng tọa độ và thiết bị giả: trái/phải, hai hướng triệt tiêu, hai ngón di chuyển
-cùng nhảy, crouch, HUD, letterbox và scale màn hình. Đây là kiểm tra logic/API
-tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc input từ hệ điều hành.
+cùng nhảy, crouch, HUD, letterbox và scale màn hình. Thêm J cho cả ba nhân vật, E cho hai nhân vật đặc biệt, ba ngón di chuyển/nhảy/bắn, nút kỹ năng không nhảy, intro/victory/pause và chặn Space/R/J/E xuyên qua cửa hàng/thành tích/chọn nhân vật. Đây là kiểm tra logic/API tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc input từ hệ điều hành.
 
 ## Hợp đồng toạ độ vẽ
 
@@ -96,7 +106,7 @@ tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc in
 ./scripts/test-core.sh --render-contracts
 ```
 
-**17 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
+**27 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
 
 - Tâm cưa đúng tâm va chạm qua 5 góc xoay × 5 scale/offset; đầu đường không lệch khi letterbox.
 - Mỗi loại vật cản có ảnh, không nhãn CÚI/NHẢY nổi; nền sập/hố cắt mặt đường đúng vùng clip.
@@ -107,6 +117,9 @@ tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc in
 - Ba bẫy mới dùng vùng atlas riêng tại đúng vị trí vật lý qua nhiều scale/letterbox; cảnh báo khác trạng thái hoạt động, khe nguội không vẽ cột sát thương và chiều cao cột khớp dữ liệu core.
 - Giai đoạn bẫy theo map và hình biển di chuyển không chạy tiếp bằng thời gian ambient khi pause; blackout đêm vẫn phủ kín các vật thể mới.
 - Năm khung chạy dùng đúng UV atlas và vị trí trong khung 434×354 chung, lật cả ảnh lẫn vị trí theo hướng; menu dùng ảnh mới, pause/chết giữ khung và có fallback khi thiếu atlas.
+- Ba đấu trường tách hẳn cuộn/thời tiết, boss/đạn/dấu ngắm và lõi ở đúng hình học core qua nhiều canvas; cảnh báo khác vùng đang gây sát thương, pause/chết giữ hình.
+- Hai nhân vật mới dùng đúng texture/UV/vị trí cho đủ 11 khung logic, lật cả vị trí và ảnh, menu và trận dùng cùng dữ liệu; HUD hiện máu boss/điểm dừng và modal thực sự vô hiệu hoá nút phía sau.
+- Bộ giải mã PNG bằng thư viện .NET chuẩn đọc alpha ảnh thật, độc lập với bảng mask: 1.007 điểm trong phần đặc và 2.278 điểm trống qua hai nhân vật × sáu tư thế × hai hướng khớp với va chạm tròn production. Đây là phân tích pixel nguồn, không phải Unity rasterization.
 
 Stub dùng phép toán affine `System.Numerics`, texture giả lấy kích thước từ
 PNG thật và ghi lệnh draw, **không raster hoá ảnh hoặc chạy Unity**. Hợp đồng

@@ -10,7 +10,7 @@ Game Unity 2D chạy vô tận: khủng long di chuyển trái/phải, nhảy k�
 4. Mở `Assets/CityDino/Scenes/CityRunner.unity`, hoặc menu **City Dino → Open City Runner Scene**, rồi nhấn **Play**.
 5. Chọn tab **Game**, tỷ lệ **16:9**, ví dụ 1280 × 720. Giao diện tự co theo cửa sổ; điện thoại dùng màn hình ngang.
 
-**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 07**.
+**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 08**.
 
 Scene mới đứng đầu Build Settings. Chạy `Assets/Scenes/SampleScene.unity` cũ cũng được bootstrap sang game mới, không cần gán prefab hoặc UI. Cấu hình gốc, định danh ứng dụng, layer và Input System actions được giữ lại. **Active Input Handling = Both** để các menu IMGUI hoạt động cùng Input System của gameplay.
 
@@ -23,10 +23,12 @@ Scene mới đứng đầu Build Settings. Chạy `Assets/Scenes/SampleScene.uni
 | Tạm dừng / tiếp tục | Esc | II / Tiếp tục |
 | Chơi lại | R | Chạy lại |
 | Bật / tắt âm thanh | M | Nút nhạc |
+| Bắn khi đấu boss — cả ba con | Giữ J | Giữ BẮN |
+| Kỹ năng hai con mới | E | CHIÊU |
 
 Mất tiêu điểm tự tạm dừng. Cảm ứng hỗ trợ nhiều ngón để giữ hướng và nhảy cùng lúc; nút hướng không kích hoạt nhảy. Cửa hàng/thành tích chặn thao tác bấm xuyên. Nhân vật di chuyển trong vùng X100–720 trên màn hình ảo, màn chơi vẫn tự cuộn.
 
-## Sáu map và thử thách BẢN 07
+## Sáu map và thử thách
 
 Chọn **Ngẫu nhiên** hoặc một map khởi đầu ở menu. Mỗi chặng dài **35 giây**. Sáu map được xáo thành một lượt: đi hết sáu map trước khi xáo tiếp, không lặp ngay ở ranh giới hai lượt. Map được chọn chỉ cố định chặng đầu; lựa chọn được lưu và áp dụng cả khi Chạy lại.
 
@@ -39,7 +41,7 @@ Chọn **Ngẫu nhiên** hoặc một map khởi đầu ở menu. Mỗi chặng 
 | Đường trên mây | Nhiều hố đơn, hố đôi có đảo nhỏ và cầu nứt rồi sập thành hố thật. Gió từng đợt đẩy sang trái, mạnh hơn khi nhảy; có vệt gió để nhận biết. Chọn làm map đầu thì 10 giây đầu chưa có hố. |
 | Giông bão | Mưa dày luôn nhìn thấy; nhịp tối → tia sét/chớp sáng → bình thường, kèm sấm mỗi **1,8 giây** từ giây thứ 1. Không dùng đợt đen kín kéo dài của Đêm neon. Có biển quảng cáo bị gió cuốn theo quỹ đạo ngang/lên xuống; ưu tiên cưa, gai và bẫy di chuyển. |
 
-Tuyết/nắng có thanh **Giữ ấm / Nước** từ 100. Hai giây đầu khi vào map chưa hao; sau đó giảm lần lượt 7 / 6 mỗi giây. Đồ tiếp tế sinh cách nhau khoảng 3,7–4,6 giây, tránh vùng quét của bẫy dưới đất; cốc nóng hồi 45, nước hồi 40, tối đa 100. Cạn thanh mất một mạng; nếu còn sống, thanh hồi 45 để có thời gian tìm đồ. Vào map mới đặt lại thanh. Đồ dự trữ mua trước lượt tự dùng khi cạn, hồi lên 85.
+Tuyết/nắng có thanh **Giữ ấm / Nước** từ 100. Hai giây đầu khi vào map chưa hao; sau đó giảm lần lượt 7 / 6 mỗi giây. Đồ tiếp tế sinh cách nhau khoảng 3,7–4,6 giây, tránh vùng quét của bẫy dưới đất. **BẢN 08 hồi thật từ từ:** nước thêm tổng 30 điểm trong 3 giây, cốc nóng thêm 35 trong 3,5 giây, tốc độ hồi 10 điểm/giây; thời tiết vẫn làm hao thanh trong lúc hồi. Nhặt tiếp cộng lượng hồi đang chờ, tối đa 60 nước / 70 giữ ấm, không tăng tốc độ hồi vô hạn. Thanh tối đa 100; đổi map xoá lượng hồi cũ và đặt lại thanh. Cạn thanh mất một mạng; chỉ khi thực sự mất mạng và còn sống mới hồi 45 để có thời gian tìm đồ. Bình dự trữ tự dùng một lần khi cạn: cứu ngay 10 điểm rồi thêm 50 trong 5 giây, không nhảy lên đầy bình.
 
 Hố, cầu sập, hình vẽ và kiểm tra mặt đường dùng chung dữ liệu. Cầu có vết nứt tăng dần khi tiến đến gần, sập trước vùng điều khiển của nhân vật. Rơi mất một mạng và hồi an toàn nếu còn mạng; hết mạng dừng hẳn.
 
@@ -52,6 +54,34 @@ Hố, cầu sập, hình vẽ và kiểm tra mặt đường dùng chung dữ li
 - Nước/cốc nóng và powerup tránh cả vùng hoạt động tương lai của bẫy mới. Cảnh báo, hình và sát thương dùng chung trạng thái mô phỏng; pause đóng băng chúng, khiên và miễn thương vẫn áp dụng cho va chạm thật.
 
 Ba loại mở sau **15 giây tổng thời gian chạy**. Khi vào map tương ứng, sau ít nhất 4 giây làm quen sẽ có bẫy đặc trưng trong một lượt sinh cụm bình thường; các lần sau tiếp tục xáo ngẫu nhiên. Để thử nhanh, chọn Tuyết/Nắng/Bão làm map đầu và chạy qua mốc 15 giây. Thời gian kích hoạt khe nóng/biển cuốn tăng nhịp theo tốc độ cuộn để chúng không đi qua nhân vật khi vẫn còn ở trạng thái báo trước trong lượt dài. Khe nóng có bốn nhịp chu kỳ để không luôn tắt ở cùng vị trí X. Va chạm ba bẫy mới kiểm tra theo đường bao thật của khung khủng long, tính cả đầu, đuôi, cổ trống, hướng nhìn và tư thế nhảy/cúi.
+
+## Nhân vật và kỹ năng BẢN 08
+
+**Cả ba khủng long đều bắn được khi đấu boss.** Hai con mới có kỹ năng riêng dùng thêm trong lúc chạy hoặc chiến đấu.
+
+| Nhân vật | Giá mở vĩnh viễn | Kỹ năng E / CHIÊU |
+|---|---:|---|
+| Cổ Dài | Miễn phí | Không có kỹ năng riêng; né, nhảy/cúi và bắn cơ bản. |
+| Giáp Sừng — Triceratops | 2.500 sao | Giáp 3 giây, đỡ một đòn; nếu đỡ đạn boss sẽ phản 24 sát thương. Hồi chiêu 30 giây. |
+| Tốc Ảnh — Raptor | 5.000 sao | Lướt theo hướng đang di chuyển hoặc hướng nhìn trong 0,35 giây, tốc độ ngang 900; miễn va chạm trong lúc lướt. Hồi 16 giây. |
+
+Mua/chọn trong cửa sổ **Nhân vật** ở menu hoặc cửa hàng. Mua một lần mở vĩnh viễn và tự trang bị; không mất nhân vật khi chết. Không đổi nhân vật giữa lượt. Mua/chọn sau khi chết chuẩn bị lượt tới, hình của lượt vừa chết được giữ nguyên. Giáp/lướt không cứu rơi hố hoặc cạn nước/giữ ấm. Kỹ năng ưu tiên trước khiên tiêu hao; giữ nguyên luật tim dùng theo lượt. Hồi chiêu chạy trong cả đường chạy lẫn đấu trường và đứng yên khi pause. Nhân vật có ảnh chạy, cúi và nhảy riêng; hình và va chạm dùng cùng vị trí/đường bao alpha, không chỉ đổi màu con gốc.
+
+## Boss tại mốc điểm BẢN 08
+
+Boss xuất hiện mỗi **10.000 điểm hiển thị**: 10k, 20k, 30k…; ×2 điểm giúp đến mốc sớm hơn. Mỗi mốc kích hoạt đúng một lần. Cảnh chuyển vào đấu trường dài 1,8 giây; mặt đường phẳng, không có hố hoặc thời tiết che đòn.
+
+| Mốc đầu | Boss / khu vực | Đòn có báo trước |
+|---|---|---|
+| 10k | Xe tăng K-01 / khu phong tỏa | Đạn pháo thấp để nhảy qua; pháo khóa vị trí đánh dấu đất trước khi rơi. |
+| 20k | Vệ binh G-02 / nhà máy | Laser thấp/cao để nhảy/cúi; sóng dậm đất. |
+| 30k | Trực thăng H-03 / sân thượng | Tên lửa đánh dấu vị trí; drone quét ngang. |
+
+Giữ **J / BẮN** để bắn đạn năng lượng tự hướng tới boss, cả ba nhân vật dùng cùng cơ chế. Có nhịp bắn 0,24 giây; mỗi viên trúng lúc lõi mở gây 8 sát thương. Boss đổi giữa giáp và hở lõi, thể hiện bằng màu/lớp khóa ở lõi; dưới nửa máu tăng nhịp và có đợt đạn kép. Mọi đòn nguy hiểm có vùng báo trước, tối thiểu 0,8 giây; nhịp trận độc lập với tốc độ chạy. Mục tiêu cơ bản có máu 750 / 840 / 800, người chơi Cổ Dài vẫn có thể thắng bằng né và bắn. Sau ba boss đầu, xáo đủ ba loại và tránh lặp liền nhau; tăng máu/nhịp vừa phải có giới hạn.
+
+Trong đấu trường, **điểm, số mét, tốc độ chạy, đồng hồ đổi map, hao/hồi nước/giữ ấm và thời lượng ×2/nam châm đều đóng băng**. Đạn, chiêu boss, hồi chiêu nhân vật và thời gian miễn thương dùng đồng hồ chiến đấu riêng. Tim và khiên đang có được mang vào; không tự hồi tim khi vào boss. Hết mạng kết thúc lượt như cũ; Pause đóng băng cả trận.
+
+Hạ boss thưởng **300 / 450 / 600 sao** cho ba loại đầu, các vòng sau thêm sao có giới hạn; trả đúng một lần, không cộng điểm chạy. Sau 1,6 giây kết quả, trở lại map cũ, giữ điểm/tốc độ/tài nguyên. Đường trở lại được dọn an toàn, có 2 giây bảo vệ và tiếp tế phù hợp gần phía trước khi đang ở tuyết/nắng. Nút bắn chỉ xuất hiện/hoạt động trong đấu trường; E/CHIÊU chỉ dành cho hai nhân vật đặc biệt.
 
 ## Vật phẩm và cửa hàng
 
@@ -84,16 +114,19 @@ Menu mang tên **DINO CITY**, ít thông báo giữa màn; giữ HUD, thanh sinh
 
 ## Dữ liệu và cấu trúc
 
-Dùng Unity `PlayerPrefs`, khoá **`CityDino.Save.v1`** giữ nguyên, schema tăng lên 3. Giữ ví, kỷ lục, lịch sử và tim chưa dùng; kỷ lục `HighScore` gốc được nhập khi chưa có hồ sơ mới. Nâng tim vĩnh viễn bản cũ được hoàn **40/140/320 sao** theo cấp đúng một lần. Map đầu lưu ở `CityDino.StartDistrict`, âm thanh ở `CityDino.Muted`. Dữ liệu trên thiết bị hiện tại, chưa đồng bộ tài khoản hoặc có bảng xếp hạng trực tuyến.
+Dùng Unity `PlayerPrefs`, khoá **`CityDino.Save.v1`** giữ nguyên, schema tăng lên 4. Giữ ví, kỷ lục, lịch sử, nâng thời lượng và tim/tiếp tế chưa dùng; lưu thêm sở hữu/lựa chọn nhân vật; kỷ lục `HighScore` gốc được nhập khi chưa có hồ sơ mới. Nâng tim vĩnh viễn bản cũ được hoàn **40/140/320 sao** theo cấp đúng một lần. Map đầu lưu ở `CityDino.StartDistrict`, âm thanh ở `CityDino.Muted`. Dữ liệu trên thiết bị hiện tại, chưa đồng bộ tài khoản hoặc có bảng xếp hạng trực tuyến.
 
 - `Assets/CityDino/Core/RunnerSession.cs`: mô phỏng, sinh bẫy/map, sinh tồn, quán tính/gió và dữ liệu lưu.
 - `Assets/CityDino/Core/RunnerItems.cs`: cửa hàng, kho hàng, ×2 điểm, nam châm và khiên.
+- `Assets/CityDino/Core/RunnerCharacters.cs`, `RunnerCharacterGeometry.cs`: mở/chọn nhân vật, kỹ năng và đường bao riêng.
+- `Assets/CityDino/Core/RunnerSurvival.cs`: hàng đợi hồi nước/giữ ấm từ từ.
+- `Assets/CityDino/Core/RunnerBoss.cs`, `RunnerBossModels.cs`: mốc điểm, trận đấu, đạn/vùng báo và phần thưởng.
 - `Assets/CityDino/Core/RunnerGeometry.cs`: tư thế và đường bao va chạm dùng chung.
 - `Assets/CityDino/Core/RunnerWeather.cs`: pha chớp và độ tối của bão.
 - `Assets/CityDino/Core/RunnerBiomeHazards.cs`: trạng thái báo trước/kích hoạt, hình va chạm băng, khe nóng và biển cuốn.
 - `Assets/CityDino/Runtime/CityRunnerController.cs`: input, menu/HUD, cửa hàng, lưu và âm thanh.
-- `Assets/CityDino/Runtime/RunnerWorldView.cs`, `RunnerArt.cs`: vẽ và ánh xạ atlas, cùng hệ toạ độ với core.
-- `Assets/CityDino/Resources/CityDino`: ảnh gốc, font tiếng Việt, hai skyline, atlas bẫy, hành động, **`DinoRunAtlas.png`** cho năm khung chạy mới, **`BiomeHazardAtlas.png`** cho ba bẫy theo map và **`PickupAtlas.png`** gồm nước/cốc nóng/khiên/nam châm/×2/bình giữ ấm.
+- `Assets/CityDino/Runtime/RunnerWorldView.cs`, `RunnerBossView.cs`, `RunnerArt.cs`: vẽ thế giới/đấu trường và ánh xạ atlas, cùng hệ toạ độ với core.
+- `Assets/CityDino/Resources/CityDino`: ảnh gốc, font tiếng Việt, hai skyline, atlas bẫy, hành động, **`DinoRunAtlas.png`** cho năm khung chạy mới, **`TriceratopsAtlas.png`**, **`RaptorAtlas.png`**, **`BossAtlas.png`**, **`BiomeHazardAtlas.png`** cho ba bẫy theo map và **`PickupAtlas.png`** gồm nước/cốc nóng/khiên/nam châm/×2/bình giữ ấm.
 - `Assets/CityDino/Scenes/CityRunner.unity`: scene khởi động.
 
 172 tệp của `Assets.zip` gốc cùng script/scene cũ được giữ nguyên để đối chiếu. Bản mới sửa lỗi đường cuộn không đồng nhất, nhiều script cùng kéo nền, rơi vô hạn và xoay cưa lệch collider.
@@ -113,8 +146,9 @@ Windows có thể dùng `dotnet run --project Tests/RunnerCore.Tests.csproj --co
 
 Môi trường đám mây **không có Unity Editor**. Stub kiểm tra biên dịch, phép toán input và lệnh vẽ; không chạy Play Mode, raster hoá ảnh, âm thanh, cảm ứng thật hoặc build Unity. Cần thử trong Unity:
 
-1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 07 và tiếng Việt đầy đủ.
+1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 08 và tiếng Việt đầy đủ.
 2. Trái/phải, nhảy kép, cúi, đa chạm và pause; cửa hàng không bấm xuyên.
 3. Tuyết trượt/cốc nóng/băng rơi, nắng/nước/khe phun, gió/hố đôi/cầu sập, đêm đen 2–3 giây, bão nháy có mưa/sấm/biển cuốn. Thử lúc cảnh báo, đang kích hoạt và khoảng tắt để phân biệt vùng thật gây sát thương.
 4. Giá tim theo số mua, kho hàng lưu khi đóng game và dùng ở lượt sau; nâng thời lượng, ×2, nam châm và khiên.
-5. Hoạt ảnh chạy mới: nhịp chân rõ, đầu/chân không giật, menu và trong lượt đều dùng ảnh mới; thử cưa lúc chạy/nhảy/cúi, hai hướng và nhiều kích thước Game View. Hết mạng dừng và lưu đúng một lần; chơi lại giữ ví/kỷ lục.
+5. Mua/chọn hai nhân vật, kiểm tra mở khóa vẫn giữ khi đóng/mở game; mỗi con dùng đúng kỹ năng, cả ba chỉ bắn được trong boss. Tới mốc boss, kiểm tra điểm/tốc độ/tài nguyên đứng yên; thắng thưởng sao một lần và quay lại an toàn.
+6. Hoạt ảnh chạy mới: nhịp chân rõ, đầu/chân không giật, menu và trong lượt đều dùng ảnh mới; thử cưa lúc chạy/nhảy/cúi, hai hướng và nhiều kích thước Game View. Hết mạng dừng và lưu đúng một lần; chơi lại giữ ví/kỷ lục.

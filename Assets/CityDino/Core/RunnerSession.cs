@@ -19,7 +19,7 @@ namespace CityDino
     [Serializable]
     public sealed partial class RunnerSave
     {
-        public int Version = 3;
+        public int Version = 4;
         public int Wallet;
         public int BestScore;
         public int LastScore;
@@ -163,7 +163,7 @@ namespace CityDino
         {
             get
             {
-                if (CurrentDistrict != District.Skyway || State == RunState.Menu || DistrictElapsed < 3f) return 0f;
+                if (IsBossArena || CurrentDistrict != District.Skyway || State == RunState.Menu || DistrictElapsed < 3f) return 0f;
                 float phase = (DistrictElapsed - 3f) % 8f;
                 if (phase >= 5f) return 0.1f;
                 float wave = (float)Math.Sin(Math.PI * phase / 5f);
@@ -291,6 +291,9 @@ namespace CityDino
             jumpsUsed = 0;
             coyoteRemaining = 0.1f;
             EndReason = "";
+            ResetBossRun();
+            BeginCharacterRun();
+            BeginRunSurvival();
             EnterDistrict();
             BeginRunItems();
             if (spentHearts) NotifySaveChanged();
@@ -313,8 +316,9 @@ namespace CityDino
             double remaining = Math.Min((double)deltaTime, MaximumFrameDelta);
             while (remaining > 0.00000001d && State == RunState.Playing)
             {
-                float step = (float)Math.Min(remaining, CollisionStep());
-                Step(step);
+                float step = (float)Math.Min(remaining, IsBossArena ? BossCollisionStep() : CollisionStep());
+                if (IsBossArena) StepBossArena(step);
+                else Step(step);
                 remaining -= step;
             }
         }
@@ -339,7 +343,8 @@ namespace CityDino
             // Bound displacement, not speed. At high runner/moving-hazard speeds
             // smaller physics steps still detect thin spikes, pickups and ledges.
             float currentSpeed = (float)(InitialSpeed + elapsedClock * SpeedAcceleration);
-            float horizontal = currentSpeed + SpeedAcceleration * PhysicsStep + HorizontalSpeed + Math.Abs(WindPush) + motionX;
+            float horizontal = currentSpeed + SpeedAcceleration * PhysicsStep +
+                Math.Max(HorizontalSpeed, IsDashing ? Math.Abs(DashVelocity) : 0f) + Math.Abs(WindPush) + motionX;
             float vertical = Math.Abs(VelocityY) + Gravity * PhysicsStep + motionY;
             return Math.Min(PhysicsStep, 6f / Math.Max(1f, Math.Max(horizontal, vertical)));
         }
@@ -385,6 +390,7 @@ namespace CityDino
                 duckRequested = false;
                 IsDucking = false;
                 horizontalAxis = 0f;
+                shootingHeld = false;
             }
             else if (State == RunState.Paused)
                 State = RunState.Playing;
@@ -399,6 +405,7 @@ namespace CityDino
             IsDucking = false;
             duckRequested = false;
             horizontalAxis = 0f;
+            ResetBossArena();
         }
 
         public bool BuyExtraHeart()
@@ -416,6 +423,7 @@ namespace CityDino
 
         private void Step(float dt)
         {
+            TickCharacter(dt);
             elapsedClock += dt;
             Elapsed = (float)elapsedClock;
             Speed = (float)(InitialSpeed + elapsedClock * SpeedAcceleration);
@@ -492,6 +500,8 @@ namespace CityDino
             }
 
             TickItems(dt, travel);
+            TryEnterBossArena();
+            if (IsBossArena) return;
             IntegratePlayer(dt);
             AnimationVelocityY = VelocityY;
             if (PlayerY < -180f)
@@ -513,7 +523,11 @@ namespace CityDino
 
         private void IntegrateHorizontal(float dt)
         {
-            if (CurrentDistrict == District.Snow)
+            if (IsDashing)
+                HorizontalVelocity = DashVelocity;
+            else if (IsBossArena)
+                HorizontalVelocity = horizontalAxis * HorizontalSpeed;
+            else if (CurrentDistrict == District.Snow)
             {
                 float target = horizontalAxis * HorizontalSpeed;
                 float acceleration = Math.Abs(horizontalAxis) > 0.001f
@@ -526,7 +540,7 @@ namespace CityDino
 
             float nextX = PlayerX + HorizontalVelocity * dt;
             PlayerX = Math.Max(MinimumPlayerX, Math.Min(MaximumPlayerX, nextX));
-            if (CurrentDistrict == District.Snow && PlayerX != nextX)
+            if ((CurrentDistrict == District.Snow || IsBossArena) && PlayerX != nextX)
                 HorizontalVelocity = 0f;
         }
 
@@ -567,6 +581,7 @@ namespace CityDino
         {
             biomeShowcaseSpawned = false;
             Water = Warmth = 100f;
+            ResetSurvivalForDistrict();
             HorizontalVelocity = 0f;
             nextSurvivalSupplyAt = elapsedClock + 0.75d;
             for (int i = 0; i < entities.Count; i++)
@@ -586,23 +601,21 @@ namespace CityDino
                 nextSurvivalSupplyAt = elapsedClock + Range(3.7f, 4.6f);
                 SpawnSurvivalSupply(cold);
             }
-            if (DistrictElapsed <= 2f) return;
+            if (DistrictElapsed <= 2f) { TickSurvivalRecovery(dt); return; }
             if (cold) Warmth = Math.Max(0f, Warmth - 7f * dt);
             else Water = Math.Max(0f, Water - 6f * dt);
+            TickSurvivalRecovery(dt);
             float resource = cold ? Warmth : Water;
             if (resource > 0f) return;
 
-            if (TryUseSurvivalReserve(cold))
-            {
-                if (cold) Warmth = 85f;
-                else Water = 85f;
-            }
+            if (TryUseGradualSurvivalReserve(cold)) { }
             else
             {
+                int livesBeforeDepletion = Lives;
                 TakeHit(cold ? "Hạ thân nhiệt · Cần đồ uống nóng" : "Mất nước · Cần nhặt chai nước");
                 // A surviving player gets recovery time instead of losing all
                 // remaining hearts on consecutive simulation substeps.
-                if (State == RunState.Playing)
+                if (State == RunState.Playing && Lives < livesBeforeDepletion)
                 {
                     if (cold) Warmth = 45f;
                     else Water = 45f;
@@ -691,6 +704,7 @@ namespace CityDino
 
         private bool HasFloor()
         {
+            if (IsBossArena) return true;
             for (int i = 0; i < entities.Count; i++)
             {
                 WorldEntity e = entities[i];
@@ -723,7 +737,11 @@ namespace CityDino
                     : e.Kind == EntityKind.Saw
                     ? RunnerGeometry.SawTouchesPlayer(e, PlayerX, PlayerY, IsDucking, FacingLeft,
                         RunnerGeometry.GetPlayerFrame(this),
-                        RunnerGeometry.GetPlayerBob(Elapsed, PlayerY, IsDucking, State))
+                        RunnerGeometry.GetPlayerBob(PlayerAnimationTime, PlayerY, IsDucking, State), CurrentCharacter)
+                    : CurrentCharacter != CharacterKind.Classic && e.Kind != EntityKind.Star &&
+                        e.Kind != EntityKind.Heart && e.Kind != EntityKind.Water && e.Kind != EntityKind.HotDrink &&
+                        e.Kind != EntityKind.DoubleScore && e.Kind != EntityKind.Magnet && e.Kind != EntityKind.Shield
+                    ? RunnerGeometry.SolidTouchesPlayer(e, this)
                     : IntersectsPlayer(e, playerLeft, playerRight, playerBottom, playerTop);
                 if (!touches)
                     continue;
@@ -752,8 +770,7 @@ namespace CityDino
                 else if (e.Kind == EntityKind.Water || e.Kind == EntityKind.HotDrink)
                 {
                     e.Removed = true;
-                    if (e.Kind == EntityKind.Water) Water = Math.Min(100f, Water + 40f);
-                    else Warmth = Math.Min(100f, Warmth + 45f);
+                    QueueSurvivalPickup(e.Kind == EntityKind.HotDrink);
                 }
                 else if (HandleItemPickup(e)) { }
                 else if (InvincibleRemaining <= 0f)
@@ -830,6 +847,7 @@ namespace CityDino
             duckRequested = false;
             horizontalAxis = 0f;
             HorizontalVelocity = 0f;
+            shootingHeld = false;
             if (recorded)
                 return;
 
@@ -1280,10 +1298,11 @@ namespace CityDino
                 for (int i = 0; i < legacyLevel; i++)
                     save.Wallet = Math.Min(WalletLimit, save.Wallet + LegacyHeartCosts[i]);
             }
-            save.Version = 3;
+            save.Version = 4;
             save.ExtraHeartsLevel = 0;
             save.PurchasedHearts = Clamp(save.PurchasedHearts, 0, MaximumPurchasedHearts);
             SanitizeItemSave(save);
+            SanitizeCharacterSave(save);
             if (save.History == null)
                 save.History = new List<RunRecord>();
             for (int i = save.History.Count - 1; i >= 0; i--)

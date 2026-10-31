@@ -25,6 +25,9 @@ namespace CityDino
         public readonly Texture2D DinoRunAtlas;
         public readonly Texture2D PickupAtlas;
         public readonly Texture2D BiomeHazardAtlas;
+        public readonly Texture2D TriceratopsAtlas;
+        public readonly Texture2D RaptorAtlas;
+        public readonly Texture2D BossAtlas;
         public readonly Rect SkylineFarUV = new Rect(0f, 0f, 1f, 0.7651934f);
         public readonly Rect SkylineNearUV = new Rect(0f, 0.0441989f, 1f, 0.730663f);
         public readonly Texture2D[] DinoFrames;
@@ -94,6 +97,51 @@ namespace CityDino
             new Rect(0.664825046f, 0.244475138f, 0.312615101f, 0.363259669f),
         };
 
+        // Three running poses, crouch, jump rise and jump landing. Tight alpha
+        // crops retain natural proportions inside a shared canvas per character.
+        private static readonly Rect[] TriceratopsUvs =
+        {
+            new Rect(0.016927083f, 0.516601562f, 0.313802083f, 0.304687500f),
+            new Rect(0.360026042f, 0.521484375f, 0.292317708f, 0.303710938f),
+            new Rect(0.685546875f, 0.521484375f, 0.291666667f, 0.299804688f),
+            new Rect(0.018880208f, 0.103515625f, 0.311197917f, 0.224609375f),
+            new Rect(0.361979167f, 0.149414062f, 0.279947917f, 0.278320312f),
+            new Rect(0.678385417f, 0.103515625f, 0.305989583f, 0.286132812f),
+        };
+        private static readonly Rect[] RaptorUvs =
+        {
+            new Rect(0.040364583f, 0.559570312f, 0.269531250f, 0.281250000f),
+            new Rect(0.368489583f, 0.559570312f, 0.253906250f, 0.281250000f),
+            new Rect(0.686848958f, 0.559570312f, 0.271484375f, 0.281250000f),
+            new Rect(0.039062500f, 0.147460938f, 0.287109375f, 0.182617188f),
+            new Rect(0.383463542f, 0.166015625f, 0.239583333f, 0.254882812f),
+            new Rect(0.704427083f, 0.131835938f, 0.257161458f, 0.263671875f),
+        };
+        private static readonly Rect[] TriceratopsPlacement =
+        {
+            new Rect(0.008163265f, 0.299334812f, 0.983673469f, 0.691796009f),
+            new Rect(0.075510204f, 0.290465632f, 0.916326531f, 0.689578714f),
+            new Rect(0.077551020f, 0.299334812f, 0.914285714f, 0.680709534f),
+            new Rect(0.183050847f, 0.020920502f, 0.810169492f, 0.962343096f),
+            new Rect(0.114285714f, 0.359201774f, 0.877551020f, 0.631929047f),
+            new Rect(0.032653061f, 0.341463415f, 0.959183673f, 0.649667406f),
+        };
+        private static readonly Rect[] RaptorPlacement =
+        {
+            new Rect(0.016470588f, 0.253196931f, 0.974117647f, 0.736572890f),
+            new Rect(0.072941176f, 0.253196931f, 0.917647059f, 0.736572890f),
+            new Rect(0.009411765f, 0.253196931f, 0.981176471f, 0.736572890f),
+            new Rect(0.080578512f, 0.025510204f, 0.911157025f, 0.954081633f),
+            new Rect(0.124705882f, 0.322250639f, 0.865882353f, 0.667519182f),
+            new Rect(0.061176471f, 0.299232737f, 0.929411765f, 0.690537084f),
+        };
+        private static readonly Rect[] BossUvs =
+        {
+            new Rect(0.007826888f, 0.128453039f, 0.346685083f, 0.575966851f),
+            new Rect(0.356813996f, 0.128453039f, 0.241712707f, 0.697513812f),
+            new Rect(0.618324125f, 0.175414365f, 0.373848987f, 0.494475138f),
+        };
+
         public RunnerArt()
         {
             Background = Load("Background");
@@ -118,6 +166,9 @@ namespace CityDino
             DinoRunAtlas = Resources.Load<Texture2D>("CityDino/DinoRunAtlas");
             PickupAtlas = Load("PickupAtlas");
             BiomeHazardAtlas = Load("BiomeHazardAtlas");
+            TriceratopsAtlas = Resources.Load<Texture2D>("CityDino/TriceratopsAtlas");
+            RaptorAtlas = Resources.Load<Texture2D>("CityDino/RaptorAtlas");
+            BossAtlas = Resources.Load<Texture2D>("CityDino/BossAtlas");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
@@ -165,6 +216,53 @@ namespace CityDino
         {
             int index = kind == EntityKind.FallingIce ? 0 : kind == EntityKind.HeatVent ? 1 : 2;
             return BiomeHazardUvs[index];
+        }
+
+        public static int GetCharacterPoseCell(int frame)
+        {
+            if (frame >= 10) return 5;
+            if (frame >= 8) return 4;
+            if (frame >= 5) return 3;
+            return frame == 2 ? 2 : frame == 1 || frame == 3 ? 1 : 0;
+        }
+
+        public Texture2D GetCharacterTexture(CharacterKind kind, int frame = 0)
+        {
+            if (kind == CharacterKind.Triceratops && TriceratopsAtlas != null) return TriceratopsAtlas;
+            if (kind == CharacterKind.Raptor && RaptorAtlas != null) return RaptorAtlas;
+            if (frame >= 5 && DinoActionsAtlas != null) return DinoActionsAtlas;
+            if (frame < 5 && DinoRunAtlas != null) return DinoRunAtlas;
+            return DinoFrames == null || DinoFrames.Length == 0 ? null
+                : DinoFrames[System.Math.Max(0, frame) % DinoFrames.Length];
+        }
+
+        public Rect GetCharacterUV(CharacterKind kind, int frame)
+        {
+            if (kind == CharacterKind.Triceratops && TriceratopsAtlas != null)
+                return TriceratopsUvs[GetCharacterPoseCell(frame)];
+            if (kind == CharacterKind.Raptor && RaptorAtlas != null)
+                return RaptorUvs[GetCharacterPoseCell(frame)];
+            if (frame >= 5 && DinoActionsAtlas != null) return GetDinoActionUV(frame);
+            if (frame < 5 && DinoRunAtlas != null) return GetDinoRunUV(frame);
+            return new Rect(0, 0, 1, 1);
+        }
+
+        public Rect GetCharacterRect(CharacterKind kind, int frame, Rect body, bool facingLeft = false)
+        {
+            Rect placement;
+            if (kind == CharacterKind.Triceratops && TriceratopsAtlas != null)
+                placement = TriceratopsPlacement[GetCharacterPoseCell(frame)];
+            else if (kind == CharacterKind.Raptor && RaptorAtlas != null)
+                placement = RaptorPlacement[GetCharacterPoseCell(frame)];
+            else return frame < 5 && DinoRunAtlas != null ? GetDinoRunRect(frame, body, facingLeft) : body;
+            float left = facingLeft ? 1f - placement.x - placement.width : placement.x;
+            return new Rect(body.x + left * body.width, body.y + placement.y * body.height,
+                placement.width * body.width, placement.height * body.height);
+        }
+
+        public Rect GetBossUV(BossKind kind)
+        {
+            return BossUvs[System.Math.Max(0, System.Math.Min(2, (int)kind))];
         }
 
         private static Texture2D Load(string name)

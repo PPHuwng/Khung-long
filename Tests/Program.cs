@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using CityDino;
 
-internal static class Program
+internal static partial class Program
 {
     private static int passed;
     private static int notSelected;
@@ -100,6 +100,7 @@ internal static class Program
         Test("random powerups use clear lanes and cover all three pickup kinds", PowerupGeneration);
         Test("save input is sanitized without discarding valid progress", SaveValidation);
         Test("long frame updates behave like fixed small steps", FrameStep);
+        RegisterV8Tests();
         Console.WriteLine();
         Console.WriteLine("Gameplay core: " + passed + " passed, " + failures.Count + " failed.");
         foreach (string failure in failures) Console.Error.WriteLine(failure);
@@ -161,6 +162,9 @@ internal static class Program
         // This helper is used only by isolated mechanics and generation audits.
         // Real survival/supply traversal checks below do not call it.
         ClearHazards(run);
+        // Generator/clock fixtures deliberately isolate running, while the
+        // dedicated V8 integration tests below exercise real boss milestones.
+        SetProperty(run,"NextBossScore",int.MaxValue);
         foreach (WorldEntity e in run.Entities)
             if (e.Kind == EntityKind.DoubleScore || e.Kind == EntityKind.Magnet || e.Kind == EntityKind.Shield) e.Removed = true;
         SetProperty(run, "Water", 100f); SetProperty(run, "Warmth", 100f);
@@ -394,7 +398,7 @@ internal static class Program
             var old=new RunnerSave { Version=1,Wallet=57,ExtraHeartsLevel=level,BestScore=900,LastScore=700,
                 History=new List<RunRecord>{new RunRecord{Score=700,Stars=5,EndReason="test"}} };
             RunnerSession migrated=new RunnerSession(old,7);
-            Check(migrated.Save.Version==3 && migrated.Save.ExtraHeartsLevel==0,"Legacy upgrade not migrated");
+            Check(migrated.Save.Version==4 && migrated.Save.ExtraHeartsLevel==0,"Legacy upgrade not migrated");
             Check(migrated.Save.Wallet==57+refunds[level] && migrated.Save.PurchasedHearts==0,"Legacy spending not refunded correctly");
             Check(migrated.Save.BestScore==900 && migrated.Save.LastScore==700 && migrated.Save.History.Count==1,"Migration lost achievements");
             RunnerSession twice=new RunnerSession(migrated.Save,8);
@@ -1813,13 +1817,23 @@ internal static class Program
             Near(cold?run.Water:run.Warmth,100,0,"Inactive resource drained");
             SetProperty(run,cold?"Warmth":"Water",20f);
             Inject(run,cold?EntityKind.HotDrink:EntityKind.Water,10,32,36); run.Update(1f/120);
-            Near(cold?run.Warmth:run.Water,cold?65:60,0.1f,"Matching supply did not replenish resource");
+            float resource=cold?run.Warmth:run.Water;
+            Check(resource>19.8f&&resource<20.2f,"Pickup jumped resource bar instead of queuing gradual recovery");
+            Near(cold?run.WarmthRecoveryRemaining:run.WaterRecoveryRemaining,cold?35:30,0.1f,"Matching supply queued wrong recovery amount");
+            Advance(run,1f,false);
+            Near(cold?run.Warmth:run.Water,20f+(cold?3f:4f),0.15f,"Gradual recovery did not retain natural weather drain");
             for(int i=0;i<3;i++) Inject(run,cold?EntityKind.HotDrink:EntityKind.Water,10,32,36);
-            run.Update(1f/120); Near(cold?run.Warmth:run.Water,100,0.1f,"Supply overflowed resource cap");
-            run.TogglePause(); float resource=cold?run.Warmth:run.Water; run.Update(5);
-            Near(cold?run.Warmth:run.Water,resource,0,"Paused survival depleted resource");
-            run.TogglePause(); SetProperty(run,"DistrictElapsed",RunnerSession.DistrictDuration-0.01f); run.Update(0.02f);
+            run.Update(1f/120);
+            Near(cold?run.WarmthRecoveryRemaining:run.WaterRecoveryRemaining,cold?70:60,0.1f,"Repeated supplies exceeded queue cap or failed to extend recovery");
+            Check((cold?run.Warmth:run.Water)<25,"Stacked pickups instantly filled the bar");
+            run.TogglePause(); resource=cold?run.Warmth:run.Water; float queued=cold?run.WarmthRecoveryRemaining:run.WaterRecoveryRemaining;
+            run.Update(5); Near(cold?run.Warmth:run.Water,resource,0,"Paused survival depleted resource");
+            Near(cold?run.WarmthRecoveryRemaining:run.WaterRecoveryRemaining,queued,0,"Pause consumed queued recovery");
+            run.TogglePause(); SetProperty(run,cold?"Warmth":"Water",99f); Advance(run,1f,false);
+            Check((cold?run.Warmth:run.Water)<=100&&(cold?run.Warmth:run.Water)>99.8f,"Gradual supplies overflowed resource cap");
+            SetProperty(run,"DistrictElapsed",RunnerSession.DistrictDuration-0.01f); run.Update(0.02f);
             Near(run.Water,100,0,"Map entry did not restore water"); Near(run.Warmth,100,0,"Map entry did not restore warmth");
+            Check(run.WaterRecoveryRemaining==0&&run.WarmthRecoveryRemaining==0,"Recovery queue leaked into another map");
         }
     }
 
@@ -1846,7 +1860,7 @@ internal static class Program
         for(int seed=0;seed<12;seed++)
         {
             RunnerSession run=New(seed); run.SetStartingDistrict(district); run.StartRun();
-            var seen=new HashSet<int>(); float minimum=100,previous=100;
+            var seen=new HashSet<int>(); float minimum=100;
             for(int i=0;i<120*34;i++)
             {
                 // Isolate supply cadence while preserving real drain, actual
@@ -1854,7 +1868,9 @@ internal static class Program
                 ClearHazards(run);
                 foreach(WorldEntity item in run.Entities)
                     if(item.Kind==EntityKind.DoubleScore||item.Kind==EntityKind.Magnet||item.Kind==EntityKind.Shield) item.Removed=true;
+                var approaching=run.Entities.Where(e=>!e.Removed&&(e.Kind==EntityKind.Water||e.Kind==EntityKind.HotDrink)).ToArray();
                 run.Update(1f/120);
+                picked+=approaching.Count(e=>e.Removed);
                 foreach(WorldEntity item in run.Entities.Where(e=>!e.Removed&&(e.Kind==EntityKind.Water||e.Kind==EntityKind.HotDrink)))
                 {
                     if(!seen.Add(item.Id)) continue;
@@ -1867,14 +1883,13 @@ internal static class Program
                                 "Supply spawned inside hazard envelope");
                 }
                 float resource=district==District.Snow?run.Warmth:run.Water;
-                if(resource>previous+1) picked++;
-                minimum=Math.Min(minimum,resource); previous=resource;
+                minimum=Math.Min(minimum,resource);
                 Check(run.State==RunState.Playing&&run.Lives==1,"Production supply stream failed to sustain a grounded player on "+district+" seed="+seed);
             }
             Check(minimum>15&&seen.Count>=7,"Supply stream too sparse on "+district+" seed="+seed+" minimum="+minimum+" count="+seen.Count);
         }
         Check(picked>=120&&spawned>=160,"Supply audit covered too few real pickups");
-        Console.WriteLine("  Real supply audit: "+spawned+" spawns, "+picked+" replenishments, 24 unrefilled 34-second biome runs.");
+        Console.WriteLine("  Real supply audit: "+spawned+" spawns, "+picked+" actual pickups, 24 unrefilled 34-second biome runs.");
     }
 
     private static void LateSupplyApproach()
@@ -1986,7 +2001,10 @@ internal static class Program
             run.SetStartingDistrict(district); run.StartRun(); World(run).Clear(); StopSpawns(run);
             SetProperty(run,"DistrictElapsed",3f); SetProperty(run,cold?"Warmth":"Water",0.01f); run.Update(0.02f);
             Check(run.Lives==2&&!(cold?run.WarmReserveReady:run.WaterReserveReady),"Reserve did not absorb one depletion");
-            Near(cold?run.Warmth:run.Water,85,0.2f,"Reserve restored wrong resource amount");
+            Near(cold?run.Warmth:run.Water,10,0.2f,"Reserve did not provide only the small immediate rescue");
+            Near(cold?run.WarmthRecoveryRemaining:run.WaterRecoveryRemaining,50,0.2f,"Reserve did not queue its remaining recovery");
+            Advance(run,1f,false); Near(cold?run.Warmth:run.Water,cold?13:14,0.25f,"Reserve recovery jumped or ignored drain");
+            Advance(run,4.1f,false); Check((cold?run.WarmthRecoveryRemaining:run.WaterRecoveryRemaining)==0,"Reserve recovery persisted beyond five seconds");
             SetProperty(run,cold?"Warmth":"Water",0.01f); run.Update(0.02f);
             Check(run.Lives==1,"Spent reserve rescued a second depletion");
             run.ReturnToMenu(); run.StartRun();
@@ -2089,7 +2107,7 @@ internal static class Program
         Check(run.Save.PurchasedHearts == 3 && run.Save.History != null, "Invalid upgrade/history not sanitized");
         var v2=new RunnerSession(new RunnerSave{Version=2,Wallet=43,BestScore=900,LastScore=500,
             PurchasedHearts=2,ExtraHeartsLevel=3,History=new List<RunRecord>{new RunRecord{Score=500,Distance=1234}}},1);
-        Check(v2.Save.Version==3&&v2.Save.Wallet==43&&v2.Save.PurchasedHearts==2&&v2.Save.BestScore==900&&v2.Save.History.Count==1,
+        Check(v2.Save.Version==4&&v2.Save.Wallet==43&&v2.Save.PurchasedHearts==2&&v2.Save.BestScore==900&&v2.Save.History.Count==1,
             "Version 2 migration refunded twice or lost consumable hearts/history");
         v2.StartRun(); Check(v2.Lives==3,"Migrated reserved hearts were not usable");
         RunnerSession fresh = new RunnerSession(null, 1); fresh.StartRun();

@@ -235,8 +235,9 @@ namespace CityDino
             return true;
         }
 
-        private bool TryAbsorbHazard()
+        private bool TryAbsorbHazard(bool reflectable = false)
         {
+            if (TryAbsorbCharacterHit(reflectable)) return true;
             if (State != RunState.Playing || !ShieldReady) return false;
             ShieldReady = false;
             InvincibleRemaining = Math.Max(InvincibleRemaining, 1f);

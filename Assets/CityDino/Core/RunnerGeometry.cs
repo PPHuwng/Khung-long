@@ -36,11 +36,11 @@ namespace CityDino
         {
             if (session == null) return 0;
             if (session.IsDucking)
-                return 5 + (int)(Math.Floor((double)session.Elapsed * 10d) % 3d);
+                return 5 + (int)(Math.Floor((double)session.PlayerAnimationTime * 10d) % 3d);
             if (session.PlayerY > 3f)
                 return session.AnimationVelocityY > 220f ? 8
                     : session.AnimationVelocityY < -220f ? 10 : 9;
-            return GetPlayerFrame(session.Elapsed, session.Speed, session.PlayerY, session.State);
+            return GetPlayerFrame(session.PlayerAnimationTime, session.Speed, session.PlayerY, session.State);
         }
 
         public static float GetPlayerBob(float elapsed, float playerY, bool ducking, RunState state)
@@ -56,7 +56,7 @@ namespace CityDino
         /// The tooth tips and one pixel of dinosaur outline remain forgiving.
         /// </summary>
         public static bool SawTouchesPlayer(WorldEntity saw, float playerX, float playerY,
-            bool ducking, bool facingLeft, int frame, float bob)
+            bool ducking, bool facingLeft, int frame, float bob, CharacterKind character = CharacterKind.Classic)
         {
             float radius = Math.Min(saw.Width, saw.Height) * SawRadiusRatio;
             if (radius <= 0f) return false;
@@ -70,9 +70,7 @@ namespace CityDino
                 centreY + radius <= feet || centreY - radius >= feet + height)
                 return false;
 
-            byte[] bands = frame >= RunFrameCount
-                ? ActionSilhouettes[Math.Min(ActionSilhouettes.Length - 1, frame - RunFrameCount)]
-                : Silhouettes[Math.Max(0, Math.Min(RunFrameCount - 1, frame))];
+            byte[] bands = GetSilhouette(character, frame);
             float scaleX = width / SourceWidth;
             float scaleY = height / SourceHeight;
             float radiusSquared = radius * radius;
@@ -115,16 +113,14 @@ namespace CityDino
             bool ducking = session.IsDucking;
             float width = ducking ? PlayerDuckWidth : PlayerStandingWidth;
             float height = ducking ? PlayerDuckHeight : PlayerStandingHeight;
-            float feet = session.PlayerY - GetPlayerBob(session.Elapsed, session.PlayerY, ducking, session.State);
+            float feet = session.PlayerY - GetPlayerBob(session.PlayerAnimationTime, session.PlayerY, ducking, session.State);
             float hazardHeight = hazard.Kind == EntityKind.HeatVent ? hazard.HazardHeight : hazard.Height;
             if (hazard.X + hazard.Width <= session.PlayerX - width * 0.5f ||
                 hazard.X >= session.PlayerX + width * 0.5f ||
                 hazard.Y + hazardHeight <= feet || hazard.Y >= feet + height)
                 return false;
             int frame = GetPlayerFrame(session);
-            byte[] bands = frame >= RunFrameCount
-                ? ActionSilhouettes[Math.Min(ActionSilhouettes.Length - 1, frame - RunFrameCount)]
-                : Silhouettes[Math.Max(0, Math.Min(RunFrameCount - 1, frame))];
+            byte[] bands = GetSilhouette(session.CurrentCharacter, frame);
             float scaleX = width / SourceWidth;
             float scaleY = height / SourceHeight;
             for (int i = 0; i < bands.Length; i += 4)
@@ -143,6 +139,79 @@ namespace CityDino
                 float top = Math.Min(feet + (SourceHeight - bands[i + 1]) * scaleY, feet + height - ContactInset);
                 if (left < right && bottom < top && RunnerBiomeHazards.TouchesPlayer(hazard, left, right, bottom, top))
                     return true;
+            }
+            return false;
+        }
+
+        private static byte[] GetSilhouette(CharacterKind character, int frame)
+        {
+            byte[] companion = RunnerCharacterGeometry.GetBands(character, frame);
+            if (companion != null) return companion;
+            return frame >= RunFrameCount
+                ? ActionSilhouettes[Math.Min(ActionSilhouettes.Length - 1, frame - RunFrameCount)]
+                : Silhouettes[Math.Max(0, Math.Min(RunFrameCount - 1, frame))];
+        }
+
+        public static bool RectTouchesPlayer(float x, float y, float width, float height, RunnerSession session)
+        { return PlayerTouchesShape(session, null, x, y, width, height, 0f); }
+
+        public static bool CircleTouchesPlayer(float centreX, float centreY, float radius, RunnerSession session)
+        {
+            if (radius <= 0f) return false;
+            return PlayerTouchesShape(session, null, centreX - radius, centreY - radius,
+                radius * 2f, radius * 2f, radius);
+        }
+
+        public static bool SolidTouchesPlayer(WorldEntity hazard, RunnerSession session)
+        {
+            if (hazard == null || hazard.Removed) return false;
+            if (hazard.Kind == EntityKind.Saw)
+                return SawTouchesPlayer(hazard, session.PlayerX, session.PlayerY, session.IsDucking,
+                    session.FacingLeft, GetPlayerFrame(session),
+                    GetPlayerBob(session.PlayerAnimationTime, session.PlayerY, session.IsDucking, session.State), session.CurrentCharacter);
+            if (RunnerBiomeHazards.IsBiomeHazard(hazard.Kind)) return BiomeTouchesPlayer(hazard, session);
+            return PlayerTouchesShape(session, hazard, hazard.X, hazard.Y, hazard.Width, hazard.Height, 0f);
+        }
+
+        private static bool PlayerTouchesShape(RunnerSession session, WorldEntity hazard,
+            float x, float y, float shapeWidth, float shapeHeight, float radius)
+        {
+            if (session == null || shapeWidth <= 0f || shapeHeight <= 0f) return false;
+            bool duck = session.IsDucking;
+            float width = duck ? PlayerDuckWidth : PlayerStandingWidth;
+            float height = duck ? PlayerDuckHeight : PlayerStandingHeight;
+            float feet = session.PlayerY - GetPlayerBob(session.PlayerAnimationTime, session.PlayerY, duck, session.State);
+            if (x + shapeWidth <= session.PlayerX - width * 0.5f || x >= session.PlayerX + width * 0.5f ||
+                y + shapeHeight <= feet || y >= feet + height) return false;
+            byte[] bands = GetSilhouette(session.CurrentCharacter, GetPlayerFrame(session));
+            for (int i = 0; i < bands.Length; i += 4)
+            {
+                float left = (bands[i] - SourceWidth * 0.5f) * width / SourceWidth;
+                float right = (bands[i + 2] - SourceWidth * 0.5f) * width / SourceWidth;
+                if (session.FacingLeft) { float oldLeft = left; left = -right; right = -oldLeft; }
+                left += session.PlayerX + ContactInset;
+                right += session.PlayerX - ContactInset;
+                float bottom = Math.Max(feet + (SourceHeight - bands[i + 3]) * height / SourceHeight, feet + ContactInset);
+                float top = Math.Min(feet + (SourceHeight - bands[i + 1]) * height / SourceHeight, feet + height - ContactInset);
+                if (left >= right || bottom >= top) continue;
+                if (radius > 0f)
+                {
+                    float cx = x + radius, cy = y + radius;
+                    float dx = cx - Math.Max(left, Math.Min(right, cx));
+                    float dy = cy - Math.Max(bottom, Math.Min(top, cy));
+                    if (dx * dx + dy * dy < radius * radius) return true;
+                }
+                else if (right > x && left < x + shapeWidth && top > y && bottom < y + shapeHeight)
+                {
+                    if (hazard != null && hazard.Kind == EntityKind.Spike)
+                    {
+                        float centre = x + shapeWidth * 0.5f;
+                        float nearest = Math.Max(left, Math.Min(right, centre));
+                        float topAtOverlap = shapeHeight * Math.Max(0f, 1f - Math.Abs(nearest - centre) / (shapeWidth * 0.5f));
+                        if (bottom < y + topAtOverlap - 3f) return true;
+                    }
+                    else return true;
+                }
             }
             return false;
         }

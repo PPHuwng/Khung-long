@@ -17,15 +17,17 @@ namespace CityDino
         private static readonly Rect MoveRightButton = new Rect(136, 618, 88, 70);
         private static readonly Rect DuckButton = new Rect(1000, 618, 112, 70);
         private static readonly Rect JumpButton = new Rect(1126, 618, 112, 70);
+        private static readonly Rect ShootButton = new Rect(724, 618, 120, 70);
+        private static readonly Rect SkillButton = new Rect(854, 618, 120, 70);
         private RunnerSession session;
         private RunnerArt art;
         private RunnerWorldView world;
         private GUIStyle label, button, panel;
         private Texture2D roundTexture;
         private AudioSource audioSource;
-        private AudioClip jumpSound, coinSound, hurtSound, buySound, thunderSound;
-        private bool muted, showShop, showHistory, dirty;
-        private float nextSave, ambientTime;
+        private AudioClip jumpSound, coinSound, hurtSound, buySound, thunderSound, shootSound, skillSound;
+        private bool muted, showShop, showHistory, showCharacters, dirty;
+        private float nextSave, ambientTime, nextShotSound;
         private int bestAtStart;
         private int shopTab;
         private int thunderStage, lastThunderStrike;
@@ -33,6 +35,7 @@ namespace CityDino
         private readonly Color cream = new Color32(249, 246, 233, 255);
         private readonly Color mint = new Color32(190, 231, 164, 255);
         private readonly Color soft = new Color32(103, 119, 118, 255);
+        private bool ModalOpen { get { return showShop || showHistory || showCharacters; } }
 
         // Opening the supplied SampleScene also starts the new game, without editing the old scene.
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -64,7 +67,7 @@ namespace CityDino
                 catch (Exception) { Debug.LogWarning("City Dino: không đọc được dữ liệu lưu; tạo hồ sơ mới."); }
             }
             if (save == null) save = new RunnerSave();
-            bool migrateSave = save.Version < 3;
+            bool migrateSave = save.Version < 4;
             save.BestScore = Math.Max(save.BestScore, PlayerPrefs.GetInt("HighScore", 0));
             session = new RunnerSession(save, Environment.TickCount);
             session.SaveChanged += SaveProgress;
@@ -81,6 +84,8 @@ namespace CityDino
             hurtSound = MakeTone("Hit", 180, 65, 0.20f);
             buySound = MakeTone("Upgrade", 550, 1120, 0.24f);
             thunderSound = MakeThunder();
+            shootSound = MakeTone("Shoot", 820, 360, 0.055f);
+            skillSound = MakeTone("Skill", 330, 1050, 0.18f);
         }
 
         private void Update()
@@ -98,26 +103,50 @@ namespace CityDino
             }
             if (keys != null && keys.escapeKey.wasPressedThisFrame)
             {
-                if (showShop || showHistory) { showShop = false; showHistory = false; }
+                if (ModalOpen) { showShop = showHistory = showCharacters = false; }
                 else session.TogglePause();
             }
             if (keys != null && keys.mKey.wasPressedThisFrame) ToggleSound();
-            if (session.State == RunState.Menu && !showShop && !showHistory && jump) { BeginRun(); jump = false; }
-            if (session.State == RunState.GameOver && keys != null && keys.rKey.wasPressedThisFrame) BeginRun();
+            if (session.State == RunState.Menu && !ModalOpen && jump) { BeginRun(); jump = false; }
+            if (session.State == RunState.GameOver && !ModalOpen && keys != null && keys.rKey.wasPressedThisFrame) BeginRun();
 
-            if (session.State == RunState.Playing)
+            if (session.State == RunState.Playing && !ModalOpen)
             {
-                ReadPointers(ref horizontal, ref jump, ref duck);
+                bool canShoot = session.IsBossArena && session.ArenaPhase == BossPhase.Fighting;
+                bool canSkill = session.CurrentCharacter != CharacterKind.Classic &&
+                    (!session.IsBossArena || session.ArenaPhase == BossPhase.Fighting);
+                bool shoot = canShoot && keys != null && keys.jKey.isPressed;
+                bool skill = canSkill && keys != null && keys.eKey.wasPressedThisFrame;
+                // Visible but temporarily locked controls still consume their
+                // pointer region during arena intro/victory, never tap-jump.
+                ReadCombatPointers(session.IsBossArena, session.CurrentCharacter != CharacterKind.Classic,
+                    ref horizontal, ref jump, ref duck, ref shoot, ref skill);
                 session.SetHorizontal(horizontal);
                 session.SetDucking(duck);
+                session.SetShooting(shoot);
                 if (jump && session.Jump()) Play(jumpSound);
+                if (skill && session.TryUseSkill()) Play(skillSound);
+                if (shoot && canShoot && Time.unscaledTime >= nextShotSound)
+                {
+                    Play(shootSound);
+                    nextShotSound = Time.unscaledTime + 0.22f;
+                }
+            }
+            else
+            {
+                session.SetShooting(false);
+                if (session.State == RunState.Playing)
+                {
+                    session.SetHorizontal(0f);
+                    session.SetDucking(false);
+                }
             }
             int oldStars = session.RunStars;
             int oldLives = session.Lives;
             RunState oldState = session.State;
             // Real-time spikes are discarded; the core subdivides normal simulation time for collision safety.
             session.Update(Mathf.Min(Time.unscaledDeltaTime, 0.1f));
-            if (session.State == RunState.Playing)
+            if (session.State == RunState.Playing && !session.IsBossArena)
             {
                 if (thunderStage != session.StageNumber)
                 {
@@ -140,6 +169,13 @@ namespace CityDino
 
         private static void ReadPointers(ref float horizontal, ref bool jump, ref bool duck)
         {
+            bool shoot = false, skill = false;
+            ReadCombatPointers(false, false, ref horizontal, ref jump, ref duck, ref shoot, ref skill);
+        }
+
+        private static void ReadCombatPointers(bool canShoot, bool canSkill,
+            ref float horizontal, ref bool jump, ref bool duck, ref bool shoot, ref bool skill)
+        {
             bool activeTouch = false;
             if (Touchscreen.current != null)
             {
@@ -151,23 +187,35 @@ namespace CityDino
                     bool held = touch.press.isPressed;
                     if (!down && !held) continue;
                     activeTouch = true;
-                    ApplyPointer(touch.position.ReadValue(), down, held, ref horizontal, ref jump, ref duck);
+                    ApplyCombatPointer(touch.position.ReadValue(), down, held, canShoot, canSkill,
+                        ref horizontal, ref jump, ref duck, ref shoot, ref skill);
                 }
             }
             if (!activeTouch && Mouse.current != null)
             {
-                ApplyPointer(Mouse.current.position.ReadValue(), Mouse.current.leftButton.wasPressedThisFrame,
-                    Mouse.current.leftButton.isPressed, ref horizontal, ref jump, ref duck);
+                ApplyCombatPointer(Mouse.current.position.ReadValue(), Mouse.current.leftButton.wasPressedThisFrame,
+                    Mouse.current.leftButton.isPressed, canShoot, canSkill,
+                    ref horizontal, ref jump, ref duck, ref shoot, ref skill);
             }
         }
 
         private static void ApplyPointer(Vector2 raw, bool down, bool held, ref float horizontal, ref bool jump, ref bool duck)
         {
+            bool shoot = false, skill = false;
+            ApplyCombatPointer(raw, down, held, false, false,
+                ref horizontal, ref jump, ref duck, ref shoot, ref skill);
+        }
+
+        private static void ApplyCombatPointer(Vector2 raw, bool down, bool held, bool canShoot, bool canSkill,
+            ref float horizontal, ref bool jump, ref bool duck, ref bool shoot, ref bool skill)
+        {
             float scale = Mathf.Min(Screen.width / CanvasWidth, Screen.height / CanvasHeight);
             Vector2 offset = new Vector2((Screen.width - CanvasWidth * scale) * 0.5f, (Screen.height - CanvasHeight * scale) * 0.5f);
             Vector2 point = (new Vector2(raw.x, Screen.height - raw.y) - offset) / Mathf.Max(scale, 0.001f);
             if (point.x < 0 || point.x > CanvasWidth || point.y <= 130 || point.y >= 710) return;
-            if (MoveLeftButton.Contains(point)) { if (held) horizontal -= 1; }
+            if (canShoot && ShootButton.Contains(point)) { if (held) shoot = true; }
+            else if (canSkill && SkillButton.Contains(point)) { if (down) skill = true; }
+            else if (MoveLeftButton.Contains(point)) { if (held) horizontal -= 1; }
             else if (MoveRightButton.Contains(point)) { if (held) horizontal += 1; }
             else if (DuckButton.Contains(point)) { if (held) duck = true; }
             else if (down) jump = true;
@@ -175,7 +223,7 @@ namespace CityDino
 
         private void BeginRun()
         {
-            showShop = showHistory = false;
+            showShop = showHistory = showCharacters = false;
             bestAtStart = session.Save.BestScore;
             thunderStage = lastThunderStrike = 0;
             session.StartRun();
@@ -195,26 +243,34 @@ namespace CityDino
             switch (session.State)
             {
                 case RunState.Menu:
-                    GUI.enabled = !(showShop || showHistory);
+                    GUI.enabled = !ModalOpen;
                     DrawMenu();
                     GUI.enabled = true;
                     break;
-                case RunState.Playing: DrawHud(); DrawPlayHints(); break;
+                case RunState.Playing:
+                    GUI.enabled = !ModalOpen;
+                    DrawHud();
+                    DrawPlayHints();
+                    GUI.enabled = true;
+                    break;
                 case RunState.Paused:
                     GUI.enabled = false;
                     DrawHud();
-                    GUI.enabled = true;
+                    GUI.enabled = !ModalOpen;
                     DrawPaused();
+                    GUI.enabled = true;
                     break;
                 case RunState.GameOver:
                     GUI.enabled = false;
                     DrawHud();
-                    GUI.enabled = true;
+                    GUI.enabled = !ModalOpen;
                     DrawResults();
+                    GUI.enabled = true;
                     break;
             }
             if (showShop) DrawShop();
             if (showHistory) DrawHistory();
+            if (showCharacters) DrawCharacters();
             GUI.matrix = previous;
             GUI.color = Color.white;
         }
@@ -224,17 +280,18 @@ namespace CityDino
             Box(new Rect(64, 56, 486, 602), cream);
             Text(new Rect(98, 85, 390, 24), "●  ENDLESS RUNNER", 15, soft, FontStyle.Bold);
             Text(new Rect(94, 151, 420, 88), "DINO CITY", 64, ink, FontStyle.Bold);
-            Text(new Rect(98, 268, 402, 70), "Băng trơn, nắng gắt và gió trên cao.\nChuẩn bị tiếp tế, chinh phục thành phố.", 18, soft);
+            Text(new Rect(98, 268, 402, 70), "Chọn khủng long, vượt qua thành phố.\nMỗi 10.000 điểm, một trận đấu boss.", 18, soft);
             Stat(new Rect(98, 366, 124, 64), "KỶ LỤC", session.Save.BestScore.ToString("N0"));
             Stat(new Rect(238, 366, 124, 64), "LƯỢT TRƯỚC", session.Save.LastScore.ToString("N0"));
             Stat(new Rect(378, 366, 124, 64), "VÍ SAO", session.Save.Wallet.ToString("N0"));
             if (Button(new Rect(98, 458, 418, 62), "BẮT ĐẦU CHẠY     →", mint, ink, 22)) BeginRun();
-            if (Button(new Rect(98, 534, 202, 52), "Cửa hàng", ink, cream)) showShop = true;
-            if (Button(new Rect(314, 534, 202, 52), "Thành tích", new Color32(231, 231, 215, 255), ink)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 07  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            if (Button(new Rect(98, 534, 130, 52), "Nhân vật", ink, cream, 16)) OpenCharacters();
+            if (Button(new Rect(242, 534, 130, 52), "Cửa hàng", ink, cream, 16)) showShop = true;
+            if (Button(new Rect(386, 534, 130, 52), "Thành tích", new Color32(231, 231, 215, 255), ink, 16)) showHistory = true;
+            Text(new Rect(98, 606, 420, 24), "BẢN 08  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
-            Text(new Rect(800, 90, 372, 24), "MỖI LƯỢT, MỘT THÀNH PHỐ.", 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Text(new Rect(800, 90, 372, 24), RunnerSession.CharacterName(session.Save.SelectedCharacter) + " · SẴN SÀNG ĐẤU BOSS", 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             DrawMenuDino();
             DrawMapSelection();
             Box(new Rect(806, 586, 376, 62), ink);
@@ -247,6 +304,11 @@ namespace CityDino
         {
             int frame = Mathf.FloorToInt(ambientTime * 7) % 5;
             float y = 136 + Mathf.Sin(ambientTime * 2) * 5;
+            if (session != null && session.Save.SelectedCharacter != CharacterKind.Classic)
+            {
+                world.DrawCharacterPreview(session.Save.SelectedCharacter, frame, new Rect(900, y, 164, 151));
+                return;
+            }
             if (art.DinoRunAtlas != null)
             {
                 // Match the gameplay body's aspect rather than squeezing the
@@ -297,8 +359,8 @@ namespace CityDino
         {
             Box(new Rect(36, 26, 1208, 86), cream);
             Text(new Rect(58, 43, 170, 19), "DINO CITY", 16, ink, FontStyle.Bold);
-            Text(new Rect(58, 70, 180, 23), DistrictName(session.CurrentDistrict), 14, soft);
-            Text(new Rect(246, 40, 180, 21), "ĐIỂM", 12, soft, FontStyle.Bold);
+            Text(new Rect(58, 70, 180, 23), session.IsBossArena ? "ĐẤU TRƯỜNG · " + session.BossNumber : DistrictName(session.CurrentDistrict), 14, soft);
+            Text(new Rect(246, 40, 180, 21), session.IsBossArena ? "ĐIỂM · TẠM DỪNG" : "ĐIỂM", 12, soft, FontStyle.Bold);
             Text(new Rect(244, 60, 182, 39), session.Score.ToString("D5"), 30, ink, FontStyle.Bold);
             Text(new Rect(452, 40, 155, 21), "KỶ LỤC", 12, soft, FontStyle.Bold);
             Text(new Rect(450, 65, 168, 29), Math.Max(session.Score, session.Save.BestScore).ToString("D5"), 22, ink, FontStyle.Bold);
@@ -319,18 +381,30 @@ namespace CityDino
 
         private void DrawRunResources()
         {
+            if (session.IsBossArena)
+            {
+                DrawBossHud();
+                return;
+            }
             if (session.CurrentDistrict == District.Snow || session.CurrentDistrict == District.Sunset)
             {
                 bool cold = session.CurrentDistrict == District.Snow;
                 float value = cold ? session.Warmth : session.Water;
                 bool reserve = cold ? session.WarmReserveReady : session.WaterReserveReady;
-                Box(new Rect(36, 128, 276, reserve ? 83 : 63), cream);
+                float recovery = cold ? session.WarmthRecoveryRemaining : session.WaterRecoveryRemaining;
+                Box(new Rect(36, 128, 276, 63 + (reserve ? 20 : 0) + (recovery > 0 ? 20 : 0)), cream);
                 PickupIcon(cold ? EntityKind.HotDrink : EntityKind.Water, new Rect(49, 139, 32, 38));
                 Text(new Rect(92, 139, 205, 21), (cold ? "THÂN NHIỆT " : "NƯỚC ") + Mathf.CeilToInt(value) + "%", 14, ink, FontStyle.Bold);
                 Box(new Rect(92, 165, 202, 9), new Color32(217, 224, 221, 255));
                 if (value > 0)
                     Box(new Rect(92, 165, 202 * Mathf.Clamp01(value / 100f), 9), value < 25 ? new Color32(222, 87, 69, 255) : cold ? new Color32(240, 150, 76, 255) : new Color32(68, 172, 213, 255));
-                if (reserve) Text(new Rect(49, 183, 250, 22), cold ? "Có bình giữ ấm dự phòng" : "Có nước dự phòng", 12, soft, FontStyle.Bold);
+                float row = 183;
+                if (recovery > 0)
+                {
+                    Text(new Rect(49, row, 250, 22), "Đang hồi dần · +" + Mathf.CeilToInt(recovery), 12, soft, FontStyle.Bold);
+                    row += 20;
+                }
+                if (reserve) Text(new Rect(49, row, 250, 22), cold ? "Có bình giữ ấm dự phòng" : "Có nước dự phòng", 12, soft, FontStyle.Bold);
             }
             string effects = "";
             if (session.ScoreBoostRemaining > 0) effects += "×2 ĐIỂM  " + session.ScoreBoostRemaining.ToString("0.0") + " s\n";
@@ -349,15 +423,62 @@ namespace CityDino
             Text(MoveLeftButton, "←", 30, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             Box(MoveRightButton, cream);
             Text(MoveRightButton, "→", 30, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
-            Box(new Rect(242, 632, 728, 56), new Color(0.06f, 0.13f, 0.18f, 0.88f));
-            Text(new Rect(260, 640, 696, 41), "← → / A D: di chuyển   ·   SPACE / ↑: nhảy kép\n↓ / S: cúi tránh bẫy   ·   ESC: tạm dừng", 15, cream);
+            bool showShoot = session.IsBossArena;
+            bool showSkill = session.CurrentCharacter != CharacterKind.Classic;
+            float hintWidth = showShoot ? 466f : showSkill ? 596f : 728f;
+            Box(new Rect(242, 632, hintWidth, 56), new Color(0.06f, 0.13f, 0.18f, 0.88f));
+            string hint = showShoot
+                ? "← → / A D: di chuyển · SPACE / ↑: nhảy kép\n↓ / S: cúi · J: giữ để bắn" + (showSkill ? " · E: chiêu" : "")
+                : "← → / A D: di chuyển · SPACE / ↑: nhảy kép\n↓ / S: cúi · ESC: tạm dừng" + (showSkill ? " · E: chiêu" : "");
+            Text(new Rect(260, 640, hintWidth - 32, 41), hint, showShoot ? 13 : showSkill ? 14 : 15, cream);
+            if (showShoot)
+            {
+                bool ready = session.ArenaPhase == BossPhase.Fighting;
+                Box(ShootButton, ready ? mint : new Color32(193, 204, 196, 255));
+                Text(ShootButton, "BẮN · J", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            }
+            if (showSkill) DrawSkillControl();
             Box(DuckButton, cream);
             Text(DuckButton, "CÚI ↓", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             Box(JumpButton, mint);
             Text(JumpButton, "NHẢY ↑", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
-            Text(new Rect(38, 592, 430, 28), Mathf.FloorToInt(session.Distance / 20f) + " m  ·  " + (session.Speed / RunnerSession.InitialSpeed).ToString("0.00") + "×  ·  Chặng " + session.StageNumber, 15, cream, FontStyle.Bold);
+            Text(new Rect(38, 592, 630, 28), session.IsBossArena
+                ? "Hạ boss để tiếp tục hành trình · Điểm và hiệu ứng đang được giữ"
+                : Mathf.FloorToInt(session.Distance / 20f) + " m  ·  " + (session.Speed / RunnerSession.InitialSpeed).ToString("0.00") + "×  ·  Boss: " + session.NextBossScore.ToString("N0"),
+                14, cream, FontStyle.Bold);
             if (session.InvincibleRemaining > 0)
-                Text(new Rect(495, 592, 420, 28), "Bảo vệ: " + session.InvincibleRemaining.ToString("0.0") + " s", 14, mint, FontStyle.Bold);
+                Text(new Rect(726, 592, 250, 28), "Bảo vệ: " + session.InvincibleRemaining.ToString("0.0") + " s", 14, mint, FontStyle.Bold);
+        }
+
+        private void DrawSkillControl()
+        {
+            bool active = session.SkillActiveRemaining > 0;
+            string name = session.CurrentCharacter == CharacterKind.Triceratops ? "GIÁP" : "LƯỚT";
+            string caption = active ? name + "\n" + session.SkillActiveRemaining.ToString("0.0") + " s"
+                : session.SkillCooldownRemaining > 0 ? "CHIÊU · E\n" + Mathf.CeilToInt(session.SkillCooldownRemaining) + " s" : name + " · E";
+            Box(SkillButton, active ? new Color32(145, 215, 230, 255) : session.SkillReady ? mint : new Color32(210, 218, 207, 255));
+            Text(SkillButton, caption, 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            float progress = session.SkillCooldown > 0 ? 1f - session.SkillCooldownRemaining / session.SkillCooldown : 0;
+            Box(new Rect(SkillButton.x + 5, SkillButton.yMax - 7, (SkillButton.width - 10) * Mathf.Clamp01(progress), 3), ink);
+        }
+
+        private void DrawBossHud()
+        {
+            BossEncounter boss = session.CurrentBoss;
+            if (boss == null) return;
+            Box(new Rect(36, 128, 1208, 77), ink);
+            string name = boss.Kind == BossKind.Tank ? "XE TĂNG K-01"
+                : boss.Kind == BossKind.Sentinel ? "VỆ BINH G-02" : "TRỰC THĂNG H-03";
+            Text(new Rect(58, 143, 263, 25), name, 19, cream, FontStyle.Bold);
+            Box(new Rect(340, 148, 664, 17), new Color32(61, 78, 84, 255));
+            float fraction = boss.MaxHealth > 0 ? Mathf.Clamp01((float)boss.Health / boss.MaxHealth) : 0f;
+            if (fraction > 0)
+                Box(new Rect(340, 148, 664 * fraction, 17), boss.Vulnerable ? new Color32(239, 153, 93, 255) : new Color32(130, 165, 183, 255));
+            Text(new Rect(1028, 142, 190, 27), Mathf.CeilToInt(boss.Health) + " / " + Mathf.CeilToInt(boss.MaxHealth), 17, cream, FontStyle.Bold, TextAnchor.MiddleRight);
+            string status = session.ArenaPhase == BossPhase.Intro ? "CHUẨN BỊ · CẢ BA NHÂN VẬT ĐỀU BẮN ĐƯỢC"
+                : session.ArenaPhase == BossPhase.Victory ? "ĐÃ HẠ BOSS · CHUẨN BỊ TRỞ LẠI ĐƯỜNG CHẠY"
+                : boss.Vulnerable ? "LÕI ĐANG HỞ · GIỮ J HOẶC NÚT BẮN" : "QUAN SÁT DẤU BÁO VÀ NÉ ĐÒN";
+            Text(new Rect(58, 177, 1158, 18), status, 12, cream, FontStyle.Bold, TextAnchor.MiddleCenter);
         }
 
         private void DrawPaused()
@@ -393,6 +514,8 @@ namespace CityDino
 
         private string EndMessage()
         {
+            if (session.IsBossArena)
+                return "Giữ J để bắn, né đòn và thử lại nhé!";
             if (session.EndReason != null && session.EndReason.IndexOf("thân nhiệt", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "Nhặt đồ uống nóng để giữ thân nhiệt nhé!";
             if (session.EndReason != null && session.EndReason.IndexOf("nước", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -402,6 +525,60 @@ namespace CityDino
             if (session.EndReason != null && session.EndReason.IndexOf("máy bay", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "Máy bay bay thấp: giữ ↓ hoặc nút CÚI để tránh.";
             return "Hết mạng rồi. Mua thêm tim cho lượt tiếp nhé!";
+        }
+
+        private void OpenCharacters()
+        {
+            showShop = showHistory = false;
+            showCharacters = true;
+        }
+
+        private void DrawCharacters()
+        {
+            Scrim();
+            Box(new Rect(150, 70, 980, 590), cream);
+            Text(new Rect(182, 96, 650, 31), "CHỌN BẠN ĐỒNG HÀNH", 25, ink, FontStyle.Bold);
+            Icon(art.Star, new Rect(876, 96, 27, 27));
+            Text(new Rect(916, 97, 139, 28), session.Save.Wallet.ToString("N0"), 19, ink, FontStyle.Bold, TextAnchor.MiddleRight);
+            if (Button(new Rect(1070, 88, 40, 38), "×", new Color32(231, 231, 215, 255), ink, 23)) showCharacters = false;
+            Text(new Rect(182, 143, 914, 26), "Mua một lần, mở khóa vĩnh viễn. Cả ba khủng long đều bắn được khi gặp boss.", 16, soft);
+            DrawCharacterCard(new Rect(182, 188, 292, 380), CharacterKind.Classic);
+            DrawCharacterCard(new Rect(494, 188, 292, 380), CharacterKind.Triceratops);
+            DrawCharacterCard(new Rect(806, 188, 292, 380), CharacterKind.Raptor);
+            Text(new Rect(182, 594, 914, 43), "J / nút BẮN: chỉ khi đấu boss · E / nút CHIÊU: kỹ năng riêng\nChọn nhân vật trước khi bắt đầu lượt. Tim và đồ tiếp tế mua riêng trong cửa hàng.", 14, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+        }
+
+        private void DrawCharacterCard(Rect rect, CharacterKind character)
+        {
+            bool owned = session.OwnsCharacter(character);
+            bool selected = session.Save.SelectedCharacter == character;
+            Box(rect, selected ? new Color32(220, 237, 203, 255) : new Color32(232, 237, 222, 255));
+            Text(new Rect(rect.x + 18, rect.y + 17, rect.width - 36, 28), RunnerSession.CharacterName(character), 23, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            world.DrawCharacterPreview(character, Mathf.FloorToInt(ambientTime * 7) % 5,
+                new Rect(rect.x + 62, rect.y + 65, 168, 154));
+            WrappedText(new Rect(rect.x + 20, rect.y + 235, rect.width - 40, 77),
+                RunnerSession.CharacterSkillDescription(character), 15, soft);
+            string caption = selected ? "ĐANG CHỌN" : owned ? "CHỌN NHÂN VẬT"
+                : "MUA · " + RunnerSession.CharacterPrice(character).ToString("N0") + " SAO";
+            bool canUse = !selected && (owned || session.Save.Wallet >= RunnerSession.CharacterPrice(character));
+            if (Button(new Rect(rect.x + 18, rect.yMax - 51, rect.width - 36, 36), caption,
+                canUse ? mint : new Color32(207, 219, 199, 255), ink, 16, canUse))
+            {
+                bool changed = owned ? session.SelectCharacter(character) : session.BuyCharacter(character);
+                if (changed)
+                {
+                    Play(owned ? coinSound : buySound);
+                    FlushSave();
+                }
+            }
+        }
+
+        private void WrappedText(Rect rect, string value, int size, Color color)
+        {
+            bool wasWrapped = label.wordWrap;
+            label.wordWrap = true;
+            Text(rect, value, size, color);
+            label.wordWrap = wasWrapped;
         }
 
         private void DrawShop()
@@ -446,10 +623,11 @@ namespace CityDino
                     "\nNhặt nam châm trên đường\nđể kích hoạt hiệu ứng.",
                     session.NextMagnetCost, session.NextMagnetCost > 0, session.BuyMagnetUpgrade);
             }
-            Text(new Rect(246, 583, 766, 49), shopTab == 0
+            Text(new Rect(246, 583, 550, 49), shopTab == 0
                 ? "Tim và tiếp tế dùng theo lượt. Nâng thời lượng áp dụng vĩnh viễn.\nTim nhặt trong màn hồi tối đa 5 mạng."
                 : "Nâng thời lượng: 200 → 400 → 700 → 1.100 sao.\nVật phẩm được nhặt trong màn, tối đa 16 giây mỗi lần nhặt.",
-                14, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+                12, soft, FontStyle.Normal, TextAnchor.MiddleCenter);
+            if (Button(new Rect(812, 588, 200, 38), "Mở nhân vật →", ink, cream, 16)) OpenCharacters();
         }
 
         private void ShopProduct(Rect rect, EntityKind? pickup, string title, string description,
@@ -512,7 +690,7 @@ namespace CityDino
         private void GoToMenu()
         {
             session.ReturnToMenu();
-            showShop = showHistory = false;
+            showShop = showHistory = showCharacters = false;
             FlushSave();
         }
 
@@ -546,6 +724,8 @@ namespace CityDino
             if (hurtSound != null) Destroy(hurtSound);
             if (buySound != null) Destroy(buySound);
             if (thunderSound != null) Destroy(thunderSound);
+            if (shootSound != null) Destroy(shootSound);
+            if (skillSound != null) Destroy(skillSound);
         }
 
         private void EnsureStyles()

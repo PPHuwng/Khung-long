@@ -200,6 +200,7 @@ namespace UnityEngine
     public sealed class RecordedDraw
     {
         public string Kind,Text;
+        public bool Enabled;
         public Texture Texture;
         public Rect Position,UV;
         public Color Color;
@@ -241,8 +242,13 @@ namespace UnityEngine
         public static void EndGroup() { GroupState previous=groups.Pop();matrix=previous.Matrix;clip=previous.Clip; }
         public static void Label(Rect rect,string text,GUIStyle style)
         { DrawCalls.Add(new RecordedDraw { Kind="Label",Position=rect,Text=text,Color=color,Matrix=matrix,Clip=clip }); }
-        public static void Box(Rect rect,GUIContent content,GUIStyle style) { }
-        public static bool Button(Rect rect,string text,GUIStyle style) { return false; }
+        public static void Box(Rect rect,GUIContent content,GUIStyle style)
+        { DrawCalls.Add(new RecordedDraw { Kind="Box",Position=rect,Color=color,Matrix=matrix,Clip=clip,Enabled=enabled }); }
+        public static bool Button(Rect rect,string text,GUIStyle style)
+        {
+            DrawCalls.Add(new RecordedDraw { Kind="Button",Position=rect,Text=text,Color=color,Matrix=matrix,Clip=clip,Enabled=enabled });
+            return false;
+        }
     }
     public static class GUIUtility
     {
@@ -281,7 +287,7 @@ namespace UnityEngine
     public enum TextureFormat { RGBA32 }
     public enum HideFlags { HideAndDontSave }
     public enum FontStyle { Normal, Bold }
-    public enum TextAnchor { UpperLeft, MiddleLeft, MiddleCenter }
+    public enum TextAnchor { UpperLeft, MiddleLeft, MiddleCenter, MiddleRight }
     public enum EventType { Repaint }
     public enum RuntimeInitializeLoadType { AfterSceneLoad }
     public sealed class DisallowMultipleComponent : Attribute { }
@@ -309,7 +315,7 @@ namespace UnityEngine.InputSystem
     public class Keyboard
     {
         public static Keyboard current;
-        public ButtonControl aKey=new ButtonControl(),dKey=new ButtonControl(),leftArrowKey=new ButtonControl(),rightArrowKey=new ButtonControl(),spaceKey=new ButtonControl(),upArrowKey=new ButtonControl(),wKey=new ButtonControl(),downArrowKey=new ButtonControl(),sKey=new ButtonControl(),escapeKey=new ButtonControl(),mKey=new ButtonControl(),rKey=new ButtonControl();
+        public ButtonControl aKey=new ButtonControl(),dKey=new ButtonControl(),leftArrowKey=new ButtonControl(),rightArrowKey=new ButtonControl(),spaceKey=new ButtonControl(),upArrowKey=new ButtonControl(),wKey=new ButtonControl(),downArrowKey=new ButtonControl(),sKey=new ButtonControl(),escapeKey=new ButtonControl(),mKey=new ButtonControl(),rKey=new ButtonControl(),jKey=new ButtonControl(),eKey=new ButtonControl();
     }
     public class Mouse { public static Mouse current; public Vector2Control position; public ButtonControl leftButton; }
     public class TouchControl { public ButtonControl press; public Vector2Control position; }
