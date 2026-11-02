@@ -8,7 +8,7 @@ Cần **.NET SDK 8**. Từ thư mục gốc dự án:
 
 Console chạy trực tiếp các file trong `Assets/CityDino/Core/` bằng C# 9,
 không dùng bản sao logic game, không cần thư viện kiểm thử bên ngoài.
-Bộ kiểm tra có **100 nhóm hành vi**, gồm:
+Bộ kiểm tra có **105 nhóm hành vi**, gồm:
 
 - Nhảy kép, coyote time, cúi, di chuyển trái/phải trên đất/trên không, giới hạn màn hình và input không hợp lệ.
 - Va chạm, nhặt đồ, mặt đường và hồi sau rơi dùng vị trí X hiện tại; chết chỉ ghi kết quả một lần và đóng băng tư thế.
@@ -77,7 +77,11 @@ sinh được thử, thời gian tiếp cận bằng cuộn đường dài nhấ
 hố (60,7%)**, gồm 59 hố kép và 84 nền sập. Túi map được kiểm tra thêm ba vòng
 sáu map cho cả sáu lựa chọn khởi đầu và chế độ ngẫu nhiên.
 
-Kiểm tra boss tạo lượt chạy ngay trước **mốc điểm thật**, để chỉ rút ngắn phần chạy trước trận. Ba trận đầy máu giữ nguyên 750/840/800 HP, đạn, cảnh báo, cửa sổ lộ lõi và sát thương production. Bot Classic không dùng vật phẩm/kỹ năng hoặc thay máu boss; cả ba trận không mất mạng, lần lượt khoảng **41,3 / 51,1 / 43,3 giây**. Một bài riêng quan sát **23 đạn địch và 14 vùng laser/nổ đang hoạt động** sau cảnh báo, thử cả nửa máu và toàn bộ loại chiêu.
+Kiểm tra boss tạo lượt chạy ngay trước **mốc điểm thật**, để chỉ rút ngắn phần chạy trước trận. Ba trận đầy máu giữ nguyên 750/840/800 HP, đạn, cảnh báo, cửa sổ lộ lõi và sát thương production. Bot Classic không dùng vật phẩm/kỹ năng hoặc thay máu boss; cả ba trận không mất mạng, lần lượt khoảng **40,9 / 44,1 / 42,3 giây**. Bài cảnh báo quan sát **61 đạn địch và 37 vùng laser/nổ đang hoạt động**, mỗi đợt liên kết bằng `SourceTelegraphId` với chính cảnh báo đã hiển thị đủ thời gian trước đó; không chỉ nhớ loại chiêu. Bài này quan sát đủ ba pha 65%/35%, kể cả drone thấp.
+
+BẢN 09 thêm năm nhóm luật chơi: chuyển động/đi vào đấu trường và tính nhất quán khi chia bước thời gian; ba pha tăng nhịp và số đợt thật; phản ứng trúng đạn/bắn đóng băng khi pause/chết; huỷ đợt đang chờ khi thắng/chơi lại; đường né pha cuối của boss muộn từ hai mép màn hình. Các bài đo chuyển động/mật độ có bảo vệ nhân vật để đo đầu ra thuần, không dùng làm bằng chứng sống sót. Trong 18 giây đo, số vật thể/vùng sát thương thật của pha 1/2/3 là **10/20/30** ở xe tăng, **5/11/12** ở robot và **8/18/27** ở trực thăng; chu kỳ tương ứng **3,70/3,25/2,90 giây**.
+
+Bài đường né muộn dựng pha 3 ở các mốc boss 7/8/9, bắt đầu lần lượt từ X100 và X720, rồi tìm trong sáu lựa chọn làn tiếp cận bằng A/D thật trong 1,8 giây intro. Không dịch chuyển nhân vật bằng setter sau điểm bắt đầu: bước cuối dùng trục di chuyển nhỏ để đến làn. Sáu trường hợp đều sống 15 giây với mọi đạn/va chạm production, một mạng, không bắn, kỹ năng, bất tử hoặc xoá đạn; xe tăng dùng làn X100, robot/trực thăng dùng X220. Đây là bằng chứng đường vượt tồn tại sau khi chủ động chọn vị trí, không khẳng định đứng yên ở mép luôn an toàn hoặc bot phản ánh phản xạ con người. Bot dùng thời gian va chạm sắp tới để tránh lao qua vùng nổ hiện tại vì một dấu ngắm tương lai, và chỉ nhảy kép khi chân thực sự có nguy cơ chạm đòn còn lại.
 
 Các fixture thưởng/chuyển cảnh và chuỗi 12 mốc đặt boss còn 1 HP, loại đạn địch rồi kết liễu bằng đạn người chơi thật để tách ghi nhận thưởng/trở về; chúng không phải bằng chứng vượt boss. Bài đầy máu nói trên không dùng cách cô lập này. Bài nhịp boss so sánh cùng đòn ở tốc độ chạy lưu 360 và 8.280; bài trở về map tuyết/nắng giữ tài nguyên 0 rồi nhặt đồ uống production, không cấp hồi miễn phí.
 
@@ -88,7 +92,7 @@ Có thể chỉ chạy một nhóm khi chẩn đoán lỗi:
 ```
 
 Console ghi rõ những bài không được chọn chưa chạy; không truyền tham số sẽ
-chạy toàn bộ 100 nhóm.
+chạy toàn bộ 105 nhóm.
 
 ## Ánh xạ input và đa điểm chạm
 
@@ -106,7 +110,7 @@ cùng nhảy, crouch, HUD, letterbox và scale màn hình. Thêm J cho cả ba n
 ./scripts/test-core.sh --render-contracts
 ```
 
-**27 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
+**33 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
 
 - Tâm cưa đúng tâm va chạm qua 5 góc xoay × 5 scale/offset; đầu đường không lệch khi letterbox.
 - Mỗi loại vật cản có ảnh, không nhãn CÚI/NHẢY nổi; nền sập/hố cắt mặt đường đúng vùng clip.
@@ -118,6 +122,8 @@ cùng nhảy, crouch, HUD, letterbox và scale màn hình. Thêm J cho cả ba n
 - Giai đoạn bẫy theo map và hình biển di chuyển không chạy tiếp bằng thời gian ambient khi pause; blackout đêm vẫn phủ kín các vật thể mới.
 - Năm khung chạy dùng đúng UV atlas và vị trí trong khung 434×354 chung, lật cả ảnh lẫn vị trí theo hướng; menu dùng ảnh mới, pause/chết giữ khung và có fallback khi thiếu atlas.
 - Ba đấu trường tách hẳn cuộn/thời tiết, boss/đạn/dấu ngắm và lõi ở đúng hình học core qua nhiều canvas; cảnh báo khác vùng đang gây sát thương, pause/chết giữ hình.
+- Boss BẢN 09 đi vào, tuần tra, giật pháo và bay theo X/Y thật ở nhiều canvas; xích/servo/cánh quạt chạy theo đồng hồ chiến đấu, phản ứng từ đạn trúng/đợt bắn/dậm đất và khói/tia lửa lúc hạ boss đóng băng khi pause/chết.
+- Đợt xếp chờ không vẽ sớm; các dấu cảnh báo có nét riêng, drone thấp dùng hình học thật; HUD hiện pha, chiêu và màu thanh máu đúng trạng thái.
 - Hai nhân vật mới dùng đúng texture/UV/vị trí cho đủ 11 khung logic, lật cả vị trí và ảnh, menu và trận dùng cùng dữ liệu; HUD hiện máu boss/điểm dừng và modal thực sự vô hiệu hoá nút phía sau.
 - Bộ giải mã PNG bằng thư viện .NET chuẩn đọc alpha ảnh thật, độc lập với bảng mask: 1.007 điểm trong phần đặc và 2.278 điểm trống qua hai nhân vật × sáu tư thế × hai hướng khớp với va chạm tròn production. Đây là phân tích pixel nguồn, không phải Unity rasterization.
 

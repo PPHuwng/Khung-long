@@ -1,0 +1,237 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using CityDino;
+
+internal static partial class Program
+{
+    private static bool NeedsLowAirExtensionV9(RunnerSession run)
+    {
+        if(run.PlayerY<=0||run.VelocityY>=0)return false;
+        float velocity=run.VelocityY;
+        float untilLow=(velocity+(float)Math.Sqrt(velocity*velocity+2*RunnerSession.Gravity*Math.Max(0,run.PlayerY-32)))/RunnerSession.Gravity;
+        float untilLand=(velocity+(float)Math.Sqrt(velocity*velocity+2*RunnerSession.Gravity*run.PlayerY))/RunnerSession.Gravity;
+        foreach(BossTelegraph mark in run.BossTelegraphs)
+        {
+            if(!mark.Visible||mark.Kind!=BossAttackKind.LaserLow)continue;
+            float start=mark.Active?0:mark.Remaining;
+            float end=mark.Active?mark.Remaining:mark.Remaining+.32f;
+            if(untilLow<end+.015f&&untilLand>start-.03f)return true;
+        }
+        return false;
+    }
+
+    private static bool NeedsGroundAirExtensionV9(RunnerSession run)
+    {
+        if(run.PlayerY<=0||run.VelocityY>=0)return false;
+        foreach(BossProjectile shot in run.BossProjectiles)
+        {
+            if(shot.Friendly||shot.Removed||(shot.Kind!=BossAttackKind.Cannon&&shot.Kind!=BossAttackKind.Shockwave&&shot.Kind!=BossAttackKind.DroneLow))continue;
+            if(shot.X+shot.Width<=run.PlayerX-55||shot.X>=run.PlayerX+110)continue;
+            float clearance=shot.Y+shot.Height+5f;
+            float dy=Math.Max(0,run.PlayerY-clearance);
+            float timeDown=(run.VelocityY+(float)Math.Sqrt(run.VelocityY*run.VelocityY+2*RunnerSession.Gravity*dy))/RunnerSession.Gravity;
+            float relative=-shot.VelocityX+run.HorizontalVelocity;
+            float timeClear=relative>1f?(shot.X+shot.Width-(run.PlayerX-55f))/relative:100f;
+            if(timeClear>timeDown+.02f)return true;
+        }
+        return false;
+    }
+
+    private static void RegisterV9Tests()
+    {
+        Test("boss bodies enter, patrol and move without frame-partition drift",BossBodyMotionV9);
+        Test("three boss rage levels shorten cycles and add actual attack waves",BossRageDensityV9);
+        Test("boss hits and firing create timed feedback that freezes on pause and death",BossFeedbackV9);
+        Test("victory and restart cancel delayed boss waves before they can respawn",BossPendingCancellationV9);
+        Test("late enraged boss patterns have real evasive paths from both screen bounds",BossLatePathsV9);
+    }
+
+    // These isolated movement/pattern measurements deliberately protect the
+    // player. They measure physical production output, not survival. The full
+    // health Classic fights and both-bound late paths do not use protection.
+    private static RunnerSession IsolatedBossPattern(int number,float fraction)
+    {
+        RunnerSession run=EnterBossFixture(number);
+        run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*fraction;
+        SetProperty(run,"InvincibleRemaining",10000f);
+        ReachFighting(run);
+        return run;
+    }
+
+    private static void BossBodyMotionV9()
+    {
+        foreach(int number in new[]{1,2,3})
+        {
+            RunnerSession run=EnterBossFixture(number);
+            BossEncounter boss=run.CurrentBoss;float arrival=boss.X;
+            run.Update(.2f);float during=boss.X;
+            Check(arrival>RunnerSession.CanvasWidth&&during<arrival,"Boss did not visibly enter from outside: "+boss.Kind);
+            SetProperty(run,"InvincibleRemaining",10000f);ReachFighting(run);
+            float minX=boss.X,maxX=boss.X,minY=boss.Y,maxY=boss.Y;
+            for(int i=0;i<120*15;i++)
+            {
+                run.Update(1f/120);
+                minX=Math.Min(minX,boss.X);maxX=Math.Max(maxX,boss.X);
+                minY=Math.Min(minY,boss.Y);maxY=Math.Max(maxY,boss.Y);
+                Check(boss.X>=809.99f&&boss.X+boss.Width<=RunnerSession.CanvasWidth-15.9f,
+                    "Boss body invaded player lane or left screen: "+boss.Kind+"@"+boss.X);
+                Check(boss.Y>=-.01f,"Boss body sank below the flat arena");
+                if(number==3)Check(RunnerSession.GroundY-boss.Y-boss.Height>=214f,"Gunship body rose behind the combat HUD");
+            }
+            Check(maxX-minX>40f,"Boss still stands at one horizontal position: "+boss.Kind);
+            if(number==2)Check(maxY-minY>40,"Sentinel never made a visible stomp jump");
+            if(number==3)Check(maxY-minY>60,"Gunship failed to sweep vertically");
+            run.TogglePause();string snapshot=BossFeedbackSnapshot(run);run.Update(4);
+            Check(BossFeedbackSnapshot(run)==snapshot,"Paused physical boss body moved");
+
+            RunnerSession a=IsolatedBossPattern(number,.9f),b=IsolatedBossPattern(number,.9f);
+            for(int i=0;i<50;i++)a.Update(.1f);
+            for(int i=0;i<250;i++)b.Update(.02f);
+            Near(a.CurrentBoss.X,b.CurrentBoss.X,.35f,"Body X drifted with frame partition "+boss.Kind);
+            Near(a.CurrentBoss.Y,b.CurrentBoss.Y,.35f,"Body Y drifted with frame partition "+boss.Kind);
+            Near(a.BossElapsed,b.BossElapsed,.01f,"Combat clock drifted with frame partition");
+        }
+    }
+
+    private sealed class PatternCount
+    {
+        public int Dangers,Warnings,HiddenWarnings;
+        public float MeanCycle;
+    }
+    private static PatternCount MeasureBossPattern(int number,float fraction,int expectedRage)
+    {
+        RunnerSession run=IsolatedBossPattern(number,fraction);
+        var live=new HashSet<int>();var warnings=new HashSet<int>();var hidden=new HashSet<int>();
+        var cycles=new List<float>();float previous=run.CurrentBoss.AttackProgress,last=run.BossElapsed;
+        for(int i=0;i<120*18;i++)
+        {
+            foreach(BossTelegraph mark in run.BossTelegraphs)
+            {
+                if(!mark.Visible){hidden.Add(mark.Id);continue;}
+                if(mark.Active)live.Add(mark.Id);
+                else {warnings.Add(mark.Id);Check(mark.Duration>=.65f,"Rage shortened warning below reaction floor");}
+            }
+            foreach(BossProjectile p in run.BossProjectiles)if(!p.Friendly&&!p.Removed)live.Add(p.Id);
+            run.Update(1f/120);
+            Check(run.CurrentBoss.RageLevel==expectedRage,"Wrong shared health phase for "+run.CurrentBoss.Kind+" at "+fraction);
+            float progress=run.CurrentBoss.AttackProgress;
+            if(previous>.8f&&progress<.2f){cycles.Add(run.BossElapsed-last);last=run.BossElapsed;}
+            previous=progress;
+        }
+        Check(cycles.Count>=3&&live.Count>=3,"Pattern measurement did not observe sustained combat");
+        return new PatternCount {Dangers=live.Count,Warnings=warnings.Count,HiddenWarnings=hidden.Count,
+            MeanCycle=cycles.Skip(1).Average()};
+    }
+    private static void BossRageDensityV9()
+    {
+        foreach(int number in new[]{1,2,3})
+        {
+            PatternCount easy=MeasureBossPattern(number,.9f,1),middle=MeasureBossPattern(number,.5f,2),hard=MeasureBossPattern(number,.2f,3);
+            Check(easy.MeanCycle>middle.MeanCycle+.2f&&middle.MeanCycle>hard.MeanCycle+.2f,
+                "Rage levels did not make attack cycles faster for boss "+number);
+            Check(middle.Dangers>easy.Dangers&&hard.Dangers>=middle.Dangers,
+                "Later rage does not add actual danger waves for boss "+number+": "+easy.Dangers+"/"+middle.Dangers+"/"+hard.Dangers);
+            Check(hard.Warnings>easy.Warnings&&hard.HiddenWarnings>0,
+                "A stronger combination lost its separate delayed warnings");
+            Console.WriteLine("  Boss "+number+" rage1/2/3: "+easy.Dangers+"/"+middle.Dangers+"/"+hard.Dangers+
+                " live hazards over18s, cycles "+easy.MeanCycle.ToString("0.00")+"/"+middle.MeanCycle.ToString("0.00")+"/"+hard.MeanCycle.ToString("0.00")+"s.");
+        }
+    }
+
+    private static string BossFeedbackSnapshot(RunnerSession run)
+    {
+        BossEncounter b=run.CurrentBoss;
+        return b==null?"none":string.Join("|",run.ArenaPhase,run.BossElapsed,b.X,b.Y,b.RageLevel,b.HitFlashRemaining,
+            b.ShotFlashRemaining,b.LandingFlashRemaining,b.Recoil,b.AttackProgress,b.Health,
+            string.Join(";",run.BossTelegraphs.Select(m=>m.Id+":"+m.Remaining+":"+m.DelayRemaining+":"+m.Active)));
+    }
+    private static void BossFeedbackV9()
+    {
+        RunnerSession run=IsolatedBossPattern(1,.9f);run.SetShooting(true);
+        bool fired=false,hit=false,recoil=false;
+        for(int i=0;i<120*8;i++)
+        {
+            run.Update(1f/120);BossEncounter b=run.CurrentBoss;
+            fired|=b.ShotFlashRemaining>0;hit|=b.HitFlashRemaining>0;recoil|=b.Recoil>.1f;
+            if(fired&&hit&&recoil)break;
+        }
+        Check(fired&&hit&&recoil,"Real shots/hits do not produce firing, impact and recoil feedback");
+        run.TogglePause();string paused=BossFeedbackSnapshot(run);run.Update(5);
+        Check(BossFeedbackSnapshot(run)==paused,"Pause advanced boss impact/muzzle feedback");
+        run.TogglePause();
+        typeof(RunnerSession).GetMethod("FinishRun",BindingFlags.NonPublic|BindingFlags.Instance).Invoke(run,new object[]{"Feedback death fixture"});
+        string dead=BossFeedbackSnapshot(run);run.Update(5);
+        Check(BossFeedbackSnapshot(run)==dead,"Death allowed a body/effect clock to continue");
+        run.StartRun();Check(!run.IsBossArena&&run.CurrentBoss==null,"Restart retained dead animation state");
+    }
+
+    private static void BossPendingCancellationV9()
+    {
+        RunnerSession run=IsolatedBossPattern(3,.2f);
+        bool pending=false;
+        for(int i=0;i<120*7;i++)
+        {
+            if(run.BossTelegraphs.Any(m=>!m.Visible)){pending=true;break;}
+            run.Update(1f/120);
+        }
+        Check(pending,"Fixture did not capture a real staged multi-wave attack");
+        run.CurrentBoss.Health=1;run.SetShooting(true);
+        for(int i=0;i<120*12&&run.ArenaPhase==BossPhase.Fighting;i++)run.Update(1f/120);
+        Check(run.ArenaPhase==BossPhase.Victory,"Real player shot failed to end staged-wave fixture");
+        int wallet=run.Save.Wallet;float x=run.CurrentBoss.X,y=run.CurrentBoss.Y;
+        for(int i=0;i<120;i++)
+        {
+            run.Update(1f/120);
+            Check(run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0,"A cancelled delayed wave respawned during victory");
+            Near(run.CurrentBoss.X,x,0,"Dead boss body continued its patrol");Near(run.CurrentBoss.Y,y,0,"Dead boss body continued hovering");
+        }
+        for(int i=0;i<120*3&&run.IsBossArena;i++)run.Update(1f/120);
+        Check(!run.IsBossArena&&run.Save.Wallet==wallet&&run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0,
+            "Return preserved delayed combat objects or duplicated reward");
+        run.StartRun();Check(run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0&&!run.IsBossArena,"New run retained a staged attack");
+    }
+
+    private static void BossLatePathsV9()
+    {
+        foreach(int number in new[]{7,8,9})
+        foreach(float x in new[]{RunnerSession.MinimumPlayerX,RunnerSession.MaximumPlayerX})
+        {
+            bool solved=false;string failure="";
+            foreach(float lane in new[]{220f,350f,500f,600f,100f,720f})
+            {
+                RunnerSession run=EnterBossFixture(number);
+                // Isolate a late attack phase, not a full-health victory. All
+                // real projectiles and contacts remain; no protection is given.
+                run.CurrentBoss.Kind=(BossKind)((number-1)%3);
+                run.CurrentBoss.Width=run.CurrentBoss.Kind==BossKind.Sentinel?172:run.CurrentBoss.Kind==BossKind.Gunship?270:250;
+                run.CurrentBoss.Height=run.CurrentBoss.Kind==BossKind.Sentinel?225:run.CurrentBoss.Kind==BossKind.Gunship?130:150;
+                run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
+                SetProperty(run,"PlayerX",x);
+                // Search ordinary A/D approaches during the visible intro.
+                // This establishes a combat lane without teleporting from the
+                // tested edge, changing health or removing any attack object.
+                for(int intro=0;intro<120*5&&run.ArenaPhase==BossPhase.Intro;intro++)
+                {
+                    run.SetHorizontal(Math.Max(-1f,Math.Min(1f,(lane-run.PlayerX)/(RunnerSession.HorizontalSpeed/120f))));
+                    run.Update(1f/120);
+                }
+                Check(run.ArenaPhase==BossPhase.Fighting,"Late route never reached combat");
+                bool pass=true;
+                for(int i=0;i<120*15;i++)
+                {
+                    CombatBotInput(run,false);run.Update(1f/120);
+                    if(run.State!=RunState.Playing||run.Lives!=1)
+                    {pass=false;failure="boss="+run.CurrentBoss.Kind+" edge="+x+" approach="+lane+" t="+run.BossElapsed+" "+ArenaDescription(run);break;}
+                }
+                if(pass)
+                {
+                    Console.WriteLine("  Late rage3 "+run.CurrentBoss.Kind+" fromX"+x+" survives15s after realintro approachtowardX"+lane+".");
+                    solved=true;break;
+                }
+            }
+            Check(solved,"No tested real approach/evasive plan for late phase3 "+failure);
+        }
+    }
+}

@@ -4,7 +4,7 @@ namespace CityDino
 {
     public enum BossPhase { None, Intro, Fighting, Victory }
     public enum BossKind { Tank, Sentinel, Gunship }
-    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone }
+    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone, DroneLow }
 
     /// <summary>Visible body and combat state; all coordinates use the runner's bottom-up world space.</summary>
     public sealed class BossEncounter
@@ -19,6 +19,11 @@ namespace CityDino
         public bool Vulnerable;
         public string AttackName = "";
         public float AttackProgress;
+        public int RageLevel = 1;
+        public float HitFlashRemaining;
+        public float ShotFlashRemaining;
+        public float LandingFlashRemaining;
+        public float Recoil;
     }
 
     public sealed class BossProjectile
@@ -34,6 +39,7 @@ namespace CityDino
         public float VelocityY;
         public bool Removed;
         public float Lifetime = 8f;
+        public int SourceTelegraphId;
     }
 
     /// <summary>Warning first, then an optional live beam or ground blast in this exact rectangle.</summary>
@@ -48,5 +54,8 @@ namespace CityDino
         public float Remaining;
         public float Duration;
         public bool Active;
+        public float DelayRemaining;
+        public int SourceTelegraphId;
+        public bool Visible { get { return DelayRemaining <= 0f; } }
     }
 }

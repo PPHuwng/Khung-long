@@ -288,7 +288,7 @@ namespace CityDino
             if (Button(new Rect(98, 534, 130, 52), "Nhân vật", ink, cream, 16)) OpenCharacters();
             if (Button(new Rect(242, 534, 130, 52), "Cửa hàng", ink, cream, 16)) showShop = true;
             if (Button(new Rect(386, 534, 130, 52), "Thành tích", new Color32(231, 231, 215, 255), ink, 16)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 08  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 09  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), RunnerSession.CharacterName(session.Save.SelectedCharacter) + " · SẴN SÀNG ĐẤU BOSS", 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -473,11 +473,15 @@ namespace CityDino
             Box(new Rect(340, 148, 664, 17), new Color32(61, 78, 84, 255));
             float fraction = boss.MaxHealth > 0 ? Mathf.Clamp01((float)boss.Health / boss.MaxHealth) : 0f;
             if (fraction > 0)
-                Box(new Rect(340, 148, 664 * fraction, 17), boss.Vulnerable ? new Color32(239, 153, 93, 255) : new Color32(130, 165, 183, 255));
+                Box(new Rect(340, 148, 664 * fraction, 17), boss.Vulnerable
+                    ? boss.RageLevel >= 3 ? new Color32(246, 100, 78, 255) : new Color32(239, 153, 93, 255)
+                    : new Color32(130, 165, 183, 255));
             Text(new Rect(1028, 142, 190, 27), Mathf.CeilToInt(boss.Health) + " / " + Mathf.CeilToInt(boss.MaxHealth), 17, cream, FontStyle.Bold, TextAnchor.MiddleRight);
+            string phase = "PHA " + boss.RageLevel + (boss.RageLevel >= 3 ? " · CUỒNG NỘ" : "");
             string status = session.ArenaPhase == BossPhase.Intro ? "CHUẨN BỊ · CẢ BA NHÂN VẬT ĐỀU BẮN ĐƯỢC"
                 : session.ArenaPhase == BossPhase.Victory ? "ĐÃ HẠ BOSS · CHUẨN BỊ TRỞ LẠI ĐƯỜNG CHẠY"
-                : boss.Vulnerable ? "LÕI ĐANG HỞ · GIỮ J HOẶC NÚT BẮN" : "QUAN SÁT DẤU BÁO VÀ NÉ ĐÒN";
+                : phase + " · " + boss.AttackName + (boss.Vulnerable
+                    ? " · LÕI HỞ: GIỮ J HOẶC NÚT BẮN" : " · CANH DẤU BÁO VÀ NÉ ĐÒN");
             Text(new Rect(58, 177, 1158, 18), status, 12, cream, FontStyle.Bold, TextAnchor.MiddleCenter);
         }
 

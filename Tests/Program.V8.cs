@@ -303,7 +303,7 @@ internal static partial class Program
         for(int i=0;i<120*12;i++)
         {
             foreach(BossTelegraph mark in run.BossTelegraphs)
-                if(!mark.Active&&seen.Add(mark.Id)){starts.Add(run.BossElapsed);warning=mark.Duration;}
+                if(mark.Visible&&!mark.Active&&seen.Add(mark.Id)){starts.Add(run.BossElapsed);warning=mark.Duration;}
             foreach(BossProjectile shot in run.BossProjectiles)
                 if(!shot.Friendly&&shot.Kind==BossAttackKind.Cannon)velocity=shot.VelocityX;
             CombatBotInput(run,false);run.Update(1f/120);
@@ -318,67 +318,140 @@ internal static partial class Program
         float[] normal=CaptureBossPace(0),fast=CaptureBossPace(3600);
         Near(normal[0],fast[0],.001f,"Stored run speed shortened boss warning");
         Near(normal[1],fast[1],.001f,"Stored run speed accelerated boss projectiles");
-        Near(normal[2],fast[2],.025f,"Stored run speed accelerated first combat attack cycle");
-        Near(normal[3],fast[3],.025f,"Stored run speed accelerated subsequent combat attack cycle");
+        Near(normal[2],fast[2],.025f,"Stored run speed accelerated first visible attack-wave interval");
+        Near(normal[3],fast[3],.025f,"Stored run speed accelerated subsequent visible attack-wave interval");
     }
 
     private static void CombatBotInput(RunnerSession run, bool shoot)
     {
         run.SetShooting(shoot);
-        bool high=run.BossTelegraphs.Any(m=>m.Kind==BossAttackKind.LaserHigh&&(m.Active||m.Remaining<.65f));
-        bool low=run.BossTelegraphs.Any(m=>m.Kind==BossAttackKind.LaserLow&&(m.Active||m.Remaining<.32f));
+        bool high=run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserHigh&&(m.Active||m.Remaining<.65f));
+        bool low=run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserLow&&(m.Active||m.Remaining<.32f));
         bool drone=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&p.Kind==BossAttackKind.Drone&&
-            p.X+p.Width>run.PlayerX-80&&p.X<run.PlayerX+400);
-        float direction=0;
+            p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+125);
+        // Select a genuinely clear interval across the whole visible salvo.
+        // Choosing the last marker's escape side can oscillate between two
+        // simultaneous artillery zones even though either outer lane is safe.
+        var danger = new List<Tuple<float,float>>();
+        float threatTime=float.PositiveInfinity;
+        float bodyTop=run.PlayerY+(run.IsDucking?RunnerSession.DuckHeight:RunnerSession.StandingHeight);
+        void AddDanger(float left,float right,float seconds)
+        {
+            if(run.CurrentBoss.Kind==BossKind.Gunship&&seconds>.3f)return;
+            danger.Add(Tuple.Create(left,right));
+            if(run.PlayerX>left&&run.PlayerX<right)threatTime=Math.Min(threatTime,seconds);
+        }
         foreach(BossTelegraph mark in run.BossTelegraphs)
-            if((mark.Kind==BossAttackKind.Artillery||mark.Kind==BossAttackKind.Missile)&&
-                run.PlayerX>mark.X-65&&run.PlayerX<mark.X+mark.Width+65)
-                direction=EscapeDirection(run.PlayerX,mark.X,mark.Width);
+            if(mark.Visible&&(mark.Kind==BossAttackKind.Artillery||mark.Kind==BossAttackKind.Missile)&&
+                (run.CurrentBoss.Kind==BossKind.Gunship||mark.Active||mark.Remaining<.4f))
+            {
+                float fall=mark.Kind==BossAttackKind.Artillery?485f:620f;
+                float pace=1f+Math.Min(.3f,((run.BossNumber-1)/3)*.04f)+(run.CurrentBoss.RageLevel-1)*.08f;
+                float until=mark.Active?0:mark.Remaining+Math.Max(0,430f-bodyTop)/(fall*pace);
+                AddDanger(mark.X-60f,mark.X+mark.Width+60f,until);
+            }
         foreach(BossProjectile p in run.BossProjectiles)
-            if(!p.Friendly&&!p.Removed&&(p.Kind==BossAttackKind.Artillery||p.Kind==BossAttackKind.Missile)&&
-                run.PlayerX>p.X-65&&run.PlayerX<p.X+p.Width+65)
-                direction=EscapeDirection(run.PlayerX,p.X,p.Width);
+            if(!p.Friendly&&!p.Removed&&(p.Kind==BossAttackKind.Artillery||p.Kind==BossAttackKind.Missile))
+            {
+                float blastWidth=p.Kind==BossAttackKind.Artillery?100f:78f;
+                float centre=p.X+p.Width*.5f;
+                float until=Math.Max(0,p.Y-bodyTop)/Math.Max(1f,-p.VelocityY);
+                AddDanger(centre-blastWidth*.5f-60f,centre+blastWidth*.5f+60f,until);
+            }
+        float direction=0,escapeTime=0;
+        if(danger.Any(d=>run.PlayerX>d.Item1&&run.PlayerX<d.Item2))
+        {
+            float best=float.PositiveInfinity,target=run.PlayerX;
+            for(float candidate=RunnerSession.MinimumPlayerX;candidate<=RunnerSession.MaximumPlayerX;candidate+=5f)
+            {
+                if(danger.Any(d=>candidate>d.Item1-4&&candidate<d.Item2+4))continue;
+                float cost=Math.Abs(candidate-run.PlayerX);
+                if(cost<best){best=cost;target=candidate;}
+            }
+            if(float.IsInfinity(best))
+                target=run.PlayerX<410?RunnerSession.MinimumPlayerX:RunnerSession.MaximumPlayerX;
+            direction=target<run.PlayerX?-1:target>run.PlayerX?1:0;
+            escapeTime=Math.Abs(target-run.PlayerX)/RunnerSession.HorizontalSpeed;
+        }
+        // Prioritize the next real intersection, not every future marker at
+        // once. A far-future missile must not force crossing a current blast.
+        bool droneWave=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&
+            (p.Kind==BossAttackKind.Drone||p.Kind==BossAttackKind.DroneLow)&&
+            p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+500);
+        if(droneWave&&threatTime>escapeTime+.22f)direction=0;
+        // A forward combat lane also meets stomp waves sooner, before the
+        // next full-width laser sequence. Move there using ordinary A/D input
+        // instead of assuming the far-left corner is safe for every combo.
+        if(danger.Count==0&&run.CurrentBoss.Kind==BossKind.Sentinel)
+            direction=run.PlayerX<594?1:run.PlayerX>606?-1:0;
         run.SetHorizontal(direction);
         run.SetDucking(high||drone);
         bool groundThreat=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&
-            (p.Kind==BossAttackKind.Cannon||p.Kind==BossAttackKind.Shockwave)&&
-            p.X+p.Width>run.PlayerX-80&&p.X<run.PlayerX+110);
+            (p.Kind==BossAttackKind.Cannon||p.Kind==BossAttackKind.Shockwave||p.Kind==BossAttackKind.DroneLow)&&
+            p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+110);
+        // If a trailing high drone catches the descending part of a jump,
+        // use the available second jump to remain above its visible lane.
+        // Grounded players still crouch; this does not invent an air-crouch.
+        if(drone&&run.PlayerY>90&&run.PlayerY<150&&run.VelocityY<0)run.Jump();
         if(!high&&!drone&&(low||groundThreat))
         {
             if(run.PlayerY<=.01f)run.Jump();
-            else if(groundThreat&&run.VelocityY<0&&run.PlayerY<105)run.Jump();
+            else if((NeedsGroundAirExtensionV9(run)||NeedsLowAirExtensionV9(run))&&run.VelocityY<0&&run.PlayerY<105)run.Jump();
         }
     }
 
+    private sealed class BossWarningObservation
+    {
+        public float Began,Duration,X,Width;
+        public BossAttackKind Kind;
+    }
     private static void BossAttackSignalsV8()
     {
         int projectiles=0,beams=0;
         for(int number=1;number<=3;number++)
         {
             RunnerSession run=EnterBossFixture(number);ReachFighting(run);
-            var warned=new Dictionary<BossAttackKind,float>();var appeared=new HashSet<int>();var kinds=new HashSet<BossAttackKind>();
-            // Hold fire for pattern coverage, so every attack rotation runs at
-            // full HP, then stage the below-half-health phase independently.
-            for(int i=0;i<120*35;i++)
+            var warned=new Dictionary<int,BossWarningObservation>();var appeared=new HashSet<int>();var kinds=new HashSet<BossAttackKind>();
+            // Hold fire for pattern coverage; health staging explicitly tests
+            // all three attack phases, not a full-health victory.
+            for(int i=0;i<120*40;i++)
             {
-                if(i==120*18)run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.45f;
+                if(i==120*13)run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.5f;
+                if(i==120*26)run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
                 foreach(BossTelegraph mark in run.BossTelegraphs)
                 {
+                    if(!mark.Visible)continue;
                     if(!mark.Active)
                     {
-                        Check(mark.Duration>=.8f&&mark.Remaining<=mark.Duration+.02f,"Boss attack warning too short or invalid");
-                        warned[mark.Kind]=run.BossElapsed; kinds.Add(mark.Kind);
+                        Check(mark.Duration>=.65f&&mark.Remaining<=mark.Duration+.02f,"Boss attack warning too short or invalid");
+                        if(!warned.ContainsKey(mark.Id))warned.Add(mark.Id,new BossWarningObservation {
+                            Began=run.BossElapsed-(mark.Duration-mark.Remaining),Duration=mark.Duration,
+                            X=mark.X,Width=mark.Width,Kind=mark.Kind });
+                        kinds.Add(mark.Kind);
                     }
                     else if(appeared.Add(mark.Id))
                     {
-                        Check(warned.ContainsKey(mark.Kind),"Active beam/blast appeared without visible warning: "+mark.Kind);
-                        Check(mark.Width>0&&mark.Height>0&&mark.Remaining>0,"Active beam has invalid physical shape"); beams++;
+                        BossWarningObservation signal;
+                        Check(mark.SourceTelegraphId>0&&warned.TryGetValue(mark.SourceTelegraphId,out signal),
+                            "Active beam/blast appeared without its own visible warning: "+mark.Kind);
+                        signal=warned[mark.SourceTelegraphId];
+                        Check(signal.Kind==mark.Kind&&run.BossElapsed-signal.Began>=signal.Duration-.025f,
+                            "Live beam/blast skipped its source warning duration");
+                        if(mark.Kind==BossAttackKind.Artillery||mark.Kind==BossAttackKind.Missile)
+                            Check(mark.X>=signal.X-.01f&&mark.X+mark.Width<=signal.X+signal.Width+.01f,
+                                "Actual explosion extends beyond its marked ground footprint");
+                        Check(mark.Width>0&&mark.Height>0&&mark.Remaining>0,"Active beam has invalid physical shape");beams++;
                     }
                 }
                 foreach(BossProjectile shot in run.BossProjectiles.Where(p=>!p.Friendly&&!p.Removed))
                     if(appeared.Add(shot.Id))
                     {
-                        Check(warned.ContainsKey(shot.Kind),"Enemy shot appeared without attack warning: "+shot.Kind);
+                        BossWarningObservation signal;
+                        Check(shot.SourceTelegraphId>0&&warned.TryGetValue(shot.SourceTelegraphId,out signal),
+                            "Enemy wave lacks its own visible telegraph: "+shot.Kind);
+                        signal=warned[shot.SourceTelegraphId];
+                        Check(signal.Kind==shot.Kind&&run.BossElapsed-signal.Began>=signal.Duration-.025f,
+                            "Enemy wave activated before its own warning completed");
                         Check(shot.Width>0&&shot.Height>0&&Math.Abs(shot.VelocityX)+Math.Abs(shot.VelocityY)>0,"Enemy projectile never moves");
                         projectiles++;
                     }
@@ -386,11 +459,11 @@ internal static partial class Program
                 Check(run.State==RunState.Playing&&run.Lives==1,"Pattern bot took damage on "+run.CurrentBoss.Kind+" at "+run.BossElapsed+"s "+ArenaDescription(run));
             }
             BossAttackKind[] expected=number==1?new[]{BossAttackKind.Cannon,BossAttackKind.Artillery}:
-                number==2?new[]{BossAttackKind.LaserLow,BossAttackKind.LaserHigh,BossAttackKind.Shockwave}:new[]{BossAttackKind.Missile,BossAttackKind.Drone};
+                number==2?new[]{BossAttackKind.LaserLow,BossAttackKind.LaserHigh,BossAttackKind.Shockwave}:new[]{BossAttackKind.Missile,BossAttackKind.Drone,BossAttackKind.DroneLow};
             foreach(BossAttackKind kind in expected)Check(kinds.Contains(kind),"Boss omitted its promised attack: "+kind);
         }
-        Check(projectiles>=15&&beams>=4,"Boss warning audit omitted attack cycles");
-        Console.WriteLine("  Boss pattern audit: "+projectiles+" actual enemy shots and "+beams+" active beams/blasts after warnings.");
+        Check(projectiles>=25&&beams>=10,"Boss warning audit omitted attack cycles");
+        Console.WriteLine("  Boss pattern audit: "+projectiles+" actual enemy shots and "+beams+" active beams/blasts each linked to their own completed visible warning.");
     }
 
     private static string ArenaDescription(RunnerSession run)
@@ -408,14 +481,17 @@ internal static partial class Program
             RunnerSession run=EnterBossFixture(number);ReachFighting(run);
             Check(run.CurrentCharacter==CharacterKind.Classic&&run.Lives==1&&run.CurrentBoss.Health==run.CurrentBoss.MaxHealth,"Classic victory fixture altered health or granted advantages");
             float start=run.BossElapsed;int score=run.Score;float full=run.CurrentBoss.MaxHealth;int shots=0;
+            var recent=new Queue<string>();var seenRage=new HashSet<int>();
             for(int i=0;i<120*100&&run.ArenaPhase==BossPhase.Fighting&&run.State==RunState.Playing;i++)
             {
-                shots=Math.Max(shots,run.BossProjectiles.Count(p=>p.Friendly));
+                seenRage.Add(run.CurrentBoss.RageLevel);shots=Math.Max(shots,run.BossProjectiles.Count(p=>p.Friendly));
+                if(i%30==0){recent.Enqueue(run.BossElapsed.ToString("0.00")+" "+ArenaDescription(run));while(recent.Count>16)recent.Dequeue();}
                 CombatBotInput(run,true);run.Update(1f/120);
-                Check(run.State==RunState.Playing&&run.Lives==1,"Free Classic hit during full boss fight #"+number+" at "+run.BossElapsed+" "+ArenaDescription(run));
+                Check(run.State==RunState.Playing&&run.Lives==1,"Free Classic hit during full boss fight #"+number+" at "+run.BossElapsed+" "+ArenaDescription(run)+"\nRecent: "+string.Join("\n",recent));
                 Check(run.Score==score,"Shooting boss farmed running points");
             }
             Check(run.ArenaPhase==BossPhase.Victory&&run.CurrentBoss.Health==0&&shots>0,"Free Classic failed to defeat full-health "+run.CurrentBoss.Kind);
+            Check(seenRage.SetEquals(new[]{1,2,3}),"Full-health fight skipped a real rage phase");
             float time=run.BossElapsed-start;longest=Math.Max(longest,time);
             Check(time>=15&&time<90&&full>=500,"Boss ended instantly or became an excessively long damage sponge");
             Console.WriteLine("  Classic defeated "+run.CurrentBoss.Kind+" from "+full+" HP in "+time.ToString("0.0")+" combat seconds with real shots, no damage or skill.");

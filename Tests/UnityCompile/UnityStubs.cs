@@ -184,6 +184,7 @@ namespace UnityEngine
         public static int Max(int a, int b) { return Math.Max(a,b); }
         public static float Abs(float x) { return Math.Abs(x); }
         public static float Sin(float x) { return (float)Math.Sin(x); }
+        public static float Cos(float x) { return (float)Math.Cos(x); }
         public static float Sqrt(float x) { return (float)Math.Sqrt(x); }
         public static float Pow(float x,float y) { return (float)Math.Pow(x,y); }
         public static float Sign(float x) { return Math.Sign(x); }

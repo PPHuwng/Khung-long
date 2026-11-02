@@ -10,7 +10,7 @@ Game Unity 2D chạy vô tận: khủng long di chuyển trái/phải, nhảy k�
 4. Mở `Assets/CityDino/Scenes/CityRunner.unity`, hoặc menu **City Dino → Open City Runner Scene**, rồi nhấn **Play**.
 5. Chọn tab **Game**, tỷ lệ **16:9**, ví dụ 1280 × 720. Giao diện tự co theo cửa sổ; điện thoại dùng màn hình ngang.
 
-**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 08**.
+**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 09**.
 
 Scene mới đứng đầu Build Settings. Chạy `Assets/Scenes/SampleScene.unity` cũ cũng được bootstrap sang game mới, không cần gán prefab hoặc UI. Cấu hình gốc, định danh ứng dụng, layer và Input System actions được giữ lại. **Active Input Handling = Both** để các menu IMGUI hoạt động cùng Input System của gameplay.
 
@@ -67,7 +67,7 @@ Ba loại mở sau **15 giây tổng thời gian chạy**. Khi vào map tương 
 
 Mua/chọn trong cửa sổ **Nhân vật** ở menu hoặc cửa hàng. Mua một lần mở vĩnh viễn và tự trang bị; không mất nhân vật khi chết. Không đổi nhân vật giữa lượt. Mua/chọn sau khi chết chuẩn bị lượt tới, hình của lượt vừa chết được giữ nguyên. Giáp/lướt không cứu rơi hố hoặc cạn nước/giữ ấm. Kỹ năng ưu tiên trước khiên tiêu hao; giữ nguyên luật tim dùng theo lượt. Hồi chiêu chạy trong cả đường chạy lẫn đấu trường và đứng yên khi pause. Nhân vật có ảnh chạy, cúi và nhảy riêng; hình và va chạm dùng cùng vị trí/đường bao alpha, không chỉ đổi màu con gốc.
 
-## Boss tại mốc điểm BẢN 08
+## Boss tại mốc điểm — cập nhật BẢN 09
 
 Boss xuất hiện mỗi **10.000 điểm hiển thị**: 10k, 20k, 30k…; ×2 điểm giúp đến mốc sớm hơn. Mỗi mốc kích hoạt đúng một lần. Cảnh chuyển vào đấu trường dài 1,8 giây; mặt đường phẳng, không có hố hoặc thời tiết che đòn.
 
@@ -77,7 +77,14 @@ Boss xuất hiện mỗi **10.000 điểm hiển thị**: 10k, 20k, 30k…; ×2 
 | 20k | Vệ binh G-02 / nhà máy | Laser thấp/cao để nhảy/cúi; sóng dậm đất. |
 | 30k | Trực thăng H-03 / sân thượng | Tên lửa đánh dấu vị trí; drone quét ngang. |
 
-Giữ **J / BẮN** để bắn đạn năng lượng tự hướng tới boss, cả ba nhân vật dùng cùng cơ chế. Có nhịp bắn 0,24 giây; mỗi viên trúng lúc lõi mở gây 8 sát thương. Boss đổi giữa giáp và hở lõi, thể hiện bằng màu/lớp khóa ở lõi; dưới nửa máu tăng nhịp và có đợt đạn kép. Mọi đòn nguy hiểm có vùng báo trước, tối thiểu 0,8 giây; nhịp trận độc lập với tốc độ chạy. Mục tiêu cơ bản có máu 750 / 840 / 800, người chơi Cổ Dài vẫn có thể thắng bằng né và bắn. Sau ba boss đầu, xáo đủ ba loại và tránh lặp liền nhau; tăng máu/nhịp vừa phải có giới hạn.
+Giữ **J / BẮN** để bắn đạn năng lượng tự hướng tới boss, cả ba nhân vật dùng cùng cơ chế. Có nhịp bắn 0,24 giây; mỗi viên trúng lúc lõi mở gây 8 sát thương. Boss đổi giữa giáp và hở lõi, thể hiện bằng màu/lớp khóa ở lõi. BẢN 09 có ba pha theo máu: trên 65%, trên 35% đến 65% và không quá 35%; pha cuối hiện CUỒNG NỘ trên HUD. Chu kỳ chọn chuỗi đòn lần lượt 3,7 / 3,25 / 2,9 giây; mỗi pha tăng độ phức tạp. Mọi đợt nguy hiểm có dấu báo riêng, nhìn thấy ít nhất 0,7 giây trước khi kích hoạt; đòn được xếp chờ chưa đến lượt không vẽ dấu báo hoặc gây sát thương. Nhịp trận độc lập với tốc độ chạy. Mục tiêu cơ bản có máu 750 / 840 / 800, người chơi Cổ Dài vẫn có thể thắng bằng né và bắn. Sau ba boss đầu, xáo đủ ba loại và tránh lặp liền nhau; tăng máu/nhịp vừa phải có giới hạn.
+
+BẢN 09 bổ sung chuyển động và phản ứng chiến đấu:
+
+- **Xe tăng:** tuần tra, tiến lên rồi lùi, giật khi khai hỏa; loạt pháo tăng từ 2 lên 3 rồi 4 viên, các đợt pháo khóa 1–3 vị trí dồn dập hơn theo pha.
+- **Vệ binh:** chuyển vị trí, bật lên rồi đáp khi dậm đất; ghép laser thấp/cao với sóng dậm theo chuỗi có thời gian chuyển tư thế.
+- **Trực thăng:** đảo ngang và thay đổi độ cao trong vùng không bị HUD che, thả 1–3 tên lửa theo đợt và drone quét cao/thấp cần đổi cúi/nhảy.
+- **Hiệu ứng:** xích/cơ cấu chuyển động, cánh quạt, luồng động cơ, tích năng, chớp nòng, lóe khi trúng đạn, bụi đáp và tia lửa khi bị hạ. Hình boss dùng chính X/Y đang mô phỏng; hiệu ứng không làm hình lệch vùng trúng đạn. Pause/chết giữ nguyên cả chuyển động và hiệu ứng.
 
 Trong đấu trường, **điểm, số mét, tốc độ chạy, đồng hồ đổi map, hao/hồi nước/giữ ấm và thời lượng ×2/nam châm đều đóng băng**. Đạn, chiêu boss, hồi chiêu nhân vật và thời gian miễn thương dùng đồng hồ chiến đấu riêng. Tim và khiên đang có được mang vào; không tự hồi tim khi vào boss. Hết mạng kết thúc lượt như cũ; Pause đóng băng cả trận.
 
@@ -146,9 +153,9 @@ Windows có thể dùng `dotnet run --project Tests/RunnerCore.Tests.csproj --co
 
 Môi trường đám mây **không có Unity Editor**. Stub kiểm tra biên dịch, phép toán input và lệnh vẽ; không chạy Play Mode, raster hoá ảnh, âm thanh, cảm ứng thật hoặc build Unity. Cần thử trong Unity:
 
-1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 08 và tiếng Việt đầy đủ.
+1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 09 và tiếng Việt đầy đủ.
 2. Trái/phải, nhảy kép, cúi, đa chạm và pause; cửa hàng không bấm xuyên.
 3. Tuyết trượt/cốc nóng/băng rơi, nắng/nước/khe phun, gió/hố đôi/cầu sập, đêm đen 2–3 giây, bão nháy có mưa/sấm/biển cuốn. Thử lúc cảnh báo, đang kích hoạt và khoảng tắt để phân biệt vùng thật gây sát thương.
 4. Giá tim theo số mua, kho hàng lưu khi đóng game và dùng ở lượt sau; nâng thời lượng, ×2, nam châm và khiên.
-5. Mua/chọn hai nhân vật, kiểm tra mở khóa vẫn giữ khi đóng/mở game; mỗi con dùng đúng kỹ năng, cả ba chỉ bắn được trong boss. Tới mốc boss, kiểm tra điểm/tốc độ/tài nguyên đứng yên; thắng thưởng sao một lần và quay lại an toàn.
+5. Mua/chọn hai nhân vật, kiểm tra mở khóa vẫn giữ khi đóng/mở game; mỗi con dùng đúng kỹ năng, cả ba chỉ bắn được trong boss. Tới mốc boss, kiểm tra điểm/tốc độ/tài nguyên đứng yên, chuyển động/hiệu ứng của ba boss và các pha 65%/35%; thắng thưởng sao một lần và quay lại an toàn.
 6. Hoạt ảnh chạy mới: nhịp chân rõ, đầu/chân không giật, menu và trong lượt đều dùng ảnh mới; thử cưa lúc chạy/nhảy/cúi, hai hướng và nhiều kích thước Game View. Hết mạng dừng và lưu đúng một lần; chơi lại giữ ví/kỷ lục.

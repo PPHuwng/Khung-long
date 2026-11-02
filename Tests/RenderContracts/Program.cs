@@ -37,6 +37,12 @@ internal static class Program
         Test("boss projectiles and attack telegraphs use exact live collision rectangles",BossAttackGeometry);
         Test("boss weak point clearly changes between protected and vulnerable states",BossWeakPoint);
         Test("boss arena effects and dead encounter remain frozen with gameplay",ArenaLifecycle);
+        Test("live boss entry, motion and recoil preserve exact physical sprites",DynamicBossBodies);
+        Test("tank treads, robot servos and helicopter rotors animate within a fixed body",BossMechanicalAnimation);
+        Test("actual boss hits and enemy fire trigger feedback that freezes with gameplay",BossHitAndFireFeedback);
+        Test("defeated bosses show timed destruction that freezes when paused",BossVictoryFeedback);
+        Test("queued boss attacks remain hidden until distinct harmless warnings begin",BossQueuedWarnings);
+        Test("combat HUD identifies all rage phases and the active attack",BossRageHud);
         Test("purchased characters draw every pose and facing from their own atlases",CharacterSprites);
         Test("companion collision silhouettes follow independent opaque and clear PNG samples",CharacterAlphaContacts);
         Test("character previews use the same atlas pose and physical layout",CharacterPreviews);
@@ -848,6 +854,208 @@ internal static class Program
             Check(underlying.Count>=2&&underlying.All(d=>!d.Enabled),modal+" leaves an underlying action button clickable");
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Text=="×"&&d.Enabled),modal+" accidentally disables its own close button");
             Check(GUI.enabled,"Modal drawing left GUI disabled for the next frame");
+        }
+    }
+
+    // V9 rendering checks isolate draw geometry/feedback; the arena fixture
+    // suppresses player damage only so long animation sampling does not end it.
+    // Full-health one-heart boss solutions are covered by the core suite.
+    private static RunnerSession DynamicArenaFixture(BossKind kind)
+    {
+        RunnerSession run=NewCharacter(CharacterKind.Classic);
+        Field(run,"distanceToPattern",float.MaxValue);Field(run,"nextHeartAt",float.MaxValue);
+        int milestone=((int)kind+1)*10000;
+        Field(run,"<BossNumber>k__BackingField",(int)kind);
+        Field(run,"<NextBossScore>k__BackingField",milestone);
+        Field(run,"distanceClock",milestone*20d-1d);Set(run,"Distance",milestone*20-1);run.Update(.02f);
+        Check(run.IsBossArena&&run.CurrentBoss.Kind==kind,"Dynamic fixture selected the wrong real boss");
+        Set(run,"InvincibleRemaining",1000f);return run;
+    }
+    private static void AssertBossBody(RunnerWorldView view,RunnerArt art,RunnerSession run,Matrix4x4 canvas)
+    {
+        Draw(view,run,canvas);BossEncounter boss=run.CurrentBoss;
+        RecordedDraw image=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BossAtlas);
+        Rect expected=new Rect(boss.X,RunnerSession.GroundY-boss.Y-boss.Height,boss.Width,boss.Height);
+        Check(SameRect(image.Position,expected),"Animated/recoiling boss image left its live physical rectangle");
+        Point(image.Matrix.MultiplyPoint3x4(new Vector3(expected.x,expected.y,0)),
+            canvas.MultiplyPoint3x4(new Vector3(expected.x,expected.y,0)),"Boss top-left acquired decorative rotation/translation");
+        Point(image.Matrix.MultiplyPoint3x4(new Vector3(expected.xMax,expected.yMax,0)),
+            canvas.MultiplyPoint3x4(new Vector3(expected.xMax,expected.yMax,0)),"Boss lower corner acquired decorative rotation/scale");
+    }
+    private static void DynamicBossBodies()
+    {
+        var art=new RunnerArt();
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=DynamicArenaFixture(kind);float firstX=run.CurrentBoss.X;
+            foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})AssertBossBody(view,art,run,canvas);
+            for(int i=0;i<8;i++)run.Update(.125f);
+            Check(Math.Abs(run.CurrentBoss.X-firstX)>30,"Boss did not visibly enter from outside the arena: "+kind);
+            for(int i=0;i<300&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+            Check(run.ArenaPhase==BossPhase.Fighting,"Dynamic boss intro never completed");
+            float minX=float.PositiveInfinity,maxX=float.NegativeInfinity,minY=float.PositiveInfinity,maxY=float.NegativeInfinity;
+            foreach(float fraction in new[]{1f,.5f,.25f})
+            {
+                run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*fraction;
+                for(int i=0;i<24;i++)
+                {
+                    run.Update(.125f);BossEncounter boss=run.CurrentBoss;
+                    Check(boss.RageLevel==(fraction>.65f?1:fraction>.35f?2:3),"Rendered rage state differs from health phase");
+                    minX=Math.Min(minX,boss.X);maxX=Math.Max(maxX,boss.X);minY=Math.Min(minY,boss.Y);maxY=Math.Max(maxY,boss.Y);
+                    foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})AssertBossBody(view,art,run,canvas);
+                }
+            }
+            Check(maxX-minX>8,"Boss stayed horizontally static during real combat: "+kind);
+            if(kind!=BossKind.Tank)Check(maxY-minY>8,"Boss flight/step/stomp stayed vertically static: "+kind);
+        }
+    }
+    private static void DrawBossBodyOnly(RunnerWorldView view,RunnerSession run,float clock)
+    {
+        GUI.DrawCalls.Clear();GUI.color=Color.white;GUI.matrix=Canvas(1);
+        typeof(RunnerWorldView).GetMethod("DrawBossBody",Private).Invoke(view,
+            new object[]{run.CurrentBoss,run.ArenaPhase,clock,run.BossPhaseRemaining});
+    }
+    private static List<RecordedDraw> MechanicalMarks(BossEncounter boss)
+    {
+        Rect rect=new Rect(boss.X,RunnerSession.GroundY-boss.Y-boss.Height,boss.Width,boss.Height);
+        return GUI.DrawCalls.Where(d=>d.Texture==Texture2D.whiteTexture&&
+            (boss.Kind==BossKind.Tank
+                ? d.Position.width==8&&d.Position.height<=3&&d.Position.y>rect.yMax-35&&d.Position.y<rect.yMax
+                : boss.Kind==BossKind.Sentinel
+                    ? d.Position.height==2&&d.Color.b>.75f&&d.Color.g>.7f&&d.Centre.y>rect.yMax-50&&d.Centre.y<rect.yMax
+                    : d.Position.width>rect.width*.5f&&d.Position.height<=3&&d.Centre.y>rect.y&&d.Centre.y<rect.y+rect.height*.15f)).ToList();
+    }
+    private static string MarksSignature(IEnumerable<RecordedDraw> marks)
+    {
+        return string.Join(";",marks.Select(d=>d.Position.x+":"+d.Position.y+":"+d.Position.width+":"+d.Centre.x+":"+d.Centre.y));
+    }
+    private static void BossMechanicalAnimation()
+    {
+        var art=new RunnerArt();
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=ArenaFixture(kind);BossEncounter boss=run.CurrentBoss;
+            boss.HitFlashRemaining=boss.ShotFlashRemaining=boss.LandingFlashRemaining=0;boss.RageLevel=2;boss.Vulnerable=false;
+            DrawBossBodyOnly(view,run,.21f);List<RecordedDraw> first=MechanicalMarks(boss);
+            Check(first.Count>=(kind==BossKind.Tank?12:2),"Boss lacks visible tread/servo/rotor mechanics: "+kind);
+            string before=MarksSignature(first);DrawBossBodyOnly(view,run,.68f);
+            Check(MarksSignature(MechanicalMarks(boss))!=before,"Mechanical animation only moves background or body: "+kind);
+            RecordedDraw body=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BossAtlas);
+            Check(SameRect(body.Position,new Rect(boss.X,RunnerSession.GroundY-boss.Y-boss.Height,boss.Width,boss.Height)),"Mechanical overlay moved boss image away from body");
+        }
+    }
+    private static void BossHitAndFireFeedback()
+    {
+        var art=new RunnerArt();
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=DynamicArenaFixture(kind);
+            for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+            BossEncounter boss=run.CurrentBoss;float initialHealth=boss.Health;
+            run.SetShooting(true);
+            for(int i=0;i<2400&&(boss.Health==initialHealth||boss.HitFlashRemaining<=0);i++)run.Update(1f/120);
+            run.SetShooting(false);
+            Check(boss.Health<initialHealth&&boss.HitFlashRemaining>0,"Real friendly shot did not trigger boss hit feedback: "+kind);
+            float hit=boss.HitFlashRemaining;
+            DrawBossBodyOnly(view,run,run.BossElapsed);RecordedDraw flashing=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BossAtlas);int impactCount=GUI.DrawCalls.Count;
+            boss.HitFlashRemaining=0;DrawBossBodyOnly(view,run,run.BossElapsed);RecordedDraw neutral=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BossAtlas);
+            Check(Math.Abs(flashing.Color.g-neutral.Color.g)+Math.Abs(flashing.Color.b-neutral.Color.b)>.05f,"Hit flash does not visibly change the body tint");
+            Check(impactCount>=GUI.DrawCalls.Count+8,"Real hit produces no visible impact sparks");boss.HitFlashRemaining=hit;
+            for(int i=0;i<2400&&boss.ShotFlashRemaining<=0;i++)run.Update(1f/120);
+            Check(boss.ShotFlashRemaining>0,"Real enemy release never triggered muzzle feedback: "+kind);
+            float shot=boss.ShotFlashRemaining;DrawBossBodyOnly(view,run,run.BossElapsed);int firingCount=GUI.DrawCalls.Count;
+            boss.ShotFlashRemaining=0;DrawBossBodyOnly(view,run,run.BossElapsed);
+            Check(firingCount>=GUI.DrawCalls.Count+5,"Boss fire has no muzzle flash/smoke");boss.ShotFlashRemaining=shot;
+            if(kind==BossKind.Sentinel)
+            {
+                for(int i=0;i<3600&&boss.LandingFlashRemaining<=0;i++)run.Update(1f/120);
+                Check(boss.LandingFlashRemaining>0,"Actual robot stomp never triggers landing feedback");
+                float landing=boss.LandingFlashRemaining;DrawBossBodyOnly(view,run,run.BossElapsed);int landingCount=GUI.DrawCalls.Count;
+                boss.LandingFlashRemaining=0;DrawBossBodyOnly(view,run,run.BossElapsed);
+                Check(landingCount>=GUI.DrawCalls.Count+9,"Stomping robot has no visible ground dust/impact");boss.LandingFlashRemaining=landing;
+            }
+            Draw(view,run,Canvas(1));run.TogglePause();GUI.DrawCalls.Clear();view.Draw(run,1000);string paused=DrawSignature();
+            float clock=run.BossElapsed,pausedHit=boss.HitFlashRemaining,pausedShot=boss.ShotFlashRemaining;run.Update(5);GUI.DrawCalls.Clear();view.Draw(run,2000);
+            Check(DrawSignature()==paused&&run.BossElapsed==clock&&boss.HitFlashRemaining==pausedHit&&boss.ShotFlashRemaining==pausedShot,"Impact/fire feedback advanced while paused");
+            run.TogglePause();typeof(RunnerSession).GetMethod("FinishRun",Private).Invoke(run,new object[]{"Fixture stops real impact feedback"});
+            Draw(view,run,Canvas(1));string dead=DrawSignature();run.Update(5);GUI.DrawCalls.Clear();view.Draw(run,3000);
+            Check(DrawSignature()==dead,"Hit/fire effects continued after fatal state");
+        }
+    }
+    private static void BossQueuedWarnings()
+    {
+        var art=new RunnerArt();RunnerSession run=ArenaFixture();var signals=(IList<BossTelegraph>)run.BossTelegraphs;signals.Clear();
+        var warning=new BossTelegraph{Id=9999,Kind=BossAttackKind.Artillery,X=399,Y=0,Width=91,Height=103,Remaining=.65f,Duration=.9f,DelayRemaining=.4f};
+        using(var view=new RunnerWorldView(art))
+        {
+            Draw(view,run,Canvas(1));string baseline=DrawSignature();signals.Add(warning);Draw(view,run,Canvas(1));
+            Check(!warning.Visible&&DrawSignature()==baseline,"Queued future attack appeared before its warning begins");
+            warning.DelayRemaining=0;Draw(view,run,Canvas(1));
+            Rect physical=new Rect(warning.X,RunnerSession.GroundY-warning.Y-warning.Height,warning.Width,warning.Height);
+            RecordedDraw harmless=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
+            Check(harmless.Color.a<.3f,"Visible queued warning looks immediately damaging");
+            warning.Active=true;Draw(view,run,Canvas(.68f,119,28));
+            RecordedDraw live=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
+            Check(live.Color.a>=.6f,"Activated queued attack does not show its complete damage rectangle");
+            Point(live.Centre,Canvas(.68f,119,28).MultiplyPoint3x4(physical.center),"Queued warning/live body drifts under letterbox");
+            warning.Active=false;
+            var motifs=new HashSet<string>();
+            foreach(BossAttackKind kind in Enum.GetValues(typeof(BossAttackKind)))
+            {
+                warning.Kind=kind;Draw(view,run,Canvas(1));motifs.Add(DrawSignature());
+            }
+            Check(motifs.Count>=4,"Different attack families all share one unreadable warning motif");
+            Check(Enum.IsDefined(typeof(BossAttackKind),"DroneLow"),"Ground-drone wave was omitted from warning rendering");
+            var shots=(IList<BossProjectile>)run.BossProjectiles;shots.Clear();
+            var drone=new BossProjectile{Id=10001,Kind=BossAttackKind.DroneLow,X=543,Y=8,Width=50,Height=26};shots.Add(drone);
+            Draw(view,run,Canvas(1.5f,320,0));Rect droneBody=new Rect(drone.X,RunnerSession.GroundY-drone.Y-drone.Height,drone.Width,drone.Height);
+            RecordedDraw droneDraw=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,droneBody));
+            Point(droneDraw.Centre,Canvas(1.5f,320,0).MultiplyPoint3x4(droneBody.center),"Ground drone moved away from its real low-lane damage body");
+        }
+    }
+    private static void BossVictoryFeedback()
+    {
+        var art=new RunnerArt();
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=DynamicArenaFixture(kind);
+            for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+            // This isolates the visual victory transition. The core suite fights
+            // untouched full-health bosses to validate actual combat solutions.
+            run.CurrentBoss.Health=1f;run.SetShooting(true);
+            for(int i=0;i<2400&&run.ArenaPhase==BossPhase.Fighting;i++)run.Update(1f/120);
+            Check(run.ArenaPhase==BossPhase.Victory,"A real friendly shot failed to start victory feedback");
+            BossEncounter boss=run.CurrentBoss;float x=boss.X,y=boss.Y;
+            DrawBossBodyOnly(view,run,run.BossElapsed);string first=DrawSignature();
+            int effectCount=GUI.DrawCalls.Count(d=>d.Texture!=art.BossAtlas);
+            Check(effectCount>=15,"Defeated boss lacks destruction smoke and sparks");
+            run.Update(.2f);DrawBossBodyOnly(view,run,run.BossElapsed);
+            Check(DrawSignature()!=first,"Victory destruction did not advance with its short combat timer");
+            Near(boss.X,x,"Defeated body kept walking during destruction");Near(boss.Y,y,"Defeated body kept flying during destruction");
+            run.TogglePause();Draw(view,run,Canvas(1));string paused=DrawSignature();float remaining=run.BossPhaseRemaining;
+            run.Update(5);GUI.DrawCalls.Clear();view.Draw(run,3000);
+            Check(DrawSignature()==paused&&run.BossPhaseRemaining==remaining,"Paused victory kept animating or returned to running");
+        }
+    }
+    private static void BossRageHud()
+    {
+        var art=new RunnerArt();RunnerSession run=ArenaFixture();BossEncounter boss=run.CurrentBoss;
+        using(var view=new RunnerWorldView(art))
+        {
+            var controller=Ui(run,art,view);boss.AttackName="Fixture chained attack";boss.Vulnerable=true;boss.Health=boss.MaxHealth*.5f;
+            for(int phase=1;phase<=3;phase++)
+            {
+                boss.RageLevel=phase;DrawUi(controller);
+                Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("PHA "+phase)&&d.Text.Contains(boss.AttackName)),"Combat HUD hides current rage phase or attack name");
+                Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text==run.Score.ToString("D5")),"Rage HUD replaces the preserved running score");
+                RecordedDraw bar=GUI.DrawCalls.Single(d=>d.Kind=="Box"&&SameRect(d.Position,new Rect(340,148,332,17)));
+                Check(phase==3?bar.Color.g<.45f:bar.Color.g>.5f,"Rage health bar does not distinguish the strongest phase");
+                Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("CUỒNG NỘ"))==(phase==3),"Rage HUD overstates or hides frenzy");
+            }
         }
     }
 
