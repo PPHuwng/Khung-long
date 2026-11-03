@@ -4,14 +4,14 @@ using System.Collections.Generic;
 namespace CityDino
 {
     /// <summary>
-    /// Milestone battles have an independent clock and a flat arena. No running
+    /// Milestone battles have an independent clock and a themed arena. No running
     /// distance, biome timer, survival resource or timed pickup advances here.
     /// </summary>
     public sealed partial class RunnerSession
     {
         public const int BossScoreInterval = 10000;
-        public const float BossIntroDuration = 1.8f;
-        public const float BossVictoryDuration = 1.6f;
+        public const float BossIntroDuration = 4.8f;
+        public const float BossVictoryDuration = 4.8f;
         public const float BossShotInterval = 0.24f;
         public const float BossShotDamage = 8f;
         public const float BossReflectedDamage = 24f;
@@ -85,6 +85,7 @@ namespace CityDino
         private void ResetBossRun()
         {
             ResetBossArena();
+            ResetPracticeRun();
             BossNumber = 0;
             NextBossScore = BossScoreInterval;
             bossMilestonesComplete = false;
@@ -100,6 +101,7 @@ namespace CityDino
             bossClock = attackClock = shotCooldown = 0d;
             bossProjectiles.Clear();
             bossTelegraphs.Clear();
+            ResetBossPatternState();
             shootingHeld = bossRewardPaid = false;
             bossActionCycle = 3.7f;
             bossPatternRage = 1;
@@ -119,13 +121,20 @@ namespace CityDino
             BossNumber++;
             BossKind kind = SelectBossKind();
             previousBossKind = kind;
-            float growth = 1f + Math.Min(0.6f, ((BossNumber - 1) / 3) * 0.1f);
+            CreateBossArena(kind);
+            if (NextBossScore > int.MaxValue - BossScoreInterval) bossMilestonesComplete = true;
+            else NextBossScore += BossScoreInterval;
+        }
+
+        private void CreateBossArena(BossKind kind)
+        {
+            float growth = IsPractice ? 1f : 1f + Math.Min(0.6f, ((BossNumber - 1) / 3) * 0.1f);
             float hp = (kind == BossKind.Tank ? 750f : kind == BossKind.Sentinel ? 840f : 800f) * growth;
+            if (IsPractice && PracticeLearning) hp *= 0.65f;
             CurrentBoss = new BossEncounter
             {
-                Kind = kind, Health = hp, MaxHealth = hp,
-                X = CanvasWidth + 40f,
-                Y = kind == BossKind.Gunship ? 210f : 0f,
+                Kind = kind, Health = hp, MaxHealth = hp, X = CanvasWidth + 40f,
+                Y = kind == BossKind.Gunship ? 148f : 0f,
                 Width = kind == BossKind.Sentinel ? 172f : kind == BossKind.Gunship ? 270f : 250f,
                 Height = kind == BossKind.Sentinel ? 225f : kind == BossKind.Gunship ? 130f : 150f,
                 Vulnerable = false, AttackName = "Đang tiến vào khu vực", AttackProgress = 0f
@@ -133,28 +142,16 @@ namespace CityDino
             ArenaPhase = BossPhase.Intro;
             BossPhaseRemaining = BossIntroDuration;
             bossClock = attackClock = shotCooldown = 0d;
-            bossProjectiles.Clear();
-            bossTelegraphs.Clear();
+            bossProjectiles.Clear(); bossTelegraphs.Clear(); ResetBossPatternState();
             shootingHeld = bossRewardPaid = false;
             nextBossObjectId = bossAttackIndex = 0;
-            bossActionCycle = 3.7f;
-            bossPatternRage = 1;
-            bossMotionRage = 1f;
-            // Entry is a transition, not an extra source of damage or healing.
-            PlayerY = VelocityY = AnimationVelocityY = 0f;
-            HorizontalVelocity = 0f;
-            grounded = true;
-            jumpsUsed = 0;
-            coyoteRemaining = 0.1f;
-            IsDucking = duckRequested = false;
-            if (NextBossScore > int.MaxValue - BossScoreInterval)
-                bossMilestonesComplete = true;
-            else NextBossScore += BossScoreInterval;
+            bossActionCycle = 3.7f; bossPatternRage = 1; bossMotionRage = 1f;
+            BeginBossEntrance();
         }
 
         private BossKind SelectBossKind()
         {
-            if (BossNumber <= 3) return (BossKind)(BossNumber - 1);
+            if (BossNumber <= 3) return BossNumber == 1 ? BossKind.Tank : BossNumber == 2 ? BossKind.Gunship : BossKind.Sentinel;
             if (bossBag.Count == 0)
             {
                 bossBag.Add(BossKind.Tank); bossBag.Add(BossKind.Sentinel); bossBag.Add(BossKind.Gunship);
@@ -183,6 +180,14 @@ namespace CityDino
                 if (!p.Removed) fastest = Math.Max(fastest,
                     Math.Max(Math.Abs(p.VelocityX) + HorizontalSpeed, Math.Abs(p.VelocityY) + Math.Abs(VelocityY)));
             }
+            for (int i = 0; i < bossObstacles.Count; i++)
+            {
+                BossObstacle obstacle = bossObstacles[i];
+                if (!obstacle.Removed)
+                    fastest = Math.Max(fastest, Math.Max(
+                        Math.Abs(obstacle.VelocityX) + Math.Max(HorizontalSpeed, Math.Abs(DashVelocity)),
+                        Math.Abs(obstacle.VelocityY) + Math.Abs(obstacle.MotionAmplitude * obstacle.MotionSpeed) + Math.Abs(VelocityY)));
+            }
             return Math.Min(PhysicsStep, 5f / Math.Max(1f, fastest));
         }
 
@@ -202,38 +207,37 @@ namespace CityDino
             }
             TickCharacter(dt);
             InvincibleRemaining = Math.Max(0f, InvincibleRemaining - dt);
-            float oldX = PlayerX;
-            IntegrateHorizontal(dt);
-            if (Math.Abs(PlayerX - oldX) > 0.0001f) FacingLeft = PlayerX < oldX;
-            IntegratePlayer(dt);
-            AnimationVelocityY = VelocityY;
             if (ArenaPhase == BossPhase.Intro)
             {
-                BossPhaseRemaining = Math.Max(0f, BossPhaseRemaining - dt);
-                if (BossPhaseRemaining <= 0f)
-                {
-                    ArenaPhase = BossPhase.Fighting;
-                    attackClock = 0d;
-                    BeginBossAttack();
-                }
+                entranceClock = Math.Min(BossIntroDuration, entranceClock + dt);
+                BossPhaseRemaining = Math.Max(0f, BossIntroDuration - entranceClock);
+                ApplyBossEntrance(dt);
+                if (BossPhaseRemaining <= 0f) FinishBossEntrance();
                 return;
             }
             if (ArenaPhase == BossPhase.Victory)
             {
-                BossPhaseRemaining = Math.Max(0f, BossPhaseRemaining - dt);
+                departureClock = Math.Min(BossVictoryDuration, departureClock + dt);
+                BossPhaseRemaining = Math.Max(0f, BossVictoryDuration - departureClock);
+                ApplyBossDeparture(dt);
                 if (BossPhaseRemaining <= 0f) LeaveBossArena();
                 return;
             }
             if (ArenaPhase != BossPhase.Fighting || CurrentBoss == null) return;
+            if (IsPractice) practiceCombatClock += dt;
+            float oldX = PlayerX;
+            IntegrateHorizontal(dt);
+            if (Math.Abs(PlayerX - oldX) > .0001f) FacingLeft = PlayerX < oldX;
+            if (IsFlyingBoss) IntegrateBossFlight(dt);
+            else { IntegratePlayer(dt); AnimationVelocityY = VelocityY; }
             if (CurrentBoss.Health <= 0f) { BeginBossVictory(); return; }
             shotCooldown = Math.Max(0d, shotCooldown - dt);
             if (shootingHeld && shotCooldown <= 0d) TryShoot();
             attackClock += dt;
             CurrentBoss.AttackProgress = Math.Min(1f, (float)attackClock / bossActionCycle);
-            // The hatches spend over half of each cycle exposed. Difficulty
-            // comes from movement and combinations rather than long HP sponges.
             CurrentBoss.Vulnerable = attackClock >= bossActionCycle * 0.43d;
             TickBossTelegraphs(dt);
+            TickBossObstacles(dt);
             TickBossProjectiles(dt);
             if (State != RunState.Playing || ArenaPhase != BossPhase.Fighting) return;
             if (attackClock >= bossActionCycle)
@@ -291,187 +295,9 @@ namespace CityDino
             CurrentBoss.Y = y;
         }
 
-        private void BeginBossAttack()
-        {
-            bossPatternRage = GetBossRage(CurrentBoss.Health, CurrentBoss.MaxHealth);
-            CurrentBoss.RageLevel = bossPatternRage;
-            bossActionCycle = bossPatternRage == 1 ? 3.7f : bossPatternRage == 2 ? 3.25f : 2.9f;
-            // Do not shorten an already announced attack when HP crosses a
-            // phase boundary. Each newly selected combination keeps its timing.
-            float warning = Math.Max(0.7f, 0.96f - (bossPatternRage - 1) * 0.09f
-                - Math.Min(0.06f, ((BossNumber - 1) / 3) * 0.015f));
-            CurrentBoss.Vulnerable = false;
-            if (CurrentBoss.Kind == BossKind.Tank)
-            {
-                primaryBossAttack = bossAttackIndex % 2 == 0 ? BossAttackKind.Cannon : BossAttackKind.Artillery;
-                if (primaryBossAttack == BossAttackKind.Cannon)
-                {
-                    int count = bossPatternRage + 1;
-                    for (int i = 0; i < count; i++) ScheduleBossAttack(BossAttackKind.Cannon, i * 0.28f, warning, PlayerX);
-                    CurrentBoss.AttackName = "Loạt pháo " + count + " viên";
-                }
-                else
-                {
-                    int count = bossPatternRage;
-                    float centre = Math.Max(180f, Math.Min(640f, PlayerX));
-                    for (int i = 0; i < count; i++)
-                    {
-                        float offset = i == 0 ? 0f : i % 2 == 1 ? 140f : -140f;
-                        ScheduleBossAttack(BossAttackKind.Artillery, i * 0.38f, warning, centre + offset);
-                    }
-                    CurrentBoss.AttackName = "Pháo phủ vị trí · " + count + " điểm";
-                }
-            }
-            else if (CurrentBoss.Kind == BossKind.Sentinel)
-            {
-                primaryBossAttack = bossAttackIndex % 3 == 0 ? BossAttackKind.LaserLow
-                    : bossAttackIndex % 3 == 1 ? BossAttackKind.LaserHigh : BossAttackKind.Shockwave;
-                ScheduleBossAttack(primaryBossAttack, 0f, warning, PlayerX);
-                CurrentBoss.AttackName = AttackName(primaryBossAttack);
-                if (bossPatternRage >= 2)
-                {
-                    BossAttackKind next = primaryBossAttack == BossAttackKind.LaserLow ? BossAttackKind.LaserHigh
-                        : primaryBossAttack == BossAttackKind.LaserHigh ? BossAttackKind.LaserLow : BossAttackKind.Shockwave;
-                    ScheduleBossAttack(next, 1.15f, warning, PlayerX);
-                    CurrentBoss.AttackName += " → " + AttackName(next);
-                }
-            }
-            else
-            {
-                primaryBossAttack = bossAttackIndex % 2 == 0 ? BossAttackKind.Missile : BossAttackKind.Drone;
-                int count = bossPatternRage;
-                if (primaryBossAttack == BossAttackKind.Missile)
-                {
-                    float centre = Math.Max(170f, Math.Min(650f, PlayerX));
-                    for (int i = 0; i < count; i++)
-                        ScheduleBossAttack(BossAttackKind.Missile, i * 0.4f, warning, centre + (i == 0 ? 0 : i % 2 == 1 ? 150 : -150));
-                    CurrentBoss.AttackName = "Tên lửa khóa " + count + " vị trí";
-                }
-                else
-                {
-                    for (int i = 0; i < count; i++)
-                    {
-                        BossAttackKind kind = i % 2 == 0 ? BossAttackKind.Drone : BossAttackKind.DroneLow;
-                        ScheduleBossAttack(kind, i * 0.72f, warning, PlayerX);
-                    }
-                    CurrentBoss.AttackName = "Drone quét cao / thấp · " + count + " đợt";
-                }
-            }
-        }
-
-        private void ScheduleBossAttack(BossAttackKind kind, float delay, float warning, float lockedX)
-        {
-            BossTelegraph mark = new BossTelegraph
-            {
-                Id = ++nextBossObjectId, Kind = kind, Remaining = warning, Duration = warning,
-                DelayRemaining = Math.Max(0f, delay), X = 90f, Y = 12f, Width = 690f, Height = 24f
-            };
-            mark.SourceTelegraphId = mark.Id;
-            if (kind == BossAttackKind.Artillery || kind == BossAttackKind.Missile)
-            {
-                mark.Width = kind == BossAttackKind.Artillery ? 100f : 78f;
-                mark.X = Math.Max(MinimumPlayerX - 20f, Math.Min(MaximumPlayerX - mark.Width + 20f, lockedX - mark.Width * 0.5f));
-                mark.Y = 0f; mark.Height = 14f;
-            }
-            else if (kind == BossAttackKind.LaserLow || kind == BossAttackKind.LaserHigh)
-            {
-                mark.X = 75f; mark.Width = 760f;
-                mark.Y = kind == BossAttackKind.LaserHigh ? 62f : 13f;
-                mark.Height = 14f;
-            }
-            else if (kind == BossAttackKind.Drone) { mark.Y = 56f; mark.Height = 32f; }
-            else if (kind == BossAttackKind.DroneLow) { mark.Y = 8f; mark.Height = 26f; }
-            else if (kind == BossAttackKind.Shockwave) { mark.Y = 0f; mark.Height = 25f; }
-            bossTelegraphs.Add(mark);
-        }
-
-        private static string AttackName(BossAttackKind kind)
-        {
-            switch (kind)
-            {
-                case BossAttackKind.Artillery: return "Pháo khóa vị trí";
-                case BossAttackKind.LaserLow: return "Laser thấp";
-                case BossAttackKind.LaserHigh: return "Laser trên cao";
-                case BossAttackKind.Shockwave: return "Sóng dậm đất";
-                case BossAttackKind.Missile: return "Tên lửa truy kích";
-                case BossAttackKind.Drone: return "Drone trên cao";
-                case BossAttackKind.DroneLow: return "Drone thấp";
-                default: return "Đạn pháo thấp";
-            }
-        }
-
-        private void TickBossTelegraphs(float dt)
-        {
-            for (int i = bossTelegraphs.Count - 1; i >= 0 && State == RunState.Playing && ArenaPhase == BossPhase.Fighting; i--)
-            {
-                BossTelegraph mark = bossTelegraphs[i];
-                float activeDt = dt;
-                if (mark.DelayRemaining > 0f)
-                {
-                    float consumed = Math.Min(mark.DelayRemaining, activeDt);
-                    mark.DelayRemaining -= consumed;
-                    activeDt -= consumed;
-                    if (activeDt <= 0f) continue;
-                }
-                mark.Remaining -= activeDt;
-                if (mark.Active)
-                {
-                    if (mark.Remaining <= 0f) { bossTelegraphs.RemoveAt(i); continue; }
-                    if (InvincibleRemaining <= 0f && RunnerGeometry.RectTouchesPlayer(mark.X, mark.Y, mark.Width, mark.Height, this))
-                        if (!TryAbsorbHazard(false)) TakeHit("Trúng " + AttackName(mark.Kind));
-                }
-                else if (mark.Remaining <= 0f)
-                {
-                    if (mark.Kind == BossAttackKind.LaserLow || mark.Kind == BossAttackKind.LaserHigh)
-                    {
-                        mark.Active = true;
-                        mark.Remaining = mark.Duration = 0.32f;
-                        CurrentBoss.ShotFlashRemaining = 0.18f;
-                        CurrentBoss.Recoil = 1f;
-                    }
-                    else
-                    {
-                        SpawnBossAttack(mark.Kind, mark.X + mark.Width * 0.5f, mark.Id);
-                        bossTelegraphs.RemoveAt(i);
-                    }
-                }
-            }
-        }
-
-        private void SpawnBossAttack(BossAttackKind kind, float lockedX, int sourceTelegraphId)
-        {
-            float pace = 1f + Math.Min(0.3f, ((BossNumber - 1) / 3) * 0.04f) + (bossPatternRage - 1) * 0.08f;
-            BossProjectile p = new BossProjectile
-            {
-                Id = ++nextBossObjectId, Kind = kind, X = CurrentBoss.X - 30f, Y = 14f,
-                Width = 30f, Height = 22f, VelocityX = -425f * pace, Lifetime = 7f,
-                SourceTelegraphId = sourceTelegraphId
-            };
-            if (kind == BossAttackKind.Artillery || kind == BossAttackKind.Missile)
-            {
-                p.Width = kind == BossAttackKind.Artillery ? 32f : 22f;
-                p.Height = kind == BossAttackKind.Artillery ? 32f : 54f;
-                p.X = lockedX - p.Width * 0.5f; p.Y = 430f;
-                p.VelocityX = 0f; p.VelocityY = -(kind == BossAttackKind.Artillery ? 485f : 620f) * pace;
-            }
-            else if (kind == BossAttackKind.Shockwave)
-            {
-                p.Width = 62f; p.Height = 25f; p.Y = 0f; p.VelocityX = -375f * pace;
-                CurrentBoss.LandingFlashRemaining = 0.35f;
-            }
-            else if (kind == BossAttackKind.Drone || kind == BossAttackKind.DroneLow)
-            {
-                p.Width = 50f; p.Height = kind == BossAttackKind.Drone ? 32f : 26f;
-                p.Y = kind == BossAttackKind.Drone ? 56f : 8f;
-                p.VelocityX = -350f * pace;
-            }
-            bossProjectiles.Add(p);
-            CurrentBoss.ShotFlashRemaining = 0.18f;
-            CurrentBoss.Recoil = 1f;
-        }
-
         private void AimAtBoss(BossProjectile p)
         {
+            if (TryAimAtBossObstacle(p)) return;
             float targetX = CurrentBoss.X + CurrentBoss.Width * 0.5f;
             float targetY = CurrentBoss.Y + CurrentBoss.Height * 0.55f;
             float dx = targetX - p.X - p.Width * 0.5f;
@@ -493,6 +319,7 @@ namespace CityDino
                 p.X += p.VelocityX * dt; p.Y += p.VelocityY * dt;
                 if (p.Friendly)
                 {
+                    if (TryHitBossObstacle(p)) continue;
                     if (RectanglesOverlap(p.X, p.Y, p.Width, p.Height, CurrentBoss.X, CurrentBoss.Y,
                         CurrentBoss.Width, CurrentBoss.Height))
                     {
@@ -549,9 +376,10 @@ namespace CityDino
             CurrentBoss.AttackName = "Đã hạ mục tiêu";
             ArenaPhase = BossPhase.Victory;
             BossPhaseRemaining = BossVictoryDuration;
-            bossProjectiles.Clear(); bossTelegraphs.Clear();
+            bossProjectiles.Clear(); bossTelegraphs.Clear(); ResetBossPatternState();
             shootingHeld = false;
-            if (!bossRewardPaid)
+            BeginBossDeparture();
+            if (!bossRewardPaid && !IsPractice)
             {
                 int baseReward = CurrentBoss.Kind == BossKind.Tank ? 300 : CurrentBoss.Kind == BossKind.Sentinel ? 450 : 600;
                 int reward = baseReward + Math.Min(600, ((BossNumber - 1) / 3) * 75);
@@ -564,6 +392,7 @@ namespace CityDino
 
         private void LeaveBossArena()
         {
+            if (IsPractice) { FinishPractice(true, "Đã hoàn thành đấu tập"); return; }
             // Paused running entities retain their clock/position until now;
             // clear the return lane so the transition cannot cause a blind hit.
             entities.Clear();

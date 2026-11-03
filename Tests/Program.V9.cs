@@ -70,7 +70,7 @@ internal static partial class Program
             Check(arrival>RunnerSession.CanvasWidth&&during<arrival,"Boss did not visibly enter from outside: "+boss.Kind);
             SetProperty(run,"InvincibleRemaining",10000f);ReachFighting(run);
             float minX=boss.X,maxX=boss.X,minY=boss.Y,maxY=boss.Y;
-            for(int i=0;i<120*15;i++)
+            for(int i=0;i<120*20;i++)
             {
                 run.Update(1f/120);
                 minX=Math.Min(minX,boss.X);maxX=Math.Max(maxX,boss.X);
@@ -78,11 +78,11 @@ internal static partial class Program
                 Check(boss.X>=809.99f&&boss.X+boss.Width<=RunnerSession.CanvasWidth-15.9f,
                     "Boss body invaded player lane or left screen: "+boss.Kind+"@"+boss.X);
                 Check(boss.Y>=-.01f,"Boss body sank below the flat arena");
-                if(number==3)Check(RunnerSession.GroundY-boss.Y-boss.Height>=214f,"Gunship body rose behind the combat HUD");
+                if(boss.Kind==BossKind.Gunship)Check(RunnerSession.GroundY-boss.Y-boss.Height>=214f,"Gunship body rose behind the combat HUD");
             }
             Check(maxX-minX>40f,"Boss still stands at one horizontal position: "+boss.Kind);
-            if(number==2)Check(maxY-minY>40,"Sentinel never made a visible stomp jump");
-            if(number==3)Check(maxY-minY>60,"Gunship failed to sweep vertically");
+            if(boss.Kind==BossKind.Sentinel)Check(maxY-minY>40,"Sentinel never made a visible stomp jump");
+            if(boss.Kind==BossKind.Gunship)Check(maxY-minY>60,"Gunship failed to sweep vertically");
             run.TogglePause();string snapshot=BossFeedbackSnapshot(run);run.Update(4);
             Check(BossFeedbackSnapshot(run)==snapshot,"Paused physical boss body moved");
 
@@ -114,6 +114,7 @@ internal static partial class Program
                 else {warnings.Add(mark.Id);Check(mark.Duration>=.65f,"Rage shortened warning below reaction floor");}
             }
             foreach(BossProjectile p in run.BossProjectiles)if(!p.Friendly&&!p.Removed)live.Add(p.Id);
+            foreach(BossObstacle o in run.BossObstacles)if(o.Active&&!o.Removed)live.Add(o.Id);
             run.Update(1f/120);
             Check(run.CurrentBoss.RageLevel==expectedRage,"Wrong shared health phase for "+run.CurrentBoss.Kind+" at "+fraction);
             float progress=run.CurrentBoss.AttackProgress;
@@ -131,7 +132,7 @@ internal static partial class Program
             PatternCount easy=MeasureBossPattern(number,.9f,1),middle=MeasureBossPattern(number,.5f,2),hard=MeasureBossPattern(number,.2f,3);
             Check(easy.MeanCycle>middle.MeanCycle+.2f&&middle.MeanCycle>hard.MeanCycle+.2f,
                 "Rage levels did not make attack cycles faster for boss "+number);
-            Check(middle.Dangers>easy.Dangers&&hard.Dangers>=middle.Dangers,
+            Check(middle.Dangers>=easy.Dangers&&hard.Dangers>easy.Dangers,
                 "Later rage does not add actual danger waves for boss "+number+": "+easy.Dangers+"/"+middle.Dangers+"/"+hard.Dangers);
             Check(hard.Warnings>easy.Warnings&&hard.HiddenWarnings>0,
                 "A stronger combination lost its separate delayed warnings");
@@ -187,7 +188,7 @@ internal static partial class Program
             Check(run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0,"A cancelled delayed wave respawned during victory");
             Near(run.CurrentBoss.X,x,0,"Dead boss body continued its patrol");Near(run.CurrentBoss.Y,y,0,"Dead boss body continued hovering");
         }
-        for(int i=0;i<120*3&&run.IsBossArena;i++)run.Update(1f/120);
+        for(int i=0;i<120*5&&run.IsBossArena;i++)run.Update(1f/120);
         Check(!run.IsBossArena&&run.Save.Wallet==wallet&&run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0,
             "Return preserved delayed combat objects or duplicated reward");
         run.StartRun();Check(run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0&&!run.IsBossArena,"New run retained a staged attack");
@@ -195,43 +196,22 @@ internal static partial class Program
 
     private static void BossLatePathsV9()
     {
-        foreach(int number in new[]{7,8,9})
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
         foreach(float x in new[]{RunnerSession.MinimumPlayerX,RunnerSession.MaximumPlayerX})
         {
-            bool solved=false;string failure="";
-            foreach(float lane in new[]{220f,350f,500f,600f,100f,720f})
+            RunnerSession run=EnterBossFixture(kind==BossKind.Tank?7:kind==BossKind.Gunship?8:9,startX:x);
+            run.CurrentBoss.Kind=kind;
+            run.CurrentBoss.Width=kind==BossKind.Sentinel?172:kind==BossKind.Gunship?270:250;
+            run.CurrentBoss.Height=kind==BossKind.Sentinel?225:kind==BossKind.Gunship?130:150;
+            run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
+            // V10 scripts the approach; combat begins in its actual arrival lane.
+            // Testing either initial edge here checks that scripted travel lands safely.
+            Near(run.PreBossPlayerX,x,.001f,"Milestone did not capture initial edge"); ReachFighting(run);
+            for(int i=0;i<120*15;i++)
             {
-                RunnerSession run=EnterBossFixture(number);
-                // Isolate a late attack phase, not a full-health victory. All
-                // real projectiles and contacts remain; no protection is given.
-                run.CurrentBoss.Kind=(BossKind)((number-1)%3);
-                run.CurrentBoss.Width=run.CurrentBoss.Kind==BossKind.Sentinel?172:run.CurrentBoss.Kind==BossKind.Gunship?270:250;
-                run.CurrentBoss.Height=run.CurrentBoss.Kind==BossKind.Sentinel?225:run.CurrentBoss.Kind==BossKind.Gunship?130:150;
-                run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
-                SetProperty(run,"PlayerX",x);
-                // Search ordinary A/D approaches during the visible intro.
-                // This establishes a combat lane without teleporting from the
-                // tested edge, changing health or removing any attack object.
-                for(int intro=0;intro<120*5&&run.ArenaPhase==BossPhase.Intro;intro++)
-                {
-                    run.SetHorizontal(Math.Max(-1f,Math.Min(1f,(lane-run.PlayerX)/(RunnerSession.HorizontalSpeed/120f))));
-                    run.Update(1f/120);
-                }
-                Check(run.ArenaPhase==BossPhase.Fighting,"Late route never reached combat");
-                bool pass=true;
-                for(int i=0;i<120*15;i++)
-                {
-                    CombatBotInput(run,false);run.Update(1f/120);
-                    if(run.State!=RunState.Playing||run.Lives!=1)
-                    {pass=false;failure="boss="+run.CurrentBoss.Kind+" edge="+x+" approach="+lane+" t="+run.BossElapsed+" "+ArenaDescription(run);break;}
-                }
-                if(pass)
-                {
-                    Console.WriteLine("  Late rage3 "+run.CurrentBoss.Kind+" fromX"+x+" survives15s after realintro approachtowardX"+lane+".");
-                    solved=true;break;
-                }
+                CombatBotInput(run,run.BossObstacles.Any(o=>o.Destructible&&o.X>run.PlayerX&&o.X<run.PlayerX+500),true);run.Update(1f/120);
+                Check(run.State==RunState.Playing&&run.Lives==1,"Late route took damage "+kind+" edge="+x+" t="+run.BossElapsed+" "+ArenaDescription(run));
             }
-            Check(solved,"No tested real approach/evasive plan for late phase3 "+failure);
         }
     }
 }

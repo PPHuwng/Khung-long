@@ -4,7 +4,7 @@ namespace CityDino
 {
     public enum BossPhase { None, Intro, Fighting, Victory }
     public enum BossKind { Tank, Sentinel, Gunship }
-    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone, DroneLow }
+    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone, DroneLow, MineDrop, CrateDrop, ElectricPillar, ShieldDrone, AirGate, AirSpread, AirLaser, AirMine }
 
     /// <summary>Visible body and combat state; all coordinates use the runner's bottom-up world space.</summary>
     public sealed class BossEncounter
@@ -56,6 +56,8 @@ namespace CityDino
         public bool Active;
         public float DelayRemaining;
         public int SourceTelegraphId;
+        public float GapY;
+        public float GapHeight;
         public bool Visible { get { return DelayRemaining <= 0f; } }
     }
 }

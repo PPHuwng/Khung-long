@@ -35,6 +35,9 @@ namespace CityDino
         public static int GetPlayerFrame(RunnerSession session)
         {
             if (session == null) return 0;
+            if (session.IsFlyingBoss && session.FlightDeviceCollected)
+                return session.AnimationVelocityY > 80f ? 8
+                    : session.AnimationVelocityY < -80f ? 10 : 9;
             if (session.IsDucking)
                 return 5 + (int)(Math.Floor((double)session.PlayerAnimationTime * 10d) % 3d);
             if (session.PlayerY > 3f)

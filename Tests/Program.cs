@@ -102,6 +102,7 @@ internal static partial class Program
         Test("long frame updates behave like fixed small steps", FrameStep);
         RegisterV8Tests();
         RegisterV9Tests();
+        RegisterV10Tests();
         Console.WriteLine();
         Console.WriteLine("Gameplay core: " + passed + " passed, " + failures.Count + " failed.");
         foreach (string failure in failures) Console.Error.WriteLine(failure);

@@ -48,6 +48,14 @@ internal static class Program
         Test("character previews use the same atlas pose and physical layout",CharacterPreviews);
         Test("combat HUD shows boss health and limits fire and skill controls",CombatHud);
         Test("character and shop modals disable every underlying action button",ModalButtonIsolation);
+        Test("normal 20k encounter gradually reveals sky during collected-device takeoff",FlightJourneyRendering);
+        Test("flight device follows the physical player and flight poses at every canvas scale",FlightDeviceGeometry);
+        Test("airborne combat has no road or helipad and all arenas have distinct themes",ThemedArenaRendering);
+        Test("scripted transitions and landing freeze their world layers when paused",JourneyPauseRendering);
+        Test("boss obstacles show exact active physical bodies and harmless visible warnings",BossObstacleRendering);
+        Test("aerial gate warning displays both collision bars and its real safe gap",AirGateRendering);
+        Test("practice preparation previews all bosses and trial characters without underlying actions",PracticeMenuRendering);
+        Test("practice results expose retry preparation and menu without ordinary run rewards",PracticeResultsRendering);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
         Console.WriteLine("Recorded production draw calls with affine API stubs; no Unity rasterization or Editor execution.");
         return failed==0?0:1;
@@ -538,15 +546,24 @@ internal static class Program
     }
     private static RunnerSession ArenaFixture(BossKind kind=BossKind.Tank,CharacterKind character=CharacterKind.Classic,District district=District.Day)
     {
-        RunnerSession run=NewCharacter(character,district);
-        Field(run,"distanceToPattern",float.MaxValue);Field(run,"nextHeartAt",float.MaxValue);
-        Field(run,"distanceClock",199999d);Set(run,"Distance",199999f);run.Update(.02f);
-        Check(run.IsBossArena,"Milestone fixture failed to enter arena");
+        RunnerSession run=BeginArena(kind,character,district);
         for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
         Check(run.ArenaPhase==BossPhase.Fighting&&run.CurrentBoss!=null,"Arena fixture did not reach fighting");
-        BossEncounter boss=run.CurrentBoss;boss.Kind=kind;boss.X=970;boss.Y=kind==BossKind.Gunship?180:0;
+        BossEncounter boss=run.CurrentBoss;boss.X=970;boss.Y=kind==BossKind.Gunship?180:0;
         boss.Width=kind==BossKind.Sentinel?158:238;boss.Height=kind==BossKind.Sentinel?216:128;
         boss.Vulnerable=true;return run;
+    }
+    private static RunnerSession BeginArena(BossKind kind,CharacterKind character=CharacterKind.Classic,District district=District.Day)
+    {
+        RunnerSession run=NewCharacter(character,district);
+        Field(run,"distanceToPattern",float.MaxValue);Field(run,"nextHeartAt",float.MaxValue);
+        int ordinal=kind==BossKind.Tank?0:kind==BossKind.Gunship?1:2;
+        int milestone=(ordinal+1)*RunnerSession.BossScoreInterval;
+        Field(run,"<BossNumber>k__BackingField",ordinal);
+        Field(run,"<NextBossScore>k__BackingField",milestone);
+        Field(run,"distanceClock",milestone*20d-1d);Set(run,"Distance",milestone*20f-1f);run.Update(.02f);
+        Check(run.IsBossArena&&run.CurrentBoss.Kind==kind,"Normal milestone fixture selected the wrong real boss");
+        return run;
     }
     private static void ArenaIsolation()
     {
@@ -843,7 +860,7 @@ internal static class Program
     private static void ModalButtonIsolation()
     {
         var art=new RunnerArt();using(var view=new RunnerWorldView(art))
-        foreach(string modal in new[]{"showCharacters","showShop","showHistory"})
+        foreach(string modal in new[]{"showCharacters","showShop","showHistory","showPractice"})
         foreach(bool dead in new[]{false,true})
         {
             var run=new RunnerSession(new RunnerSave{Wallet=10000},4);
@@ -862,13 +879,7 @@ internal static class Program
     // Full-health one-heart boss solutions are covered by the core suite.
     private static RunnerSession DynamicArenaFixture(BossKind kind)
     {
-        RunnerSession run=NewCharacter(CharacterKind.Classic);
-        Field(run,"distanceToPattern",float.MaxValue);Field(run,"nextHeartAt",float.MaxValue);
-        int milestone=((int)kind+1)*10000;
-        Field(run,"<BossNumber>k__BackingField",(int)kind);
-        Field(run,"<NextBossScore>k__BackingField",milestone);
-        Field(run,"distanceClock",milestone*20d-1d);Set(run,"Distance",milestone*20-1);run.Update(.02f);
-        Check(run.IsBossArena&&run.CurrentBoss.Kind==kind,"Dynamic fixture selected the wrong real boss");
+        RunnerSession run=BeginArena(kind);
         Set(run,"InvincibleRemaining",1000f);return run;
     }
     private static void AssertBossBody(RunnerWorldView view,RunnerArt art,RunnerSession run,Matrix4x4 canvas)
@@ -877,10 +888,15 @@ internal static class Program
         RecordedDraw image=GUI.DrawCalls.Single(d=>d.Kind=="UV"&&d.Texture==art.BossAtlas);
         Rect expected=new Rect(boss.X,RunnerSession.GroundY-boss.Y-boss.Height,boss.Width,boss.Height);
         Check(SameRect(image.Position,expected),"Animated/recoiling boss image left its live physical rectangle");
+        Matrix4x4 scene=canvas;
+        // Ground journey translates the entire arena layer as the old street
+        // exits. This camera movement is shared by body, floor and entrance gate.
+        if(boss.Kind!=BossKind.Gunship&&(run.ArenaPhase==BossPhase.Intro||run.ArenaPhase==BossPhase.Victory))
+            scene=canvas*Matrix4x4.TRS(new Vector3(1280*(1-run.TransitionSceneBlend),0,0),Quaternion.identity,Vector3.one);
         Point(image.Matrix.MultiplyPoint3x4(new Vector3(expected.x,expected.y,0)),
-            canvas.MultiplyPoint3x4(new Vector3(expected.x,expected.y,0)),"Boss top-left acquired decorative rotation/translation");
+            scene.MultiplyPoint3x4(new Vector3(expected.x,expected.y,0)),"Boss top-left differs from the shared arena camera");
         Point(image.Matrix.MultiplyPoint3x4(new Vector3(expected.xMax,expected.yMax,0)),
-            canvas.MultiplyPoint3x4(new Vector3(expected.xMax,expected.yMax,0)),"Boss lower corner acquired decorative rotation/scale");
+            scene.MultiplyPoint3x4(new Vector3(expected.xMax,expected.yMax,0)),"Boss lower corner acquired decorative rotation/scale");
     }
     private static void DynamicBossBodies()
     {
@@ -889,16 +905,21 @@ internal static class Program
         using(var view=new RunnerWorldView(art))
         {
             RunnerSession run=DynamicArenaFixture(kind);float firstX=run.CurrentBoss.X;
+            if(kind==BossKind.Gunship)
+            {
+                Draw(view,run,Canvas(1));Check(!GUI.DrawCalls.Any(d=>d.Texture==art.BossAtlas&&d.Position.x<1280),"Gunship appeared on screen before takeoff");
+            }
+            else foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})AssertBossBody(view,art,run,canvas);
+            Advance(run,3f);
+            Check(Math.Abs(run.CurrentBoss.X-firstX)>30,"Boss body never moved into its themed arena: "+kind);
             foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})AssertBossBody(view,art,run,canvas);
-            for(int i=0;i<8;i++)run.Update(.125f);
-            Check(Math.Abs(run.CurrentBoss.X-firstX)>30,"Boss did not visibly enter from outside the arena: "+kind);
-            for(int i=0;i<300&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+            for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
             Check(run.ArenaPhase==BossPhase.Fighting,"Dynamic boss intro never completed");
             float minX=float.PositiveInfinity,maxX=float.NegativeInfinity,minY=float.PositiveInfinity,maxY=float.NegativeInfinity;
             foreach(float fraction in new[]{1f,.5f,.25f})
             {
                 run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*fraction;
-                for(int i=0;i<24;i++)
+                for(int i=0;i<56;i++)
                 {
                     run.Update(.125f);BossEncounter boss=run.CurrentBoss;
                     Check(boss.RageLevel==(fraction>.65f?1:fraction>.35f?2:3),"Rendered rage state differs from health phase");
@@ -1056,6 +1077,170 @@ internal static class Program
                 Check(phase==3?bar.Color.g<.45f:bar.Color.g>.5f,"Rage health bar does not distinguish the strongest phase");
                 Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("CUỒNG NỘ"))==(phase==3),"Rage HUD overstates or hides frenzy");
             }
+        }
+    }
+
+    private static void Advance(RunnerSession run,float seconds)
+    {
+        while(seconds>.0001f){float dt=Math.Min(seconds,1f/120);run.Update(dt);seconds-=dt;}
+    }
+    private static bool StreetTexture(RecordedDraw draw,RunnerArt art)
+    {return draw.Texture==art.Road||draw.Texture==art.SkylineFar||draw.Texture==art.SkylineNear;}
+    private static void FlightJourneyRendering()
+    {
+        var art=new RunnerArt();RunnerSession run=BeginArena(BossKind.Gunship,district:District.Sunset);
+        int score=run.Score;float elapsed=run.Elapsed;
+        using(var view=new RunnerWorldView(art))
+        {
+            Draw(view,run,Canvas(.68f,119,28));
+            Check(GUI.DrawCalls.Any(d=>StreetTexture(d,art)),"20k entry instantly discarded the approach city");
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==art.BossAtlas&&d.Position.x<1280),"Gunship appeared on screen before the character reached the flight device");
+            RecordedDraw pickup=GUI.DrawCalls.Single(d=>d.Texture==art.FlightDevice);
+            Point(pickup.Centre,Canvas(.68f,119,28).MultiplyPoint3x4(new Vector3(run.FlightDeviceX,RunnerSession.GroundY-run.FlightDeviceY-22,0)),"Flight pickup does not sit at its physical approach location");
+            Advance(run,2.6f);Draw(view,run,Canvas(.68f,119,28));
+            Check(run.FlightDeviceCollected&&run.PlayerY>0&&run.TransitionElevation>.1f&&run.TransitionElevation<.9f,"Device takeoff did not progress through intermediate altitude");
+            var road=GUI.DrawCalls.First(d=>d.Texture==art.Road);
+            Vector3 origin=road.Matrix.MultiplyPoint3x4(new Vector3(0,0,0));
+            Check(origin.y>28+40*.68f,"Road and skyline did not fall away during gradual takeoff");
+            Check(GUI.DrawCalls.Count(d=>d.Texture==art.FlightDevice)==1,"Collected pickup remained on the street alongside attached device");
+            Advance(run,2.3f);Draw(view,run,Canvas(1));
+            Check(run.ArenaPhase==BossPhase.Fighting&&!GUI.DrawCalls.Any(d=>StreetTexture(d,art)),"Full flight arena retains the old street");
+            Check(run.Score==score&&run.Elapsed==elapsed,"Drawing/entry advanced the suspended running score");
+        }
+    }
+    private static void FlightDeviceGeometry()
+    {
+        var art=new RunnerArt();Check(art.FlightDevice!=null,"Flight equipment PNG is missing");
+        Check(art.FlightDeviceUV.x>0&&art.FlightDeviceUV.y>0&&art.FlightDeviceUV.width<1&&art.FlightDeviceUV.height<1,"Flight equipment still uses the uncropped image canvas");
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        foreach(bool left in new[]{false,true})
+        foreach(float velocity in new[]{150f,0f,-150f})
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=ArenaFixture(BossKind.Gunship,kind);Set(run,"PlayerY",130);Set(run,"AnimationVelocityY",velocity);Field(run,"<FacingLeft>k__BackingField",left);
+            int frame=RunnerGeometry.GetPlayerFrame(run);Check(frame==(velocity>80?8:velocity< -80?10:9),"Flight uses a running/crouching pose");
+            foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+            {
+                Draw(view,run,canvas);RecordedDraw pack=GUI.DrawCalls.Single(d=>d.Texture==art.FlightDevice);
+                float width=RunnerGeometry.PlayerStandingWidth,height=RunnerGeometry.PlayerStandingHeight;
+                Rect body=new Rect(run.PlayerX-width/2,RunnerSession.GroundY-run.PlayerY-height,width,height);
+                Rect expected=new Rect(body.center.x-(left?51:69),body.y+body.height*.36f,120,64);
+                Check(SameRect(pack.Position,expected),"Flight pack drifted away from physical player: "+kind);
+                Near(pack.UV.width,left?-art.FlightDeviceUV.width:art.FlightDeviceUV.width,"Flight pack did not mirror with character facing");
+                Point(pack.Centre,canvas.MultiplyPoint3x4(expected.center),"Flight equipment acquired a second transform");
+                Texture2D texture=art.GetCharacterTexture(kind,frame);RecordedDraw hero=GUI.DrawCalls.Single(d=>d.Texture==texture);
+                Check(GUI.DrawCalls.IndexOf(pack)<GUI.DrawCalls.IndexOf(hero),"Flight equipment covers the character body");
+                Check(SameRect(hero.Position,art.GetCharacterRect(kind,frame,body,left)),"Flying dinosaur pose left its normal collision layout");
+            }
+        }
+    }
+    private static void ThemedArenaRendering()
+    {
+        var art=new RunnerArt();var themes=new HashSet<string>();
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=ArenaFixture(kind);Draw(view,run,Canvas(1));themes.Add(DrawSignature());
+            Check(!GUI.DrawCalls.Any(d=>StreetTexture(d,art)),"Old city appeared in the active themed arena");
+            var floor=GUI.DrawCalls.Where(d=>d.Texture==Texture2D.whiteTexture&&d.Position.x==0&&d.Position.width==1280&&d.Position.y==RunnerSession.GroundY&&d.Position.height>7).ToList();
+            if(kind==BossKind.Gunship)
+            {
+                Check(floor.Count==0,"Air combat still paints a ground/helipad below the flying dinosaur");
+                Check(!GUI.DrawCalls.Any(d=>SameRect(d.Position,new Rect(557,RunnerSession.GroundY+31,59,6))),"Old helipad H remains visible");
+            }
+            else Check(floor.Count>0,"Ground boss lacks a continuous combat floor");
+        }
+        Check(themes.Count==3,"The three bosses share a single arena theme");
+    }
+    private static void JourneyPauseRendering()
+    {
+        var art=new RunnerArt();
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(bool landing in new[]{false,true})
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=landing?ArenaFixture(kind):BeginArena(kind);
+            if(landing){typeof(RunnerSession).GetMethod("BeginBossVictory",Private).Invoke(run,null);Advance(run,2.7f);}
+            else Advance(run,2.6f);
+            Check(run.ArenaPhase==(landing?BossPhase.Victory:BossPhase.Intro),"Transition fixture finished before pause");
+            run.TogglePause();Draw(view,run,Canvas(1));string before=DrawSignature();float y=run.PlayerY;
+            run.Update(5);GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);view.Draw(run,9999);
+            Check(DrawSignature()==before&&run.PlayerY==y,"Paused scripted "+kind+" journey kept moving its scene/hero");
+        }
+    }
+    private static void BossObstacleRendering()
+    {
+        var art=new RunnerArt();RunnerSession run=ArenaFixture();var objects=(IList<BossObstacle>)run.BossObstacles;objects.Clear();
+        foreach(BossAttackKind kind in new[]{BossAttackKind.MineDrop,BossAttackKind.CrateDrop,BossAttackKind.ElectricPillar,BossAttackKind.ShieldDrone,BossAttackKind.AirMine})
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        using(var view=new RunnerWorldView(art))
+        {
+            var obstacle=new BossObstacle{Id=1123,Kind=kind,X=471,Y=83,Width=52,Height=48,Remaining=5,Radius=(kind==BossAttackKind.MineDrop||kind==BossAttackKind.AirMine)?24:0,Health=24,MaxHealth=24};
+            objects.Clear();objects.Add(obstacle);Draw(view,run,canvas);
+            Rect physical=new Rect(obstacle.X,RunnerSession.GroundY-obstacle.Y-obstacle.Height,obstacle.Width,obstacle.Height);
+            if(obstacle.Radius>0)
+                Check(GUI.DrawCalls.Any(d=>Math.Abs(d.Centre.x-canvas.MultiplyPoint3x4(physical.center).x)<.03&&Math.Abs(d.Centre.y-canvas.MultiplyPoint3x4(physical.center).y)<.03),"Circular obstacle left its live collision centre: "+kind);
+            else Check(GUI.DrawCalls.Any(d=>SameRect(d.Position,physical)),"Obstacle does not draw its full physical body: "+kind);
+            objects.Clear();var warnings=(IList<BossTelegraph>)run.BossTelegraphs;warnings.Clear();
+            var warning=new BossTelegraph{Id=obstacle.Id,Kind=kind,X=obstacle.X,Y=obstacle.Y,Width=obstacle.Width,Height=obstacle.Height,Duration=1,Remaining=.8f};warnings.Add(warning);
+            Draw(view,run,canvas);RecordedDraw preview=GUI.DrawCalls.FirstOrDefault(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
+            Check(preview!=null&&preview.Color.a<.3f,"Obstacle's visible harmless warning omits its eventual footprint: "+kind);
+            Point(preview.Centre,canvas.MultiplyPoint3x4(physical.center),"Obstacle warning shifted away from live geometry");
+            warnings.Clear();objects.Add(obstacle);obstacle.Removed=true;Draw(view,run,canvas);string removed=DrawSignature();objects.Clear();Draw(view,run,canvas);
+            Check(DrawSignature()==removed,"Removed boss obstacle remains visible: "+kind);
+        }
+    }
+    private static void AirGateRendering()
+    {
+        var art=new RunnerArt();RunnerSession run=ArenaFixture(BossKind.Gunship);var warnings=(IList<BossTelegraph>)run.BossTelegraphs;warnings.Clear();
+        var warning=new BossTelegraph{Id=1823,Kind=BossAttackKind.AirGate,X=604,Y=0,Width=44,Height=360,GapY=87,GapHeight=190,Duration=1,Remaining=.8f};warnings.Add(warning);
+        using(var view=new RunnerWorldView(art))
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        {
+            Draw(view,run,canvas);
+            Rect gap=new Rect(warning.X,RunnerSession.GroundY-warning.GapY-warning.GapHeight,warning.Width,warning.GapHeight);
+            Rect lower=new Rect(warning.X,RunnerSession.GroundY-warning.GapY,warning.Width,warning.GapY);
+            Rect upper=new Rect(warning.X,RunnerSession.GroundY-360,warning.Width,360-warning.GapY-warning.GapHeight);
+            foreach(Rect bar in new[]{lower,upper})
+            {
+                RecordedDraw fill=GUI.DrawCalls.FirstOrDefault(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,bar));
+                Check(fill!=null&&fill.Color.a<.3f,"Gate preview omitted a harmless physical bar or hid safe opening");
+                Point(fill.Centre,canvas.MultiplyPoint3x4(bar.center),"Gate bar warning left its physical position");
+            }
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,new Rect(warning.X,RunnerSession.GroundY-360,warning.Width,360))),"Gate warning paints the safe gap as a collision wall");
+        }
+    }
+    private static void PracticeMenuRendering()
+    {
+        var art=new RunnerArt();var run=new RunnerSession(new RunnerSave(),4);
+        using(var view=new RunnerWorldView(art))
+        {
+            var controller=Ui(run,art,view);typeof(CityRunnerController).GetMethod("OpenPractice",Private).Invoke(controller,null);DrawUi(controller);
+            var previews=GUI.DrawCalls.Where(d=>d.Texture==art.BossAtlas).ToList();
+            Check(previews.Count==3&&previews.Select(d=>d.UV.x+":"+d.UV.y).Distinct().Count()==3,"Preparation does not preview all three distinct bosses");
+            foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+                Check(GUI.DrawCalls.Any(d=>d.Texture==art.GetCharacterTexture(kind,0)),"Practice omits a trial character preview: "+kind);
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("LÀM QUEN")),"Learning selector is missing");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("CHUẨN")),"Standard selector is missing");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 10")),"Version footer is stale");
+            Check(GUI.DrawCalls.Where(d=>d.Kind=="Button"&&d.Text!=null&&d.Text.StartsWith("BẮT ĐẦU")).All(d=>!d.Enabled),"Practice preparation leaves normal start active");
+            Check(!run.Save.OwnsTriceratops&&!run.Save.OwnsRaptor&&run.State==RunState.Menu,"Previewing practice changed character ownership or began a run");
+        }
+    }
+    private static void PracticeResultsRendering()
+    {
+        var art=new RunnerArt();
+        foreach(bool won in new[]{false,true})
+        using(var view=new RunnerWorldView(art))
+        {
+            var run=new RunnerSession(new RunnerSave{Wallet=4321,BestScore=7654,LastScore=1234},9);
+            run.StartBossPractice(BossKind.Gunship,CharacterKind.Raptor);run.SkipPracticeIntro();
+            typeof(RunnerSession).GetMethod("FinishPractice",Private).Invoke(run,new object[]{won,"Rendering fixture"});
+            var controller=Ui(run,art,view);DrawUi(controller);
+            foreach(string label in new[]{"TẬP LẠI","Đổi boss / nhân vật","Về menu"})
+                Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text.StartsWith(label)),"Practice result lacks action: "+label);
+            Check(!GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&(d.Text.Contains("SAO NHẬN")||d.Text=="7654"||d.Text=="1234")),"Practice result shows normal run record/reward");
+            Check(run.Save.Wallet==4321&&run.Save.BestScore==7654&&run.Save.LastScore==1234,"Drawing practice result changed normal progress");
         }
     }
 

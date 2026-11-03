@@ -8,13 +8,20 @@ namespace CityDino
     {
         private void DrawBossArena(RunnerSession session)
         {
+            if (session.ArenaPhase == BossPhase.Intro || session.ArenaPhase == BossPhase.Victory)
+            {
+                DrawBossTransition(session);
+                return;
+            }
             BossEncounter boss = session.CurrentBoss;
             BossKind kind = boss == null ? BossKind.Tank : boss.Kind;
             float clock = session.BossElapsed;
             DrawArenaBackdrop(kind, clock);
             gaps.Clear();
             foreach (BossTelegraph telegraph in session.BossTelegraphs)
-                if (telegraph.Visible) DrawBossTelegraph(telegraph, clock);
+                if (telegraph.Visible) DrawBossTelegraph(telegraph, clock, boss);
+            foreach (BossObstacle obstacle in session.BossObstacles)
+                if (!obstacle.Removed) DrawBossObstacle(obstacle, clock);
             if (boss != null) DrawBossBody(boss, session.ArenaPhase, clock, session.BossPhaseRemaining);
             DrawDino(session, session.PlayerAnimationTime);
             foreach (BossProjectile projectile in session.BossProjectiles)
@@ -24,6 +31,11 @@ namespace CityDino
 
         private void DrawArenaBackdrop(BossKind kind, float clock)
         {
+            if (kind == BossKind.Gunship)
+            {
+                DrawAerialArenaBackdrop(clock);
+                return;
+            }
             Color sky = kind == BossKind.Tank ? Hex(0x485c68)
                 : kind == BossKind.Sentinel ? Hex(0x202c43) : Hex(0x19334d);
             Color horizon = kind == BossKind.Tank ? Hex(0xc6b694)
@@ -102,7 +114,7 @@ namespace CityDino
         private void DrawBossBody(BossEncounter boss, BossPhase phase, float clock, float phaseRemaining)
         {
             Rect rect = new Rect(boss.X, GroundY - boss.Y - boss.Height, boss.Width, boss.Height);
-            GroundShadow(boss.X, boss.Width);
+            if (boss.Kind != BossKind.Gunship) GroundShadow(boss.X, boss.Width);
             int rage = Math.Max(1, Math.Min(3, boss.RageLevel));
             bool defeated = phase == BossPhase.Victory;
             DrawBossMechanicalEffects(boss, rect, clock, defeated);
@@ -290,7 +302,8 @@ namespace CityDino
 
         private void DrawBossDestruction(Rect rect, float clock, float remaining)
         {
-            float progress = Mathf.Clamp01(1f - remaining / RunnerSession.BossVictoryDuration);
+            float defeatRemaining = Mathf.Max(0f, remaining - (RunnerSession.BossVictoryDuration - 1.6f));
+            float progress = Mathf.Clamp01(1f - defeatRemaining / 1.6f);
             for (int i = 0; i < 7; i++)
             {
                 float t = Repeat(progress * .8f + i * .137f, 1f);
@@ -329,7 +342,77 @@ namespace CityDino
                 Fill(new Rect(rect.x + rect.width * .12f, rect.y + 3, rect.width * .76f, 5), Hex(0xc7d0ce));
         }
 
-        private void DrawBossTelegraph(BossTelegraph telegraph, float clock)
+        private void DrawBossObstacle(BossObstacle obstacle, float clock)
+        {
+            Rect rect = new Rect(obstacle.X, GroundY - obstacle.Y - obstacle.Height,
+                obstacle.Width, obstacle.Height);
+            float flash = Mathf.Clamp01(obstacle.HitFlashRemaining / .12f);
+            float alpha = obstacle.Active ? 1f : .25f;
+            Color metal = Color.Lerp(Hex(0x365065), Hex(0xffecb8), flash);
+            Color light = Color.Lerp(Hex(0x8fe5f4), Color.white, flash);
+            if (obstacle.Radius > 0f)
+            {
+                // Round mines use the same full disc as CircleTouchesPlayer;
+                // decorative lights stay inside that physical silhouette.
+                Disc(rect, WithAlpha(metal, alpha));
+                Rect core = new Rect(rect.x + rect.width * .16f, rect.y + rect.height * .16f,
+                    rect.width * .68f, rect.height * .68f);
+                Disc(core, WithAlpha(Hex(0x93b2bb), alpha));
+                Disc(new Rect(rect.center.x - 5f, rect.center.y - 5f, 10f, 10f),
+                    WithAlpha(Hex(0xff9765), alpha));
+                for (int i = 0; i < 4; i++)
+                {
+                    float angle = clock * 3f + i * 1.5707963f;
+                    float x = rect.center.x + Mathf.Cos(angle) * rect.width * .32f;
+                    float y = rect.center.y + Mathf.Sin(angle) * rect.height * .32f;
+                    Disc(new Rect(x - 2f, y - 2f, 4f, 4f), WithAlpha(light, alpha));
+                }
+            }
+            else if (obstacle.Kind == BossAttackKind.CrateDrop)
+            {
+                Fill(rect, WithAlpha(Color.Lerp(Hex(0x806c4d), Hex(0xffe9bc), flash), alpha));
+                Rect inset = new Rect(rect.x + 5f, rect.y + 5f, rect.width - 10f, rect.height - 10f);
+                Fill(inset, WithAlpha(Hex(0xcaa15b), alpha));
+                Line(new Vector2(inset.x + 3f, inset.y + 3f), new Vector2(inset.xMax - 3f, inset.yMax - 3f), WithAlpha(metal, alpha), 5f);
+                Line(new Vector2(inset.xMax - 3f, inset.y + 3f), new Vector2(inset.x + 3f, inset.yMax - 3f), WithAlpha(metal, alpha), 5f);
+                Fill(new Rect(rect.center.x - 4f, rect.center.y - 5f, 8f, 10f), WithAlpha(Hex(0xffd87d), alpha));
+            }
+            else if (obstacle.Kind == BossAttackKind.ShieldDrone)
+            {
+                Fill(rect, WithAlpha(metal, alpha));
+                Fill(new Rect(rect.x + 5f, rect.y + 5f, rect.width - 10f, rect.height - 10f), WithAlpha(Hex(0x638ca0), alpha));
+                Fill(new Rect(rect.x + 9f, rect.y + 10f, rect.width - 18f, 8f), WithAlpha(Hex(0x203a50), alpha));
+                Fill(new Rect(rect.x + 14f, rect.y + 12f, 9f, 4f), WithAlpha(Hex(0xff8975), alpha));
+                Fill(new Rect(rect.xMax - 23f, rect.y + 12f, 9f, 4f), WithAlpha(light, alpha));
+                for (int i = 0; i < 3; i++)
+                    Fill(new Rect(rect.x + 10f + i * 17f, rect.yMax - 10f, 10f, 3f), WithAlpha(light, alpha));
+            }
+            else
+            {
+                // Electric pillars and gate bars fill the complete live
+                // rectangle. There are no damaging invisible outer borders.
+                Fill(rect, WithAlpha(metal, alpha));
+                float inset = Mathf.Min(6f, rect.width * .15f);
+                Fill(new Rect(rect.x + inset, rect.y, Mathf.Max(1f, rect.width - inset * 2f), rect.height),
+                    WithAlpha(obstacle.Kind == BossAttackKind.AirGate ? Hex(0x70dbe8) : Hex(0xa6b5ff), alpha * .75f));
+                for (float y = rect.y + 6f; y < rect.yMax - 4f; y += 21f)
+                {
+                    float wave = Mathf.Sin(clock * 12f + y * .13f) * 3f;
+                    Line(new Vector2(rect.x + inset + 2f, y),
+                        new Vector2(rect.xMax - inset - 2f, Mathf.Min(rect.yMax - 2f, y + 9f + wave)),
+                        WithAlpha(Hex(0xe4fcff), alpha * .8f), 2f);
+                }
+                Fill(new Rect(rect.x, rect.y, rect.width, Mathf.Min(5f, rect.height)), WithAlpha(light, alpha));
+                Fill(new Rect(rect.x, rect.yMax - Mathf.Min(5f, rect.height), rect.width, Mathf.Min(5f, rect.height)), WithAlpha(light, alpha));
+            }
+            if (obstacle.Destructible && obstacle.Health < obstacle.MaxHealth)
+            {
+                Fill(new Rect(rect.x, rect.y - 6f, rect.width, 3f), Hex(0x213b4c));
+                Fill(new Rect(rect.x, rect.y - 6f, rect.width * Mathf.Clamp01(obstacle.Health / obstacle.MaxHealth), 3f), Hex(0xffd285));
+            }
+        }
+
+        private void DrawBossTelegraph(BossTelegraph telegraph, float clock, BossEncounter boss)
         {
             Rect rect = new Rect(telegraph.X, GroundY - telegraph.Y - telegraph.Height,
                 telegraph.Width, telegraph.Height);
@@ -337,6 +420,36 @@ namespace CityDino
             bool highLaser = telegraph.Kind == BossAttackKind.LaserHigh;
             Color color = active ? (highLaser ? Hex(0xd480ff) : Hex(0xff765b))
                 : highLaser ? Hex(0xd3a2ff) : Hex(0xffce73);
+            if (!active && telegraph.Kind == BossAttackKind.AirGate)
+            {
+                // Preview the two travelling bars, leaving the physical safe
+                // opening entirely clear rather than painting one solid wall.
+                float lower = Mathf.Clamp(telegraph.GapY, telegraph.Y, telegraph.Y + telegraph.Height);
+                float upper = Mathf.Clamp(telegraph.GapY + telegraph.GapHeight, lower, telegraph.Y + telegraph.Height);
+                DrawBossWarningRect(new Rect(telegraph.X, GroundY - lower, telegraph.Width, lower - telegraph.Y), color, telegraph);
+                DrawBossWarningRect(new Rect(telegraph.X, GroundY - telegraph.Y - telegraph.Height,
+                    telegraph.Width, telegraph.Y + telegraph.Height - upper), color, telegraph);
+                return;
+            }
+            if (!active && telegraph.Kind == BossAttackKind.AirSpread && boss != null)
+            {
+                Vector2 start = new Vector2(boss.X - 20f, boss.Y + boss.Height * .45f);
+                float dx = Mathf.Min(-100f, telegraph.X - start.x), dy = telegraph.GapY - start.y;
+                float length = Mathf.Sqrt(dx * dx + dy * dy);
+                float vx = dx / Mathf.Max(1f, length) * 325f;
+                float vy = dy / Mathf.Max(1f, length) * 325f;
+                float travel = (90f - start.x) / vx;
+                for (int i = -1; i <= 1; i++)
+                {
+                    // Projectiles are 18 by 12 with a bottom-left origin;
+                    // trace their centres rather than offsetting the warning.
+                    Vector2 origin = new Vector2(start.x + 9f, GroundY - start.y - 6f);
+                    Vector2 end = new Vector2(99f, GroundY - start.y - 6f - (vy + i * telegraph.GapHeight) * travel);
+                    Line(origin, end, WithAlpha(color, .12f), 12f);
+                    Line(origin, end, WithAlpha(color, .48f), 2f);
+                }
+                return;
+            }
             if (active)
             {
                 // The complete live rectangle is drawn, including beam edges.
@@ -348,13 +461,20 @@ namespace CityDino
                 return;
             }
             float progress = telegraph.Duration <= 0 ? 0 : Mathf.Clamp01(1 - telegraph.Remaining / telegraph.Duration);
+            DrawBossWarningRect(rect, color, telegraph);
+            DrawBossWarningGlyphs(telegraph.Kind, rect, color, progress, clock);
+        }
+
+        private static void DrawBossWarningRect(Rect rect, Color color, BossTelegraph telegraph)
+        {
+            if (rect.width <= 0f || rect.height <= 0f) return;
+            float progress = telegraph.Duration <= 0 ? 0 : Mathf.Clamp01(1 - telegraph.Remaining / telegraph.Duration);
             Fill(rect, WithAlpha(color, .06f + progress * .12f));
             float edge = 1.5f + progress;
             Fill(new Rect(rect.x, rect.y, rect.width, edge), WithAlpha(color, .78f));
             Fill(new Rect(rect.x, rect.yMax - edge, rect.width, edge), WithAlpha(color, .78f));
             Fill(new Rect(rect.x, rect.y, edge, rect.height), WithAlpha(color, .78f));
             Fill(new Rect(rect.xMax - edge, rect.y, edge, rect.height), WithAlpha(color, .78f));
-            DrawBossWarningGlyphs(telegraph.Kind, rect, color, progress, clock);
         }
 
         private void DrawBossWarningGlyphs(BossAttackKind kind, Rect rect, Color color, float progress, float clock)

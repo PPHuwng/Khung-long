@@ -351,8 +351,9 @@ namespace CityDino
 
         public bool Jump()
         {
-            if (State != RunState.Playing)
+            if (State != RunState.Playing || (IsBossArena && ArenaPhase != BossPhase.Fighting))
                 return false;
+            if (FlightControlsEnabled) return Flap();
 
             if (grounded || coyoteRemaining > 0f)
                 jumpsUsed = 1;
@@ -372,13 +373,13 @@ namespace CityDino
 
         public void SetDucking(bool ducking)
         {
-            duckRequested = State == RunState.Playing && ducking;
+            duckRequested = State == RunState.Playing && (!IsBossArena || ArenaPhase == BossPhase.Fighting) && !IsFlyingBoss && ducking;
             IsDucking = duckRequested && grounded;
         }
 
         public void SetHorizontal(float axis)
         {
-            horizontalAxis = State == RunState.Playing && IsFinite(axis)
+            horizontalAxis = State == RunState.Playing && (!IsBossArena || ArenaPhase == BossPhase.Fighting) && IsFinite(axis)
                 ? Math.Max(-1f, Math.Min(1f, axis)) : 0f;
         }
 
@@ -391,6 +392,7 @@ namespace CityDino
                 IsDucking = false;
                 horizontalAxis = 0f;
                 shootingHeld = false;
+                flightLiftHeld = false;
             }
             else if (State == RunState.Paused)
                 State = RunState.Playing;
@@ -406,6 +408,7 @@ namespace CityDino
             duckRequested = false;
             horizontalAxis = 0f;
             ResetBossArena();
+            ResetPracticeRun();
         }
 
         public bool BuyExtraHeart()
@@ -809,6 +812,7 @@ namespace CityDino
                 return;
 
             Lives = Math.Max(0, Lives - 1);
+            if (IsPractice) PracticeHits++;
             if (Lives == 0)
             {
                 VelocityY = 0f;
@@ -841,6 +845,7 @@ namespace CityDino
 
         private void FinishRun(string reason)
         {
+            if (IsPractice) { FinishPractice(false, reason); return; }
             State = RunState.GameOver;
             EndReason = reason;
             VelocityY = 0f;

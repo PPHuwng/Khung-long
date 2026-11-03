@@ -774,9 +774,11 @@ namespace CityDino
             float x = session.PlayerX;
             float y = session.PlayerY;
             float shadowScale = Mathf.Clamp(1f - y / 450f, 0.5f, 1f);
+            bool hasGround = !session.IsFlyingBoss ||
+                (session.ArenaPhase != BossPhase.Fighting && session.TransitionElevation < .12f);
             bool overGap = false;
             for (int i = 0; i < gaps.Count; i++) if (x >= gaps[i].x && x <= gaps[i].y) overGap = true;
-            if (!overGap && y > -30f)
+            if (hasGround && !overGap && y > -30f)
                 Disc(new Rect(x - 39f * shadowScale, GroundY - 6f, 78f * shadowScale, 13f * shadowScale), new Color(0.03f, 0.09f, 0.16f, 0.24f), true);
             bool running = session.State == RunState.Playing;
             bool facingLeft = session.FacingLeft;
@@ -784,6 +786,8 @@ namespace CityDino
             float width = session.IsDucking ? RunnerGeometry.PlayerDuckWidth : RunnerGeometry.PlayerStandingWidth;
             float height = session.IsDucking ? RunnerGeometry.PlayerDuckHeight : RunnerGeometry.PlayerStandingHeight;
             Rect rect = new Rect(x - width / 2f, GroundY - y - height + bob, width, height);
+            if (session.IsFlyingBoss && session.FlightDeviceCollected)
+                DrawAttachedFlightDevice(session, rect, time);
             if (session.ShieldReady)
                 Disc(new Rect(rect.x - 13f, rect.y - 10f, rect.width + 26f, rect.height + 22f),
                     new Color(0.3f, 0.8f, 1f, 0.22f), true);
@@ -816,7 +820,7 @@ namespace CityDino
             if (texture != null)
                 GUI.DrawTextureWithTexCoords(rect, texture, uv, true);
             else Fill(rect, Hex(0x7fbd72));
-            if (running && y <= 1f && session.Elapsed > 0.5f)
+            if (hasGround && running && y <= 1f && session.Elapsed > 0.5f)
             {
                 for (int i = 0; i < 4; i++)
                 {

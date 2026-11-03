@@ -18,7 +18,7 @@ internal static class Program
     private struct Inputs
     {
         public float Horizontal;
-        public bool Jump, Duck, Shoot, Skill;
+        public bool Jump, Duck, Shoot, Skill, Lift;
     }
 
     private static int Main()
@@ -51,6 +51,17 @@ internal static class Program
         Test("arena transition controls consume touches without firing or jumping", ArenaTransitionControls);
         Test("menu modals block starting and special action keys", ModalStartKeys);
         Test("game over modals block restart keys", ModalRestartKeys);
+        Test("flight touch separates tap flap from continuous lift", FlightTouch);
+        Test("flight supports simultaneous movement lift and shooting", MultitouchFlight);
+        Test("flight touch retains scale letterbox and synthetic mouse protection", FlightPointerScale);
+        Test("Space W and Up hold flight lift and release returns to falling", FlightKeyboardHold);
+        Test("flight tap and horizontal movement remain independent of shooting", FlightKeyboardTap);
+        Test("all three characters can shoot in the normal 20k aerial encounter", FlightCharacterFire);
+        Test("scripted arena entrance ignores manual movement flight and combat", ScriptedTransitionInput);
+        Test("pause freezes the scripted entrance and active flight", FlightAndTransitionPause);
+        Test("practice command trials locked characters without changing normal inventory", PracticeCommand);
+        Test("practice retry key replays its selected trial without starting a normal run", PracticeRetryKey);
+        Test("pause and release clear held flight thrust before resuming", FlightPauseRelease);
         Console.WriteLine();
         Console.WriteLine("Input mapping: " + passed + " passed, " + failed + " failed.");
         Console.WriteLine("Production mapping ran against math/device stubs; Unity event delivery and device hardware were not executed.");
@@ -260,10 +271,28 @@ internal static class Program
     private static RunnerSession Arena(CharacterKind kind)
     {
         RunnerSession run=Session(kind);
-        SetField(run,"distanceClock",199999d);SetField(run,"<Distance>k__BackingField",199999f);
-        run.Update(0.02f);Check(run.IsBossArena,"Milestone fixture did not enter the arena");
+        EnterArena(run,BossKind.Tank);
         for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
         Check(run.ArenaPhase==BossPhase.Fighting,"Arena intro did not complete");return run;
+    }
+    private static void EnterArena(RunnerSession run,BossKind boss)
+    {
+        int ordinal=boss==BossKind.Tank?0:boss==BossKind.Gunship?1:2;
+        int milestone=(ordinal+1)*RunnerSession.BossScoreInterval;
+        SetField(run,"<BossNumber>k__BackingField",ordinal);
+        SetField(run,"<NextBossScore>k__BackingField",milestone);
+        SetField(run,"distanceClock",milestone*20d-1d);SetField(run,"<Distance>k__BackingField",milestone*20f-1f);
+        run.Update(.02f);
+        Check(run.IsBossArena&&run.CurrentBoss.Kind==boss,"Normal milestone selected the wrong arena");
+    }
+    private static RunnerSession FlightArena(CharacterKind character=CharacterKind.Classic)
+    {
+        RunnerSession run=Session(character);EnterArena(run,BossKind.Gunship);
+        for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+        Check(run.FlightControlsEnabled&&run.FlightDeviceCollected,"20k encounter did not enable its collected flight device");
+        // Input tests isolate routing, not the attack survival already checked
+        // by core fixtures. Keep long held/released input samples alive.
+        SetField(run,"<InvincibleRemaining>k__BackingField",1000f);return run;
     }
     private static CityRunnerController Controller(RunnerSession run)
     {
@@ -319,7 +348,7 @@ internal static class Program
     }
     private static void ModalStartKeys()
     {
-        foreach(string modal in new[]{"showCharacters","showShop","showHistory"})
+        foreach(string modal in new[]{"showCharacters","showShop","showHistory","showPractice"})
         {
             var run=new RunnerSession(new RunnerSave{OwnsTriceratops=true,SelectedCharacter=CharacterKind.Triceratops},3);
             var controller=Controller(run);SetField(controller,modal,true);
@@ -329,7 +358,7 @@ internal static class Program
     }
     private static void ModalRestartKeys()
     {
-        foreach(string modal in new[]{"showCharacters","showShop","showHistory"})
+        foreach(string modal in new[]{"showCharacters","showShop","showHistory","showPractice"})
         {
             RunnerSession run=Session(CharacterKind.Classic);
             ((IList<WorldEntity>)typeof(RunnerSession).GetField("entities",PrivateInstance).GetValue(run)).Add(new WorldEntity{Kind=EntityKind.Barrier,X=run.PlayerX-80,Y=0,Width=160,Height=200});
@@ -337,6 +366,162 @@ internal static class Program
             var controller=Controller(run);SetField(controller,modal,true);Keyboard.current=new Keyboard();Keyboard.current.rKey.wasPressedThisFrame=true;
             Frame(controller);Check(run.State==RunState.GameOver,modal+" leaked R into restart");
         }
+    }
+
+    private static Inputs FlightPoint(float x,float y,bool down=true,bool held=true)
+    {
+        MethodInfo method=typeof(CityRunnerController).GetMethod("ApplyGameplayPointer",BindingFlags.Static|BindingFlags.NonPublic);
+        Check(method!=null,"Shared gameplay pointer mapping missing");
+        object[] args={new Vector2(x,y),down,held,true,true,true,0f,false,false,false,false,false};
+        method.Invoke(null,args);
+        return new Inputs{Horizontal=(float)args[6],Jump=(bool)args[7],Duck=(bool)args[8],Shoot=(bool)args[9],Skill=(bool)args[10],Lift=(bool)args[11]};
+    }
+    private static Inputs ReadFlight()
+    {
+        MethodInfo method=typeof(CityRunnerController).GetMethod("ReadGameplayPointers",BindingFlags.Static|BindingFlags.NonPublic);
+        Check(method!=null,"Shared gameplay touch iteration missing");
+        object[] args={true,true,true,0f,false,false,false,false,false};method.Invoke(null,args);
+        return new Inputs{Horizontal=(float)args[3],Jump=(bool)args[4],Duck=(bool)args[5],Shoot=(bool)args[6],Skill=(bool)args[7],Lift=(bool)args[8]};
+    }
+    private static void FlightTouch()
+    {
+        foreach(Vector2 point in new[]{new Vector2(1182,67),new Vector2(500,320)})
+        {
+            Inputs tap=FlightPoint(point.x,point.y);
+            Check(tap.Jump&&tap.Lift&&!tap.Duck&&!tap.Shoot&&!tap.Skill,"Flight press did not request one flap plus held lift");
+            Inputs hold=FlightPoint(point.x,point.y,false,true);
+            Check(!hold.Jump&&hold.Lift&&!hold.Duck,"Flight hold repeated a tap or lost continuous lift");
+            Inputs release=FlightPoint(point.x,point.y,false,false);
+            Check(!release.Jump&&!release.Lift&&!release.Duck,"Released flight pointer kept thrust active");
+        }
+        Inputs consumed=FlightPoint(1056,67);
+        Check(!consumed.Jump&&!consumed.Lift&&!consumed.Duck,"Unused flight crouch region leaked to a flap");
+        Inputs shoot=FlightPoint(784,67,false,true);
+        Check(shoot.Shoot&&!shoot.Lift&&!shoot.Jump,"Fire region also activated the flight device");
+    }
+    private static void MultitouchFlight()
+    {
+        Touchscreen.current=new Touchscreen();
+        Touchscreen.current.touches.Add(Touch(180,67,false,true));
+        Touchscreen.current.touches.Add(Touch(1182,67,false,true));
+        Touchscreen.current.touches.Add(Touch(784,67,false,true));
+        Inputs held=ReadFlight();
+        Check(held.Horizontal==1&&held.Lift&&held.Shoot&&!held.Jump&&!held.Duck,"Three held fingers could not steer fly and shoot together");
+        Touchscreen.current.touches.Add(Touch(914,67));
+        Check(ReadFlight().Skill,"Fourth skill finger is ignored during airborne movement/fire");
+        Touchscreen.current.touches.RemoveAt(1);
+        Check(!ReadFlight().Lift,"Lifting the flight finger failed to release thrust while other fingers remained");
+    }
+    private static void FlightPointerScale()
+    {
+        Screen.width=1920;Screen.height=1080;
+        Check(FlightPoint(1773,100.5f,false,true).Lift,"1080p BAY region no longer maps to lift");
+        Screen.height=720;
+        Check(FlightPoint(1502,67,false,true).Lift,"Ultrawide BAY offset no longer maps to lift");
+        Inputs margin=FlightPoint(100,320);
+        Check(!margin.Jump&&!margin.Lift&&!margin.Shoot,"Pillarbox margin became a flight input");
+        Screen.width=1280;Touchscreen.current=new Touchscreen();Touchscreen.current.touches.Add(Touch(784,67,false,true));
+        Mouse.current=new Mouse{leftButton=new ButtonControl{wasPressedThisFrame=true,isPressed=true},position=new Vector2Control{TestValue=new Vector2(500,320)}};
+        Inputs input=ReadFlight();Check(input.Shoot&&!input.Jump&&!input.Lift,"Synthetic mouse event duplicated a flight/combat touch");
+    }
+    private static void FlightKeyboardHold()
+    {
+        foreach(string key in new[]{"spaceKey","wKey","upArrowKey"})
+        {
+            RunnerSession run=FlightArena();var controller=Controller(run);float start=run.PlayerY;
+            Keyboard.current=new Keyboard();var control=(ButtonControl)typeof(Keyboard).GetField(key).GetValue(Keyboard.current);control.isPressed=true;
+            for(int i=0;i<45;i++)Frame(controller);
+            Check(run.PlayerY>start+30&&!run.IsDucking,"Held "+key+" did not lift the airborne character");
+            float high=run.PlayerY;control.isPressed=false;for(int i=0;i<70;i++)Frame(controller);
+            Check(run.PlayerY<high-30&&run.PlayerY>=RunnerSession.FlightMinimumY,"Released "+key+" did not restore controlled falling");
+        }
+    }
+    private static void FlightKeyboardTap()
+    {
+        RunnerSession run=FlightArena();var controller=Controller(run);float y=run.PlayerY,x=run.PlayerX;
+        Keyboard.current=new Keyboard();Keyboard.current.spaceKey.wasPressedThisFrame=true;Keyboard.current.dKey.isPressed=true;Keyboard.current.jKey.isPressed=true;
+        Frame(controller);
+        Check(run.PlayerY>y&&run.PlayerX>x&&run.BossProjectiles.Any(p=>p.Friendly),"Space tap failed to flap while steering and firing");
+        Keyboard.current.spaceKey.wasPressedThisFrame=false;Keyboard.current.sKey.isPressed=true;Frame(controller);
+        Check(!run.IsDucking,"Ground crouch remained active in the aerial arena");
+    }
+    private static void FlightCharacterFire()
+    {
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        {
+            RunnerSession run=FlightArena(kind);var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.jKey.isPressed=true;
+            Keyboard.current.spaceKey.isPressed=true;Frame(controller);
+            Check(run.CurrentBoss.Kind==BossKind.Gunship&&run.BossNumber==2&&run.BossProjectiles.Any(p=>p.Friendly),kind+" cannot fly and use its normal weapon at 20k");
+        }
+    }
+    private static void ScriptedTransitionInput()
+    {
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        {
+            RunnerSession input=Session(CharacterKind.Triceratops),automatic=Session(CharacterKind.Triceratops);
+            EnterArena(input,kind);EnterArena(automatic,kind);
+            var manualController=Controller(input);var automaticController=Controller(automatic);
+            for(int i=0;i<180;i++)
+            {
+                Keyboard.current=new Keyboard();Keyboard.current.aKey.isPressed=true;Keyboard.current.spaceKey.isPressed=true;Keyboard.current.spaceKey.wasPressedThisFrame=true;
+                Keyboard.current.sKey.isPressed=true;Keyboard.current.jKey.isPressed=true;Keyboard.current.eKey.wasPressedThisFrame=true;
+                Touchscreen.current=new Touchscreen();Touchscreen.current.touches.Add(Touch(180,67));Touchscreen.current.touches.Add(Touch(1182,67));Touchscreen.current.touches.Add(Touch(784,67));
+                Frame(manualController);Keyboard.current=new Keyboard();Touchscreen.current=null;Frame(automaticController);
+                Check(Math.Abs(input.PlayerX-automatic.PlayerX)<.001&&Math.Abs(input.PlayerY-automatic.PlayerY)<.001,"Manual input displaced scripted "+kind+" approach/takeoff");
+                Check(input.SkillCooldownRemaining==0&&!input.BossProjectiles.Any(p=>p.Friendly)&&!input.IsDucking,"Transition accepted manual skill fire or crouch");
+            }
+            Check(input.ArenaPhase==BossPhase.Intro,"Transition input fixture advanced past its 4.8 second cinematic");
+        }
+    }
+    private static void FlightAndTransitionPause()
+    {
+        foreach(bool flight in new[]{false,true})
+        {
+            RunnerSession run=flight?FlightArena():Session(CharacterKind.Classic);
+            if(!flight){EnterArena(run,BossKind.Gunship);run.Update(.8f);}
+            var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.escapeKey.wasPressedThisFrame=true;Frame(controller);
+            Check(run.State==RunState.Paused,"Escape did not pause "+(flight?"active flight":"takeoff"));
+            float x=run.PlayerX,y=run.PlayerY,clock=run.BossElapsed,phase=run.BossPhaseRemaining;
+            Keyboard.current.escapeKey.wasPressedThisFrame=false;Keyboard.current.spaceKey.isPressed=true;Keyboard.current.dKey.isPressed=true;Keyboard.current.jKey.isPressed=true;
+            for(int i=0;i<60;i++)Frame(controller);
+            Check(run.PlayerX==x&&run.PlayerY==y&&run.BossElapsed==clock&&run.BossPhaseRemaining==phase,"Paused flight/cinematic accepted movement or advanced its clock");
+        }
+    }
+    private static void PracticeCommand()
+    {
+        var save=new RunnerSave{Wallet=4321,BestScore=7654,LastScore=1234,PurchasedHearts=2,PurchasedShield=true,PurchasedWaterReserve=true,PurchasedWarmReserve=true};
+        var run=new RunnerSession(save,113);int saves=0;run.SaveChanged+=()=>saves++;
+        var controller=Controller(run);SetField(controller,"showPractice",true);SetField(controller,"practiceBoss",BossKind.Gunship);
+        SetField(controller,"practiceCharacter",CharacterKind.Raptor);SetField(controller,"practiceLearning",false);
+        MethodInfo start=typeof(CityRunnerController).GetMethod("StartPractice",PrivateInstance);Check(start!=null,"Practice start command is missing");
+        start.Invoke(controller,null);
+        Check(run.IsPractice&&run.CurrentBoss.Kind==BossKind.Gunship&&run.CurrentCharacter==CharacterKind.Raptor&&!run.PracticeLearning,"Prepared practice selection did not reach the real practice session");
+        Check(!save.OwnsRaptor&&!save.OwnsTriceratops&&save.SelectedCharacter==CharacterKind.Classic,"Practice trial unlocked or equipped a normal character");
+        Check(save.Wallet==4321&&save.BestScore==7654&&save.LastScore==1234&&save.PurchasedHearts==2&&save.PurchasedShield&&save.PurchasedWaterReserve&&save.PurchasedWarmReserve&&saves==0,"Practice command spent inventory or saved normal progress");
+        Check(!(bool)typeof(CityRunnerController).GetField("showPractice",PrivateInstance).GetValue(controller),"Starting practice left its modal covering play");
+    }
+
+    private static void PracticeRetryKey()
+    {
+        var save=new RunnerSave{Wallet=4321,BestScore=7654,LastScore=1234,PurchasedHearts=2,PurchasedShield=true,PurchasedWaterReserve=true,PurchasedWarmReserve=true};
+        var run=new RunnerSession(save,14);int saves=0;run.SaveChanged+=()=>saves++;
+        run.StartBossPractice(BossKind.Gunship,CharacterKind.Raptor,false);run.SkipPracticeIntro();
+        typeof(RunnerSession).GetMethod("FinishPractice",PrivateInstance).Invoke(run,new object[]{false,"Input retry fixture"});
+        var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.rKey.wasPressedThisFrame=true;Frame(controller);
+        Check(run.State==RunState.Playing&&run.IsPractice&&!run.PracticeLearning&&run.CurrentBoss.Kind==BossKind.Gunship&&run.CurrentCharacter==CharacterKind.Raptor,"R started a normal run or lost prepared practice selections");
+        Check(!run.PracticeFinished&&run.PracticeHits==0&&run.PracticeElapsed==0&&run.Lives==3,"Retry retained the preceding practice outcome");
+        Check(save.Wallet==4321&&save.BestScore==7654&&save.LastScore==1234&&save.PurchasedHearts==2&&save.PurchasedShield&&save.PurchasedWaterReserve&&save.PurchasedWarmReserve&&saves==0,"Practice R spent purchased normal-run stock or recorded progress");
+    }
+    private static void FlightPauseRelease()
+    {
+        RunnerSession run=FlightArena();var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.spaceKey.isPressed=true;
+        for(int i=0;i<15;i++)Frame(controller);
+        Keyboard.current.escapeKey.wasPressedThisFrame=true;Frame(controller);Check(run.State==RunState.Paused,"Flight pause fixture failed");
+        Keyboard.current.escapeKey.wasPressedThisFrame=false;Keyboard.current.spaceKey.isPressed=false;for(int i=0;i<10;i++)Frame(controller);
+        Keyboard.current.escapeKey.wasPressedThisFrame=true;Frame(controller);Keyboard.current.escapeKey.wasPressedThisFrame=false;
+        Check(run.State==RunState.Playing,"Escape failed to resume flight");
+        float resumeY=run.PlayerY;for(int i=0;i<60;i++)Frame(controller);
+        Check(run.PlayerY<resumeY-20&&run.VelocityY<=0,"Released lift remained stuck after pause/resume");
     }
 
 }

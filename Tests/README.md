@@ -8,7 +8,7 @@ Cần **.NET SDK 8**. Từ thư mục gốc dự án:
 
 Console chạy trực tiếp các file trong `Assets/CityDino/Core/` bằng C# 9,
 không dùng bản sao logic game, không cần thư viện kiểm thử bên ngoài.
-Bộ kiểm tra có **105 nhóm hành vi**, gồm:
+Bộ kiểm tra có **115 nhóm hành vi**, gồm:
 
 - Nhảy kép, coyote time, cúi, di chuyển trái/phải trên đất/trên không, giới hạn màn hình và input không hợp lệ.
 - Va chạm, nhặt đồ, mặt đường và hồi sau rơi dùng vị trí X hiện tại; chết chỉ ghi kết quả một lần và đóng băng tư thế.
@@ -37,7 +37,7 @@ Bộ kiểm tra có **105 nhóm hành vi**, gồm:
 - Giáp Sừng/Tốc Ảnh mở vĩnh viễn ở giá 2.500/5.000, chọn trước lượt và không đổi nhân vật chết khi chọn cho lượt sau; dữ liệu cũ chuyển schema 4 giữ ví, tim, nâng cấp và thành tích.
 - Giáp đỡ một đòn vật lý trước khi dùng khiên mua; phản đúng một đạn boss. Lướt dùng chuyển động X thật, bảo vệ va chạm trong 0,35 giây; hai kỹ năng có hồi chiêu, đóng băng khi pause và không cứu rơi/cạn thanh.
 - Cả ba khủng long đều bắn được chỉ trong giai đoạn chiến đấu boss; Classic không có kỹ năng riêng. Kiểm tra nhịp bắn, projectile thật, intro/victory/menu/pause/death chặn bắn.
-- Mốc boss dựa trên điểm hiển thị kể cả ×2; ba boss đầu Tank/Sentinel/Gunship đúng thứ tự, các vòng sau xáo đủ ba loại, không lặp sát nhau. Mốc đã xử lý không tái kích hoạt, kể cả khi điểm chạm giới hạn int.
+- Mốc boss dựa trên điểm hiển thị kể cả ×2; ba boss đầu Tank/Gunship/Sentinel ở mốc 10k/20k/30k đúng thứ tự, các vòng sau xáo đủ ba loại, không lặp sát nhau. Mốc đã xử lý không tái kích hoạt, kể cả khi điểm chạm giới hạn int.
 - Đấu trường giữ điểm/quãng đường/tốc độ/đồng hồ map/nước/thân nhiệt/hồi tài nguyên/×2/nam châm; kỹ năng và đạn vẫn chạy theo đồng hồ chiến đấu. Tạm dừng dừng toàn bộ; tốc độ đạn và chu kỳ boss không đổi khi tốc độ chạy đã là 8.280.
 - Boss chết chỉ thưởng sao một lần, không cộng điểm chạy hoặc hồi tim; trở lại làn sạch với bảo vệ ngắn. Tuyết/nắng có đồ uống thay thế nhặt thật, không tự hồi thanh 45 khi miễn thương bỏ qua sát thương.
 - Ba boss đầy máu được khủng long miễn phí hạ bằng đạn và né thật, một mạng, không dùng kỹ năng, không xoá đạn hoặc bật bất tử; chiêu có cảnh báo trước rồi mới tạo vùng sát thương thật.
@@ -77,11 +77,15 @@ sinh được thử, thời gian tiếp cận bằng cuộn đường dài nhấ
 hố (60,7%)**, gồm 59 hố kép và 84 nền sập. Túi map được kiểm tra thêm ba vòng
 sáu map cho cả sáu lựa chọn khởi đầu và chế độ ngẫu nhiên.
 
-Kiểm tra boss tạo lượt chạy ngay trước **mốc điểm thật**, để chỉ rút ngắn phần chạy trước trận. Ba trận đầy máu giữ nguyên 750/840/800 HP, đạn, cảnh báo, cửa sổ lộ lõi và sát thương production. Bot Classic không dùng vật phẩm/kỹ năng hoặc thay máu boss; cả ba trận không mất mạng, lần lượt khoảng **40,9 / 44,1 / 42,3 giây**. Bài cảnh báo quan sát **61 đạn địch và 37 vùng laser/nổ đang hoạt động**, mỗi đợt liên kết bằng `SourceTelegraphId` với chính cảnh báo đã hiển thị đủ thời gian trước đó; không chỉ nhớ loại chiêu. Bài này quan sát đủ ba pha 65%/35%, kể cả drone thấp.
+Kiểm tra boss tạo lượt chạy ngay trước **mốc điểm thật**, chỉ rút ngắn phần chạy trước trận. Ba trận theo thứ tự Tank/Gunship/Sentinel giữ nguyên **750/800/840 HP**, đạn, vật cản, cảnh báo, cửa sổ lộ lõi và sát thương production. Bot Classic không dùng vật phẩm/kỹ năng, không đổi máu boss, không miễn thương hoặc xoá đạn. Cả ba trận không trúng đòn, kết thúc khoảng **47,8 / 44,9 / 54,7 giây** chiến đấu. Trực thăng dùng điều khiển bay giữ/thả thật và né qua khe cổng, không dùng bot nhảy mặt đất.
 
-BẢN 09 thêm năm nhóm luật chơi: chuyển động/đi vào đấu trường và tính nhất quán khi chia bước thời gian; ba pha tăng nhịp và số đợt thật; phản ứng trúng đạn/bắn đóng băng khi pause/chết; huỷ đợt đang chờ khi thắng/chơi lại; đường né pha cuối của boss muộn từ hai mép màn hình. Các bài đo chuyển động/mật độ có bảo vệ nhân vật để đo đầu ra thuần, không dùng làm bằng chứng sống sót. Trong 18 giây đo, số vật thể/vùng sát thương thật của pha 1/2/3 là **10/20/30** ở xe tăng, **5/11/12** ở robot và **8/18/27** ở trực thăng; chu kỳ tương ứng **3,70/3,25/2,90 giây**.
+Bài truy vết cảnh báo quan sát **28 đạn địch và 16 vùng laser/nổ**, mỗi đợt liên kết bằng `SourceTelegraphId` với chính cảnh báo đã hiển thị đủ thời gian; không chỉ nhớ loại chiêu. Bài riêng quan sát đủ sáu loại vật cản boss (mìn lăn, thùng, cột điện, robot chắn đạn, cổng bay, mìn bay), kiểm tra nguồn cảnh báo, kích thước, vòng đời hữu hạn, giới hạn số lượng và dọn khi về menu/thắng. Các bài truy vết này đặt máu boss qua ba pha và bảo vệ người chơi để đo đầu ra; chúng **không phải bằng chứng né đòn/sống sót**. Bài so sánh nhịp đạn ở tốc độ chạy 360/8.280 cũng được cô lập như vậy.
 
-Bài đường né muộn dựng pha 3 ở các mốc boss 7/8/9, bắt đầu lần lượt từ X100 và X720, rồi tìm trong sáu lựa chọn làn tiếp cận bằng A/D thật trong 1,8 giây intro. Không dịch chuyển nhân vật bằng setter sau điểm bắt đầu: bước cuối dùng trục di chuyển nhỏ để đến làn. Sáu trường hợp đều sống 15 giây với mọi đạn/va chạm production, một mạng, không bắn, kỹ năng, bất tử hoặc xoá đạn; xe tăng dùng làn X100, robot/trực thăng dùng X220. Đây là bằng chứng đường vượt tồn tại sau khi chủ động chọn vị trí, không khẳng định đứng yên ở mép luôn an toàn hoặc bot phản ánh phản xạ con người. Bot dùng thời gian va chạm sắp tới để tránh lao qua vùng nổ hiện tại vì một dấu ngắm tương lai, và chỉ nhảy kép khi chân thực sự có nguy cơ chạm đòn còn lại.
+Các phép đo ba pha 65%/35% đếm cả projectile, vật cản và vùng sát thương. Trong 18 giây, pha 1/2/3 tạo **8/14/20** đầu ra ở xe tăng, **7/10/10** ở trực thăng, **5/8/10** ở robot. Chu kỳ xe tăng/robot là **3,90/3,50/3,20 giây**; trực thăng là **4,60/4,20/3,80 giây**. Phép đo chuyển động kéo dài 20 giây để đi đủ chuỗi năm chiêu của robot, kiểm tra tuần tra/nhảy dậm/bay bằng X/Y thật và tính nhất quán khi chia bước thời gian. Những phép đo này có bảo vệ để ghi đủ chuỗi, không dùng làm bằng chứng độ khó.
+
+Bài đường né muộn dựng pha 3 ở mốc boss 7/8/9. Hai vị trí X100/X720 được đặt **trước khi vượt mốc**, nên đoạn tiếp cận ghi nhận đúng mép xuất phát rồi tự đưa nhân vật vào làn chiến đấu X260 theo cơ chế mới. Sáu trường hợp sống 15 giây bằng né và bắn phá vật cản thật, một mạng, không kỹ năng, miễn thương, xoá đạn hoặc hồi máu. Bot chỉ giữ bắn khi có vật cản phá được phía trước; không tự đổi vị trí sau khi bắt đầu. Đây là bằng chứng có đường vượt với các lệnh hợp lệ, không khẳng định mọi người chơi sẽ phản ứng giống bot.
+
+BẢN 10 thêm mười nhóm: đấu tập đủ ba boss × ba nhân vật, kể cả thử nhân vật chưa mua mà giữ nguyên toàn bộ JSON lưu/stock và không phát `SaveChanged`; thua/chơi lại không ghi lịch sử; mức Làm quen/Chuẩn thay đổi đúng máu, mạng, nhịp và cảnh báo; thắng tập không thưởng sao; tiếp cận/nhặt thiết bị/cất cánh/hạ cánh liên tục, không tính điểm hay hao thanh; giữ/thả/nhấn Space, giới hạn độ cao, A/D, pause; nguồn cảnh báo/vòng đời vật cản; đạn thật phá thùng rồi mới chạm boss; va chạm mìn tròn và dọn vật cản. Bài bay thuần tuý bảo vệ nhân vật để tách kiểm tra điều khiển khỏi chiêu boss. Bài va chạm/trạng thái dùng tình huống dựng rõ ràng; các trận đầy máu ở trên giữ nguyên luật sát thương.
 
 Các fixture thưởng/chuyển cảnh và chuỗi 12 mốc đặt boss còn 1 HP, loại đạn địch rồi kết liễu bằng đạn người chơi thật để tách ghi nhận thưởng/trở về; chúng không phải bằng chứng vượt boss. Bài đầy máu nói trên không dùng cách cô lập này. Bài nhịp boss so sánh cùng đòn ở tốc độ chạy lưu 360 và 8.280; bài trở về map tuyết/nắng giữ tài nguyên 0 rồi nhặt đồ uống production, không cấp hồi miễn phí.
 
@@ -92,7 +96,7 @@ Có thể chỉ chạy một nhóm khi chẩn đoán lỗi:
 ```
 
 Console ghi rõ những bài không được chọn chưa chạy; không truyền tham số sẽ
-chạy toàn bộ 105 nhóm.
+chạy toàn bộ 115 nhóm.
 
 ## Ánh xạ input và đa điểm chạm
 
@@ -100,9 +104,9 @@ chạy toàn bộ 105 nhóm.
 ./scripts/test-core.sh --input-mapping
 ```
 
-**27 kiểm tra** gọi trực tiếp `ApplyPointer`/`ReadPointers` controller production
+**38 kiểm tra** gọi trực tiếp `ApplyPointer`/`ReadPointers` controller production
 bằng tọa độ và thiết bị giả: trái/phải, hai hướng triệt tiêu, hai ngón di chuyển
-cùng nhảy, crouch, HUD, letterbox và scale màn hình. Thêm J cho cả ba nhân vật, E cho hai nhân vật đặc biệt, ba ngón di chuyển/nhảy/bắn, nút kỹ năng không nhảy, intro/victory/pause và chặn Space/R/J/E xuyên qua cửa hàng/thành tích/chọn nhân vật. Đây là kiểm tra logic/API tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc input từ hệ điều hành.
+cùng nhảy, crouch, HUD, letterbox và scale màn hình. Thêm J cho cả ba nhân vật, E cho hai nhân vật đặc biệt, ba ngón di chuyển/nhảy/bắn, nút kỹ năng không nhảy, intro/victory/pause và chặn Space/R/J/E xuyên qua cửa hàng/thành tích/chọn nhân vật. Thêm giữ/thả/nhấn Space để bay, BAY cảm ứng cùng di chuyển/bắn, không cúi/nhảy kép trên trời, chặn input trong chuyển cảnh, modal đấu tập và nút thử nhân vật chưa mua. Đây là kiểm tra logic/API tối thiểu; không kiểm tra sự kiện Unity, cảm ứng thật hoặc input từ hệ điều hành.
 
 ## Hợp đồng toạ độ vẽ
 
@@ -110,7 +114,7 @@ cùng nhảy, crouch, HUD, letterbox và scale màn hình. Thêm J cho cả ba n
 ./scripts/test-core.sh --render-contracts
 ```
 
-**33 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
+**41 nhóm kiểm tra** gọi `RunnerWorldView.Draw` production và ghi lệnh vẽ:
 
 - Tâm cưa đúng tâm va chạm qua 5 góc xoay × 5 scale/offset; đầu đường không lệch khi letterbox.
 - Mỗi loại vật cản có ảnh, không nhãn CÚI/NHẢY nổi; nền sập/hố cắt mặt đường đúng vùng clip.
@@ -125,6 +129,7 @@ cùng nhảy, crouch, HUD, letterbox và scale màn hình. Thêm J cho cả ba n
 - Boss BẢN 09 đi vào, tuần tra, giật pháo và bay theo X/Y thật ở nhiều canvas; xích/servo/cánh quạt chạy theo đồng hồ chiến đấu, phản ứng từ đạn trúng/đợt bắn/dậm đất và khói/tia lửa lúc hạ boss đóng băng khi pause/chết.
 - Đợt xếp chờ không vẽ sớm; các dấu cảnh báo có nét riêng, drone thấp dùng hình học thật; HUD hiện pha, chiêu và màu thanh máu đúng trạng thái.
 - Hai nhân vật mới dùng đúng texture/UV/vị trí cho đủ 11 khung logic, lật cả vị trí và ảnh, menu và trận dùng cùng dữ liệu; HUD hiện máu boss/điểm dừng và modal thực sự vô hiệu hoá nút phía sau.
+- Chuyển cảnh giữ nền cũ rồi đưa đường phố xuống dần khi cất cánh; đấu trường trực thăng không vẽ mặt đường. Thiết bị bay nhặt/đeo dùng đúng UV, nhân vật và vật cản bay dùng cùng hình học core; menu đấu tập/kết quả có vùng bấm riêng.
 - Bộ giải mã PNG bằng thư viện .NET chuẩn đọc alpha ảnh thật, độc lập với bảng mask: 1.007 điểm trong phần đặc và 2.278 điểm trống qua hai nhân vật × sáu tư thế × hai hướng khớp với va chạm tròn production. Đây là phân tích pixel nguồn, không phải Unity rasterization.
 
 Stub dùng phép toán affine `System.Numerics`, texture giả lấy kích thước từ

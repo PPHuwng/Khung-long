@@ -28,6 +28,10 @@ namespace CityDino
         public readonly Texture2D TriceratopsAtlas;
         public readonly Texture2D RaptorAtlas;
         public readonly Texture2D BossAtlas;
+        public readonly Texture2D FlightDevice;
+        // Root measures this transparent resource after generation. Keeping the
+        // crop in art metadata lets the cinematic and attached pack agree.
+        public readonly Rect FlightDeviceUV = new Rect(0.067708333f, 0.173828125f, 0.819010417f, 0.658203125f);
         public readonly Rect SkylineFarUV = new Rect(0f, 0f, 1f, 0.7651934f);
         public readonly Rect SkylineNearUV = new Rect(0f, 0.0441989f, 1f, 0.730663f);
         public readonly Texture2D[] DinoFrames;
@@ -169,6 +173,7 @@ namespace CityDino
             TriceratopsAtlas = Resources.Load<Texture2D>("CityDino/TriceratopsAtlas");
             RaptorAtlas = Resources.Load<Texture2D>("CityDino/RaptorAtlas");
             BossAtlas = Resources.Load<Texture2D>("CityDino/BossAtlas");
+            FlightDevice = Resources.Load<Texture2D>("CityDino/FlightDevice");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
