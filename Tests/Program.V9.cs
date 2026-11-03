@@ -75,10 +75,11 @@ internal static partial class Program
                 run.Update(1f/120);
                 minX=Math.Min(minX,boss.X);maxX=Math.Max(maxX,boss.X);
                 minY=Math.Min(minY,boss.Y);maxY=Math.Max(maxY,boss.Y);
-                Check(boss.X>=809.99f&&boss.X+boss.Width<=RunnerSession.CanvasWidth-15.9f,
+                bool charging=IsChargeV11(boss.AttackKind)&&(boss.Action==BossAction.Strike||boss.Action==BossAction.Recovery);
+                Check(boss.X>=(charging?99.99f:809.99f)&&boss.X+boss.Width<=RunnerSession.CanvasWidth-15.9f,
                     "Boss body invaded player lane or left screen: "+boss.Kind+"@"+boss.X);
                 Check(boss.Y>=-.01f,"Boss body sank below the flat arena");
-                if(boss.Kind==BossKind.Gunship)Check(RunnerSession.GroundY-boss.Y-boss.Height>=214f,"Gunship body rose behind the combat HUD");
+                if(boss.Kind==BossKind.Gunship&&!charging)Check(RunnerSession.GroundY-boss.Y-boss.Height>=214f,"Patrolling gunship body rose behind the combat HUD");
             }
             Check(maxX-minX>40f,"Boss still stands at one horizontal position: "+boss.Kind);
             if(boss.Kind==BossKind.Sentinel)Check(maxY-minY>40,"Sentinel never made a visible stomp jump");
@@ -105,7 +106,8 @@ internal static partial class Program
         RunnerSession run=IsolatedBossPattern(number,fraction);
         var live=new HashSet<int>();var warnings=new HashSet<int>();var hidden=new HashSet<int>();
         var cycles=new List<float>();float previous=run.CurrentBoss.AttackProgress,last=run.BossElapsed;
-        for(int i=0;i<120*18;i++)
+        var regularCycles=new List<float>();
+        for(int i=0;i<120*70;i++)
         {
             foreach(BossTelegraph mark in run.BossTelegraphs)
             {
@@ -115,6 +117,9 @@ internal static partial class Program
             }
             foreach(BossProjectile p in run.BossProjectiles)if(!p.Friendly&&!p.Removed)live.Add(p.Id);
             foreach(BossObstacle o in run.BossObstacles)if(o.Active&&!o.Removed)live.Add(o.Id);
+            if(run.CurrentBoss.ContactActive)live.Add(run.CurrentBoss.ChargeSourceTelegraphId);
+            if((int)run.CurrentBoss.AttackKind<(int)BossAttackKind.TankRam)
+                regularCycles.Add((float)typeof(RunnerSession).GetField("bossActionCycle",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(run));
             run.Update(1f/120);
             Check(run.CurrentBoss.RageLevel==expectedRage,"Wrong shared health phase for "+run.CurrentBoss.Kind+" at "+fraction);
             float progress=run.CurrentBoss.AttackProgress;
@@ -123,7 +128,7 @@ internal static partial class Program
         }
         Check(cycles.Count>=3&&live.Count>=3,"Pattern measurement did not observe sustained combat");
         return new PatternCount {Dangers=live.Count,Warnings=warnings.Count,HiddenWarnings=hidden.Count,
-            MeanCycle=cycles.Skip(1).Average()};
+            MeanCycle=regularCycles.Average()};
     }
     private static void BossRageDensityV9()
     {
@@ -137,7 +142,7 @@ internal static partial class Program
             Check(hard.Warnings>easy.Warnings&&hard.HiddenWarnings>0,
                 "A stronger combination lost its separate delayed warnings");
             Console.WriteLine("  Boss "+number+" rage1/2/3: "+easy.Dangers+"/"+middle.Dangers+"/"+hard.Dangers+
-                " live hazards over18s, cycles "+easy.MeanCycle.ToString("0.00")+"/"+middle.MeanCycle.ToString("0.00")+"/"+hard.MeanCycle.ToString("0.00")+"s.");
+                " live hazards over70s, regular cycles "+easy.MeanCycle.ToString("0.00")+"/"+middle.MeanCycle.ToString("0.00")+"/"+hard.MeanCycle.ToString("0.00")+"s (special attacks retain longer recovery).");
         }
     }
 

@@ -24,10 +24,12 @@ namespace CityDino
             CurrentBoss.Vulnerable = false;
             if (CurrentBoss.Kind == BossKind.Tank)
             {
-                int choice = bossAttackIndex % 4;
+                int choice = bossAttackIndex % 7;
                 primaryBossAttack = choice == 0 ? BossAttackKind.Cannon : choice == 1 ? BossAttackKind.MineDrop
-                    : choice == 2 ? BossAttackKind.Artillery : BossAttackKind.CrateDrop;
-                if (primaryBossAttack == BossAttackKind.Cannon)
+                    : choice == 2 ? BossAttackKind.Artillery : choice == 3 ? BossAttackKind.CrateDrop
+                    : choice == 4 ? BossAttackKind.TankRam : choice == 5 ? BossAttackKind.CrossMissile : BossAttackKind.MissileRain;
+                if (PlanBossSpecial(primaryBossAttack, warning)) { }
+                else if (primaryBossAttack == BossAttackKind.Cannon)
                 {
                     int count = bossPatternRage + 1;
                     for (int i = 0; i < count; i++) ScheduleBossAttack(BossAttackKind.Cannon, i * 0.28f, warning, PlayerX);
@@ -52,12 +54,18 @@ namespace CityDino
             }
             else if (CurrentBoss.Kind == BossKind.Sentinel)
             {
-                int choice = bossAttackIndex % 5;
+                int choice = bossAttackIndex % 8;
                 primaryBossAttack = choice == 0 ? BossAttackKind.LaserLow : choice == 1 ? BossAttackKind.ShieldDrone
-                    : choice == 2 ? BossAttackKind.LaserHigh : choice == 3 ? BossAttackKind.ElectricPillar : BossAttackKind.Shockwave;
-                ScheduleBossAttack(primaryBossAttack, 0f, warning, PlayerX);
-                CurrentBoss.AttackName = AttackName(primaryBossAttack);
-                if (bossPatternRage >= 2)
+                    : choice == 2 ? BossAttackKind.LaserHigh : choice == 3 ? BossAttackKind.ElectricPillar
+                    : choice == 4 ? BossAttackKind.Shockwave : choice == 5 ? BossAttackKind.RobotDash
+                    : choice == 6 ? BossAttackKind.ElectricOrb : BossAttackKind.CrossMissile;
+                bool special = PlanBossSpecial(primaryBossAttack, warning);
+                if (!special)
+                {
+                    ScheduleBossAttack(primaryBossAttack, 0f, warning, PlayerX);
+                    CurrentBoss.AttackName = AttackName(primaryBossAttack);
+                }
+                if (!special && bossPatternRage >= 2)
                 {
                     if (primaryBossAttack == BossAttackKind.LaserLow || primaryBossAttack == BossAttackKind.LaserHigh)
                     {
@@ -73,14 +81,16 @@ namespace CityDino
             }
             else
             {
-                int choice = bossAttackIndex % 4;
+                int choice = bossAttackIndex % 7;
                 primaryBossAttack = choice == 0 ? BossAttackKind.AirGate : choice == 1 ? BossAttackKind.AirSpread
-                    : choice == 2 ? BossAttackKind.AirMine : BossAttackKind.AirLaser;
-                if (primaryBossAttack == BossAttackKind.AirGate)
+                    : choice == 2 ? BossAttackKind.AirMine : choice == 3 ? BossAttackKind.AirLaser
+                    : choice == 4 ? BossAttackKind.GunshipDive : choice == 5 ? BossAttackKind.CrossMissile : BossAttackKind.MissileRain;
+                if (PlanBossSpecial(primaryBossAttack, warning)) { }
+                else if (primaryBossAttack == BossAttackKind.AirGate)
                 {
                     // Opening spans at least 190px for a 91px hero. It stays
                     // stationary in altitude while crossing so the cue is honest.
-                    float bottom = ((bossAttackIndex / 4) % 2 == 0) ? 55f : 135f;
+                    float bottom = ((bossAttackIndex / 7) % 2 == 0) ? 55f : 135f;
                     ScheduleBossAttack(BossAttackKind.AirGate, 0f, warning, bottom);
                 }
                 else if (primaryBossAttack == BossAttackKind.AirMine)
@@ -167,6 +177,12 @@ namespace CityDino
                 case BossAttackKind.AirSpread: return "Loạt đạn quạt trên không";
                 case BossAttackKind.AirMine: return "Mìn bay · né hoặc bắn phá";
                 case BossAttackKind.AirLaser: return "Laser khóa độ cao";
+                case BossAttackKind.TankRam: return "Thiết giáp xung phong · nhảy qua mũi húc";
+                case BossAttackKind.RobotDash: return "Quyền điện đột kích · nhảy né đòn";
+                case BossAttackKind.GunshipDive: return "Bổ nhào · rời khỏi làn đỏ";
+                case BossAttackKind.CrossMissile: return "Tên lửa gọng kìm · trước và sau";
+                case BossAttackKind.MissileRain: return "Mưa tên lửa · tìm hành lang an toàn";
+                case BossAttackKind.ElectricOrb: return "Lôi cầu liên hoàn";
                 default: return "Đạn pháo thấp";
             }
         }
@@ -211,7 +227,8 @@ namespace CityDino
             BossAttackKind kind = source.Kind;
             float lockedX = source.X + source.Width * .5f;
             float pace = (1f + Math.Min(.3f, ((BossNumber - 1) / 3) * .04f) + (bossPatternRage - 1) * .08f) * BossPracticePace;
-            if (kind == BossAttackKind.MineDrop)
+            if (SpawnSpecialBossAttack(source, pace)) { }
+            else if (kind == BossAttackKind.MineDrop)
             {
                 AddBossObstacle(kind, CurrentBoss.X - 26f, 0f, 32f, 32f, -190f * pace, 0f, 10f, 16f, source.Id, 16f);
             }

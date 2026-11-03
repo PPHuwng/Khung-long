@@ -31,7 +31,11 @@ namespace UnityEngine
         public T GetComponent<T>() where T : Component { return default(T); }
         public T GetComponentInParent<T>() where T : Component { return default(T); }
         public T GetComponentInChildren<T>() where T : Component { return default(T); }
-        public T AddComponent<T>() where T : Component { return default(T); }
+        public T AddComponent<T>() where T : Component
+        {
+            if (typeof(T) == typeof(AudioSource)) return (T)(Component)new AudioSource { gameObject = this };
+            return default(T);
+        }
     }
     public class Transform : Component
     {
@@ -49,16 +53,26 @@ namespace UnityEngine
         public Vector3 ViewportToWorldPoint(Vector3 point) { return default(Vector3); }
     }
     public class AudioListener : Behaviour { }
+    // Recorded sound commands and generated sample data; no audio device/mixer.
     public class AudioSource : Behaviour
     {
-        public bool playOnAwake;
-        public float volume;
-        public void PlayOneShot(AudioClip clip) { }
+        public bool playOnAwake, loop, isPlaying;
+        public float volume, panStereo;
+        public AudioClip clip;
+        public int StopCount;
+        public readonly List<string> OneShots = new List<string>();
+        public readonly List<string> LoopStarts = new List<string>();
+        public void PlayOneShot(AudioClip value) { if (value == null) return; OneShots.Add(value.name); isPlaying = true; }
+        public void Play() { if (clip == null) return; LoopStarts.Add(clip.name); isPlaying = true; }
+        public void Stop() { StopCount++; isPlaying = false; }
     }
     public class AudioClip : Object
     {
-        public static AudioClip Create(string name, int lengthSamples, int channels, int frequency, bool stream) { return null; }
-        public bool SetData(float[] data, int offsetSamples) { return true; }
+        public float[] Samples;
+        public int channels, frequency;
+        public static AudioClip Create(string name, int lengthSamples, int channels, int frequency, bool stream)
+        { return new AudioClip { name = name, Samples = new float[lengthSamples], channels = channels, frequency = frequency }; }
+        public bool SetData(float[] data, int offsetSamples) { Array.Copy(data, 0, Samples, offsetSamples, data.Length); return true; }
     }
     public class Rigidbody2D : Component { public Vector2 linearVelocity, position; }
     public class Animator : Behaviour { public void SetFloat(string name, float value) { } public void SetBool(string name, bool value) { } }
@@ -126,6 +140,8 @@ namespace UnityEngine
         public static Vector2 zero;
         public static Vector2 operator +(Vector2 a, Vector2 b) { return new Vector2(a.x+b.x, a.y+b.y); }
         public static Vector2 operator -(Vector2 a, Vector2 b) { return new Vector2(a.x-b.x, a.y-b.y); }
+        public static Vector2 operator *(Vector2 a, float scale) { return new Vector2(a.x*scale, a.y*scale); }
+        public static Vector2 operator *(float scale, Vector2 a) { return a*scale; }
         public static Vector2 operator /(Vector2 a, float scale) { return new Vector2(a.x/scale, a.y/scale); }
         public static implicit operator Vector3(Vector2 value) { return new Vector3(value.x,value.y,0); }
     }

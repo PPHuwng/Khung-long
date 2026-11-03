@@ -10,7 +10,7 @@ Game Unity 2D chạy vô tận: khủng long di chuyển trái/phải, nhảy k�
 4. Mở `Assets/CityDino/Scenes/CityRunner.unity`, hoặc menu **City Dino → Open City Runner Scene**, rồi nhấn **Play**.
 5. Chọn tab **Game**, tỷ lệ **16:9**, ví dụ 1280 × 720. Giao diện tự co theo cửa sổ; điện thoại dùng màn hình ngang.
 
-**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 10**.
+**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 11**.
 
 Scene mới đứng đầu Build Settings. Chạy `Assets/Scenes/SampleScene.unity` cũ cũng được bootstrap sang game mới, không cần gán prefab hoặc UI. Cấu hình gốc, định danh ứng dụng, layer và Input System actions được giữ lại. **Active Input Handling = Both** để các menu IMGUI hoạt động cùng Input System của gameplay.
 
@@ -68,17 +68,17 @@ Ba loại mở sau **15 giây tổng thời gian chạy**. Khi vào map tương 
 
 Mua/chọn trong cửa sổ **Nhân vật** ở menu hoặc cửa hàng. Mua một lần mở vĩnh viễn và tự trang bị; không mất nhân vật khi chết. Không đổi nhân vật giữa lượt. Mua/chọn sau khi chết chuẩn bị lượt tới, hình của lượt vừa chết được giữ nguyên. Giáp/lướt không cứu rơi hố hoặc cạn nước/giữ ấm. Kỹ năng ưu tiên trước khiên tiêu hao; giữ nguyên luật tim dùng theo lượt. Hồi chiêu chạy trong cả đường chạy lẫn đấu trường và đứng yên khi pause. Nhân vật có ảnh chạy, cúi và nhảy riêng; hình và va chạm dùng cùng vị trí/đường bao alpha, không chỉ đổi màu con gốc.
 
-## Boss và đấu tập — BẢN 10
+## Boss và đấu tập — BẢN 11
 
 Boss xuất hiện mỗi **10.000 điểm hiển thị**: 10k, 20k, 30k…; ×2 điểm giúp đến mốc sớm hơn. Mỗi mốc kích hoạt đúng một lần. Cảnh chuyển kéo dài **4,8 giây**, tự đưa nhân vật từ vị trí đang chạy tới đấu trường, chưa nhận sát thương hay bắn trong cảnh chuyển. Thời tiết không che đòn boss.
 
 | Mốc đầu | Boss / khu vực | Đòn có báo trước |
 |---|---|---|
-| 10k | Xe tăng K-01 / khu phong tỏa | Loạt pháo, pháo đánh dấu đất, mìn lăn và thùng chắn bắn vỡ được. |
-| 20k | Trực thăng H-03 / bầu trời | Cổng điện có khe bay qua, loạt đạn tỏa, laser khóa độ cao và mìn bay bắn vỡ được. |
-| 30k | Vệ binh G-02 / nhà máy | Laser thấp/cao, sóng dậm, cột điện và drone chắn đường bắn vỡ được. |
+| 10k | Xe tăng K-01 / khu phong tỏa | Loạt pháo, pháo đánh dấu đất, mìn lăn, thùng chắn bắn vỡ, húc tới, tên lửa hai phía và mưa tên lửa. |
+| 20k | Trực thăng H-03 / bầu trời | Cổng điện có khe bay qua, đạn tỏa, laser khóa độ cao, mìn bay, bổ nhào và tên lửa từ hai bên/phía trên. |
+| 30k | Vệ binh G-02 / nhà máy | Laser thấp/cao, sóng điện dậm đất, cột hồ quang, drone chắn đường, lao đấm, cầu điện thấp/cao và tên lửa hai phía. |
 
-Ở mốc **20k**, khủng long chạy tới nhặt **bộ cánh phản lực**, từ từ cất cánh; thành phố và mặt đường lùi xuống dưới, chuyển sang đấu trường trên trời. Giữ **Space / W / ↑** để nâng độ cao, thả để hạ hoặc nhấn thành nhịp; vẫn dùng A/D và J để né/bắn. Có giới hạn độ cao an toàn, không dùng cúi trong trận bay. Khi thắng sẽ hạ cánh trở về đường chạy. Xe tăng và vệ binh có cảnh đi qua trạm phong tỏa/cổng nhà máy, chiến đấu trên mặt đất.
+Ở mốc **20k**, khủng long chạy tới nhặt **ván phản lực hai động cơ**, ván trượt vào dưới chân và mở ra trong nửa giây rồi từ từ cất cánh; thành phố và mặt đường lùi xuống dưới, chuyển sang đấu trường trên trời. Ván vẽ phía trước ở dưới chân, luồng đẩy ở phía sau, nên nhân vật không che mất thiết bị. Giữ **Space / W / ↑** để nâng độ cao, thả để hạ hoặc nhấn thành nhịp; vẫn dùng A/D và J để né/bắn. Có giới hạn độ cao an toàn, không dùng cúi trong trận bay. Khi thắng sẽ hạ cánh trở về đường chạy. Xe tăng và vệ binh có cảnh đi qua trạm phong tỏa/cổng nhà máy, chiến đấu trên mặt đất.
 
 Menu có **Đấu tập boss**: chọn một trong ba boss, một trong ba khủng long và mức **Làm quen / Tiêu chuẩn**. Có thể thử hai nhân vật chưa mua riêng trong đấu tập, không mở khóa hay đổi nhân vật đã chọn cho lượt chạy. Làm quen có 5 tim, boss còn 65% máu, đạn chậm hơn và báo trước lâu hơn; Tiêu chuẩn có 3 tim với máu/nhịp đòn bình thường. Kết quả hiện thời gian, số lần trúng đòn và cho đấu lại hoặc đổi bài tập. Đấu tập **không tiêu đồ đã mua, không thưởng/trừ sao, không ghi kỷ lục hay lịch sử lượt chạy**.
 
@@ -86,10 +86,14 @@ Giữ **J / BẮN** để bắn đạn năng lượng tự hướng tới boss, 
 
 Chuyển động và phản ứng chiến đấu:
 
-- **Xe tăng:** tuần tra, tiến lên rồi lùi, giật khi khai hỏa; loạt pháo tăng từ 2 lên 3 rồi 4 viên, các đợt pháo khóa 1–3 vị trí dồn dập hơn theo pha.
-- **Vệ binh:** chuyển vị trí, bật lên rồi đáp khi dậm đất; ghép laser thấp/cao với sóng dậm theo chuỗi có thời gian chuyển tư thế.
-- **Trực thăng:** đảo ngang và thay đổi độ cao trong vùng không bị HUD che; trận bay yêu cầu đổi độ cao qua khe cổng, né đạn tỏa và rời khỏi làn laser đã khóa. Không dùng nhảy/cúi dưới đất để đối phó trận này.
+- **Xe tăng:** nén hệ treo/nâng nòng khi tích lực, giật nòng và chạy xích khi bắn, húc thật vào làn người chơi rồi lùi về; loạt pháo tăng từ 2 lên 3 rồi 4 viên, các đợt pháo khóa 1–3 vị trí dồn dập hơn theo pha.
+- **Vệ binh:** khuỵu chân/tích điện, lao đấm, đáp xuống rồi hồi thế; ghép laser thấp/cao với sóng điện dậm đất. Cầu điện có lõi tròn, quầng sáng và tia hồ quang, kiểm tra va chạm tròn; cột điện là các nhánh sét động, drone là turbine mang trường plasma.
+- **Trực thăng:** đổi góc thân, mở giá tên lửa, bổ nhào vào độ cao đã đánh dấu rồi kéo lên, có lửa động cơ và vệt gió; trận bay yêu cầu đổi độ cao qua khe cổng, né đạn tỏa và rời khỏi làn laser đã khóa.
 - **Hiệu ứng:** xích/cơ cấu chuyển động, cánh quạt, luồng động cơ, tích năng, chớp nòng, lóe khi trúng đạn, bụi đáp và tia lửa khi bị hạ. Hình boss dùng chính X/Y đang mô phỏng; hiệu ứng không làm hình lệch vùng trúng đạn. Pause/chết giữ nguyên cả chuyển động và hiệu ứng.
+
+Mỗi boss có **bốn ảnh tư thế riêng**: sẵn sàng, chuẩn bị, tung đòn và hồi thế. Đòn lao có vùng đánh ở mũi húc/nắm đấm/đầu máy bay được tô năng lượng rõ; chỉ phần này gây sát thương trong giai đoạn lao, khi chuẩn bị hoặc lùi về không gây sát thương thân. Đòn lao có ít nhất 1,25 giây báo trước; chiêu đặc biệt giữ chu kỳ dài hơn để boss kịp trở về trước đợt tiếp theo.
+
+**Tên lửa gọng kìm** vào thật từ mép trái và phải, có mũi tên chỉ hướng; trận trên trời chừa khe cao 190 đơn vị. **Mưa tên lửa** báo riêng từng dải rơi, giữ một hành lang rộng 240 đơn vị gần vị trí người chơi khi khóa mục tiêu, không đổi theo người chơi sau khi báo; cạnh hành lang được đánh dấu xanh. Cầu điện robot đi thấp/cao xen kẽ, có thời gian đổi nhảy/cúi giữa các đợt. Các pha sau tăng số đợt, vẫn giữ cảnh báo và đường né.
 
 Trong đấu trường, **điểm, số mét, tốc độ chạy, đồng hồ đổi map, hao/hồi nước/giữ ấm và thời lượng ×2/nam châm đều đóng băng**. Đạn, chiêu boss, hồi chiêu nhân vật và thời gian miễn thương dùng đồng hồ chiến đấu riêng. Tim và khiên đang có được mang vào; không tự hồi tim khi vào boss. Hết mạng kết thúc lượt như cũ; Pause đóng băng cả trận.
 
@@ -122,7 +126,9 @@ Tim hồi máu vẫn sinh hiếm: lần đầu sau 20–30 giây, sau đó cách
 - Mỗi 20 đơn vị thế giới = 1 mét = 1 điểm cơ bản. Lưu kỷ lục, điểm lượt trước và 10 lượt gần nhất; thành tích hiện 5 lượt mới nhất. ×2 tăng điểm, số mét vẫn là quãng đường thật.
 - Mô phỏng chia nhỏ bước theo tốc độ để giảm xuyên vật cản; đồng hồ/quãng đường dùng double. Không khẳng định người chơi có thể phản ứng kịp ở mọi tốc độ lớn tùy ý.
 
-Menu mang tên **DINO CITY**, ít thông báo giữa màn; giữ HUD, thanh sinh tồn/vật phẩm, cảnh báo trước tối và kết quả lượt. Âm thanh nhảy, sao, va chạm, mua hàng và sấm tạo tại runtime, có thể tắt.
+Menu mang tên **DINO CITY**, ít thông báo giữa màn; giữ HUD, thanh sinh tồn/vật phẩm, cảnh báo trước tối và kết quả lượt.
+
+**Âm thanh BẢN 11:** có tiếng tích lực, pháo, laser, điện, tên lửa rít, lao tới, trúng đạn/nổ và chuỗi nổ khi kết liễu boss. Tên lửa từ trái/phải có hướng âm thanh tương ứng. Xích xe tăng, servo robot, cánh quạt trực thăng và động cơ ván bay dùng các vòng âm riêng với âm lượng nền nhỏ; bước chân bám theo thời gian di chuyển mô phỏng. Các dải tên lửa cùng đợt được gom tiếng để tránh chồng quá nhiều. Hiệu ứng hạ boss phát một lần mỗi trận; tạm dừng, mất tiêu điểm, tắt âm, chết hoặc về menu dừng âm đúng trạng thái. Giữ tiếng nhảy, sao, va chạm, mua hàng và sấm cũ; **M / nút nhạc** tắt toàn bộ. Âm thanh được tổng hợp tại runtime theo phong cách game, không cần tải thêm tệp âm.
 
 ## Dữ liệu và cấu trúc
 
@@ -132,14 +138,15 @@ Dùng Unity `PlayerPrefs`, khoá **`CityDino.Save.v1`** giữ nguyên, schema t�
 - `Assets/CityDino/Core/RunnerItems.cs`: cửa hàng, kho hàng, ×2 điểm, nam châm và khiên.
 - `Assets/CityDino/Core/RunnerCharacters.cs`, `RunnerCharacterGeometry.cs`: mở/chọn nhân vật, kỹ năng và đường bao riêng.
 - `Assets/CityDino/Core/RunnerSurvival.cs`: hàng đợi hồi nước/giữ ấm từ từ.
-- `Assets/CityDino/Core/RunnerBoss.cs`, `RunnerBossModels.cs`: mốc điểm, trận đấu, đạn/vùng báo và phần thưởng; `RunnerBossJourney.cs` quản lý đấu tập, chuyển cảnh và bay; `RunnerBossPatterns.cs`, `RunnerBossObstacleModels.cs` quản lý chuỗi đòn/vật cản.
+- `Assets/CityDino/Core/RunnerBoss.cs`, `RunnerBossModels.cs`: mốc điểm, trận đấu, đạn/vùng báo và phần thưởng; `RunnerBossJourney.cs` quản lý đấu tập, chuyển cảnh và bay; `RunnerBossPatterns.cs`, `RunnerBossObstacleModels.cs` quản lý chuỗi đòn/vật cản; `RunnerBossMotion.cs`, `RunnerBossSpecials.cs` quản lý đòn lao và các đợt tên lửa/cầu điện.
 - `Assets/CityDino/Core/RunnerGeometry.cs`: tư thế và đường bao va chạm dùng chung.
 - `Assets/CityDino/Core/RunnerWeather.cs`: pha chớp và độ tối của bão.
 - `Assets/CityDino/Core/RunnerBiomeHazards.cs`: trạng thái báo trước/kích hoạt, hình va chạm băng, khe nóng và biển cuốn.
 - `Assets/CityDino/Runtime/CityRunnerController.cs`: input, menu/HUD, cửa hàng, lưu và âm thanh.
+- `Assets/CityDino/Runtime/RunnerBossAudio.cs`: theo dõi dấu báo/đạn/vật cản theo ID, âm thanh boss/di chuyển, tổng hợp mẫu âm và dừng/dọn nguồn âm.
 - `Assets/CityDino/Runtime/RunnerWorldView.cs`, `RunnerBossView.cs`, `RunnerBossTransitionView.cs`, `RunnerArt.cs`: vẽ thế giới/đấu trường/chuyển cảnh và ánh xạ atlas, cùng hệ toạ độ với core.
 - `Assets/CityDino/Resources/CityDino`: ảnh gốc, font tiếng Việt, hai skyline, atlas bẫy, hành động, **`DinoRunAtlas.png`** cho năm khung chạy mới, **`TriceratopsAtlas.png`**, **`RaptorAtlas.png`**, **`BossAtlas.png`**, **`BiomeHazardAtlas.png`** cho ba bẫy theo map và **`PickupAtlas.png`** gồm nước/cốc nóng/khiên/nam châm/×2/bình giữ ấm.
-- `FlightDevice.png` trong cùng thư mục: bộ cánh phản lực mới, ảnh nền trong suốt; gắn sau nhân vật và lật cùng hướng nhìn khi bay, không mở rộng vùng va chạm của khủng long.
+- `Hoverboard.png` trong cùng thư mục: ván phản lực mới, ảnh nền trong suốt, lật theo hướng nhìn; không mở rộng vùng va chạm khủng long. `BossActionAtlas.png` gồm 12 tư thế cho ba boss; `RunnerBossRigView.cs` vẽ các hiệu ứng cơ khí/điện và dấu báo chiêu mới.
 - `Assets/CityDino/Scenes/CityRunner.unity`: scene khởi động.
 
 172 tệp của `Assets.zip` gốc cùng script/scene cũ được giữ nguyên để đối chiếu. Bản mới sửa lỗi đường cuộn không đồng nhất, nhiều script cùng kéo nền, rơi vô hạn và xoay cưa lệch collider.
@@ -152,6 +159,7 @@ Cần .NET SDK 8; bộ console ngoài `Assets` chạy trực tiếp mã producti
 ./scripts/test-core.sh
 ./scripts/test-core.sh --input-mapping
 ./scripts/test-core.sh --render-contracts
+./scripts/test-core.sh --audio-contracts
 ./scripts/test-core.sh --compile-unity
 ```
 
@@ -159,11 +167,13 @@ Windows có thể dùng `dotnet run --project Tests/RunnerCore.Tests.csproj --co
 
 Môi trường đám mây **không có Unity Editor**. Stub kiểm tra biên dịch, phép toán input và lệnh vẽ; không chạy Play Mode, raster hoá ảnh, âm thanh, cảm ứng thật hoặc build Unity. Cần thử trong Unity:
 
-1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 10 và tiếng Việt đầy đủ.
+1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 11 và tiếng Việt đầy đủ.
 2. Trái/phải, nhảy kép, cúi, đa chạm và pause; cửa hàng không bấm xuyên.
 3. Tuyết trượt/cốc nóng/băng rơi, nắng/nước/khe phun, gió/hố đôi/cầu sập, đêm đen 2–3 giây, bão nháy có mưa/sấm/biển cuốn. Thử lúc cảnh báo, đang kích hoạt và khoảng tắt để phân biệt vùng thật gây sát thương.
 4. Giá tim theo số mua, kho hàng lưu khi đóng game và dùng ở lượt sau; nâng thời lượng, ×2, nam châm và khiên.
 5. Mua/chọn hai nhân vật, kiểm tra mở khóa vẫn giữ khi đóng/mở game; mỗi con dùng đúng kỹ năng, cả ba chỉ bắn được trong boss. Tới mốc boss, kiểm tra điểm/tốc độ/tài nguyên đứng yên, chuyển động/hiệu ứng của ba boss và các pha 65%/35%; thắng thưởng sao một lần và quay lại an toàn.
 6. Hoạt ảnh chạy mới: nhịp chân rõ, đầu/chân không giật, menu và trong lượt đều dùng ảnh mới; thử cưa lúc chạy/nhảy/cúi, hai hướng và nhiều kích thước Game View. Hết mạng dừng và lưu đúng một lần; chơi lại giữ ví/kỷ lục.
 7. Đấu tập: thử ba boss/cả nhân vật chưa mua, cả hai mức; đấu lại, đổi boss, thoát rồi kiểm tra ví/kho/nhân vật/kỷ lục giữ nguyên. Thử giữ và nhấn nhịp BAY đồng thời di chuyển/bắn trên điện thoại; pause không giữ kẹt lực nâng.
-8. Chuyển cảnh: từ phố đi qua cổng với boss đất; nhặt cánh → cất cánh → bầu trời ở 20k → hạ cánh sau thắng. Điểm và các thanh vẫn đứng yên suốt trận, không có mặt đường trong trận bay; mìn/thùng/drone bắn vỡ và cảnh báo khe cổng đúng vùng trống thực tế.
+8. Chuyển cảnh: từ phố đi qua cổng với boss đất; nhặt ván → triển khai dưới chân → cất cánh → bầu trời ở 20k → hạ cánh sau thắng. Điểm và các thanh vẫn đứng yên suốt trận, không có mặt đường trong trận bay; ván/luồng đẩy nhìn rõ ở cả ba nhân vật và hai hướng.
+9. Thử đủ tư thế boss; né đòn húc/lao đấm/bổ nhào, tên lửa từ trước/sau/phía trên, hành lang mưa tên lửa, cầu điện và hồ quang. Pause giữa đòn phải giữ cả hình, hiệu ứng và va chạm; khi thắng huỷ toàn bộ đòn đang chờ.
+10. Nghe tiếng tích lực/khai hỏa/điện/lao tới, hướng tiếng tên lửa trái/phải, các cơ cấu di chuyển và chuỗi nổ kết liễu. Thử M, pause, đổi cửa sổ, về menu và tập lại; không giữ tiếng máy chạy nền hoặc phát lại tiếng hạ boss sau khi tiếp tục.

@@ -102,6 +102,7 @@ namespace CityDino
             bossProjectiles.Clear();
             bossTelegraphs.Clear();
             ResetBossPatternState();
+            ResetBossMotion();
             shootingHeld = bossRewardPaid = false;
             bossActionCycle = 3.7f;
             bossPatternRage = 1;
@@ -143,6 +144,7 @@ namespace CityDino
             BossPhaseRemaining = BossIntroDuration;
             bossClock = attackClock = shotCooldown = 0d;
             bossProjectiles.Clear(); bossTelegraphs.Clear(); ResetBossPatternState();
+            ResetBossMotion();
             shootingHeld = bossRewardPaid = false;
             nextBossObjectId = bossAttackIndex = 0;
             bossActionCycle = 3.7f; bossPatternRage = 1; bossMotionRage = 1f;
@@ -174,6 +176,9 @@ namespace CityDino
             // Independent of the unbounded scrolling speed left outside arena.
             float fastest = Math.Max(IsDashing ? Math.Abs(DashVelocity) : HorizontalSpeed,
                 Math.Abs(VelocityY) + Gravity * PhysicsStep);
+            // The visible leading weapon moves with the boss rather than a
+            // projectile. Include its fastest recovery/strike speed as well.
+            if (bossChargeActive) fastest = Math.Max(fastest, 2200f + HorizontalSpeed);
             for (int i = 0; i < bossProjectiles.Count; i++)
             {
                 BossProjectile p = bossProjectiles[i];
@@ -200,7 +205,9 @@ namespace CityDino
                 CurrentBoss.HitFlashRemaining = Math.Max(0f, CurrentBoss.HitFlashRemaining - dt);
                 CurrentBoss.ShotFlashRemaining = Math.Max(0f, CurrentBoss.ShotFlashRemaining - dt);
                 CurrentBoss.LandingFlashRemaining = Math.Max(0f, CurrentBoss.LandingFlashRemaining - dt);
-                CurrentBoss.Recoil = Math.Max(0f, CurrentBoss.Recoil - dt * 6f);
+                // Keep a short follow-through after the 0.18s muzzle flash so
+                // ordinary volleys visibly pass through their recovery pose.
+                CurrentBoss.Recoil = Math.Max(0f, CurrentBoss.Recoil - dt * 2.5f);
                 float difference = CurrentBoss.RageLevel - bossMotionRage;
                 bossMotionRage += Math.Max(-dt * 2f, Math.Min(dt * 2f, difference));
                 UpdateBossBody();
@@ -237,6 +244,8 @@ namespace CityDino
             CurrentBoss.AttackProgress = Math.Min(1f, (float)attackClock / bossActionCycle);
             CurrentBoss.Vulnerable = attackClock >= bossActionCycle * 0.43d;
             TickBossTelegraphs(dt);
+            UpdateBossAction();
+            TickBossChargeContact();
             TickBossObstacles(dt);
             TickBossProjectiles(dt);
             if (State != RunState.Playing || ArenaPhase != BossPhase.Fighting) return;
@@ -285,6 +294,7 @@ namespace CityDino
                     + (float)Math.Sin(time * 2.3f) * 5f;
             }
             baseX = Math.Max(810f, Math.Min(CanvasWidth - CurrentBoss.Width - 16f, baseX));
+            if (ApplyBossCharge(baseX, y)) return;
             if (ArenaPhase == BossPhase.Intro)
             {
                 float progress = Math.Max(0f, Math.Min(1f, (float)bossClock / BossIntroDuration));
@@ -329,10 +339,11 @@ namespace CityDino
                 }
                 else
                 {
-                    if ((p.Kind == BossAttackKind.Artillery || p.Kind == BossAttackKind.Missile) && p.Y <= 0f)
+                    if ((p.Kind == BossAttackKind.Artillery || p.Kind == BossAttackKind.Missile ||
+                        p.Kind == BossAttackKind.MissileRain) && p.Y <= 0f)
                     {
                         p.Removed = true;
-                        float width = p.Kind == BossAttackKind.Artillery ? 100f : 78f;
+                        float width = p.Kind == BossAttackKind.Artillery ? 100f : p.Kind == BossAttackKind.MissileRain ? 62f : 78f;
                         bossTelegraphs.Add(new BossTelegraph
                         {
                             Id = ++nextBossObjectId, Kind = p.Kind, X = p.X + p.Width * 0.5f - width * 0.5f,
@@ -341,13 +352,20 @@ namespace CityDino
                             SourceTelegraphId = p.SourceTelegraphId
                         });
                     }
-                    else if (InvincibleRemaining <= 0f && RunnerGeometry.RectTouchesPlayer(p.X, p.Y, p.Width, p.Height, this))
+                    else if (InvincibleRemaining <= 0f && (p.Radius > 0f
+                        ? RunnerGeometry.CircleTouchesPlayer(p.X + p.Width * .5f, p.Y + p.Height * .5f, p.Radius, this)
+                        : RunnerGeometry.RectTouchesPlayer(p.X, p.Y, p.Width, p.Height, this)))
                     {
                         p.Removed = true;
                         if (!TryAbsorbHazard(true)) TakeHit("Trúng " + AttackName(p.Kind));
                     }
                 }
-                if (p.X + p.Width < 0f || p.X > CanvasWidth + 100f || p.Y > 700f || p.Y + p.Height < -50f)
+                // New crossfire can enter from either off-screen edge. Cull
+                // only after an outgoing projectile has left its boundary.
+                if ((p.X + p.Width < -100f && p.VelocityX <= 0f) ||
+                    (p.X > CanvasWidth + 160f && p.VelocityX >= 0f) ||
+                    (p.Y > 700f && p.VelocityY >= 0f) ||
+                    (p.Y + p.Height < -50f && p.VelocityY <= 0f))
                     p.Removed = true;
             }
             for (int i = bossProjectiles.Count - 1; i >= 0; i--)
@@ -377,6 +395,7 @@ namespace CityDino
             ArenaPhase = BossPhase.Victory;
             BossPhaseRemaining = BossVictoryDuration;
             bossProjectiles.Clear(); bossTelegraphs.Clear(); ResetBossPatternState();
+            ResetBossMotion();
             shootingHeld = false;
             BeginBossDeparture();
             if (!bossRewardPaid && !IsPractice)

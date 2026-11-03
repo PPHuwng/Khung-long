@@ -29,8 +29,11 @@ namespace CityDino
         public readonly Texture2D RaptorAtlas;
         public readonly Texture2D BossAtlas;
         public readonly Texture2D FlightDevice;
-        // Root measures this transparent resource after generation. Keeping the
-        // crop in art metadata lets the cinematic and attached pack agree.
+        public readonly Texture2D Hoverboard;
+        public readonly Texture2D BossActionAtlas;
+        public readonly Rect HoverboardUV = new Rect(46f / 2172f, 161f / 724f, 2080f / 2172f, 378f / 724f);
+        // The earlier pack crop remains available for old resource consumers;
+        // the current cinematic and ride use the hoverboard above.
         public readonly Rect FlightDeviceUV = new Rect(0.067708333f, 0.173828125f, 0.819010417f, 0.658203125f);
         public readonly Rect SkylineFarUV = new Rect(0f, 0f, 1f, 0.7651934f);
         public readonly Rect SkylineNearUV = new Rect(0f, 0.0441989f, 1f, 0.730663f);
@@ -174,6 +177,8 @@ namespace CityDino
             RaptorAtlas = Resources.Load<Texture2D>("CityDino/RaptorAtlas");
             BossAtlas = Resources.Load<Texture2D>("CityDino/BossAtlas");
             FlightDevice = Resources.Load<Texture2D>("CityDino/FlightDevice");
+            Hoverboard = Resources.Load<Texture2D>("CityDino/Hoverboard");
+            BossActionAtlas = Resources.Load<Texture2D>("CityDino/BossActionAtlas");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
@@ -263,6 +268,30 @@ namespace CityDino
             float left = facingLeft ? 1f - placement.x - placement.width : placement.x;
             return new Rect(body.x + left * body.width, body.y + placement.y * body.height,
                 placement.width * body.width, placement.height * body.height);
+        }
+
+        // Generated source remains unchanged. Four separate action poses in
+        // each row: tank, sentinel, gunship; per-tile alpha bounds exclude gutters.
+        private static readonly Rect[] BossActionUvs =
+        {
+            new Rect(46f / 1536f, 736f / 1024f, 319f / 1536f, 204f / 1024f),
+            new Rect(424f / 1536f, 736f / 1024f, 343f / 1536f, 231f / 1024f),
+            new Rect(769f / 1536f, 736f / 1024f, 359f / 1536f, 188f / 1024f),
+            new Rect(1175f / 1536f, 736f / 1024f, 333f / 1536f, 214f / 1024f),
+            new Rect(54f / 1536f, 390f / 1024f, 270f / 1536f, 280f / 1024f),
+            new Rect(433f / 1536f, 393f / 1024f, 334f / 1536f, 225f / 1024f),
+            new Rect(769f / 1536f, 395f / 1024f, 358f / 1536f, 223f / 1024f),
+            new Rect(1178f / 1536f, 392f / 1024f, 323f / 1536f, 210f / 1024f),
+            new Rect(31f / 1536f, 103f / 1024f, 344f / 1536f, 171f / 1024f),
+            new Rect(419f / 1536f, 75f / 1024f, 348f / 1536f, 226f / 1024f),
+            new Rect(769f / 1536f, 41f / 1024f, 351f / 1536f, 277f / 1024f),
+            new Rect(1183f / 1536f, 97f / 1024f, 325f / 1536f, 192f / 1024f),
+        };
+
+        public Rect GetBossActionUV(BossKind kind, int pose)
+        {
+            int row = kind == BossKind.Tank ? 0 : kind == BossKind.Sentinel ? 1 : 2;
+            return BossActionUvs[row * 4 + System.Math.Max(0, System.Math.Min(3, pose))];
         }
 
         public Rect GetBossUV(BossKind kind)

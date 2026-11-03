@@ -62,6 +62,7 @@ internal static class Program
         Test("practice command trials locked characters without changing normal inventory", PracticeCommand);
         Test("practice retry key replays its selected trial without starting a normal run", PracticeRetryKey);
         Test("pause and release clear held flight thrust before resuming", FlightPauseRelease);
+        Test("enemy lunges keep player steering jumping flying shooting and skills available", BossChargeControls);
         Console.WriteLine();
         Console.WriteLine("Input mapping: " + passed + " passed, " + failed + " failed.");
         Console.WriteLine("Production mapping ran against math/device stubs; Unity event delivery and device hardware were not executed.");
@@ -522,6 +523,37 @@ internal static class Program
         Check(run.State==RunState.Playing,"Escape failed to resume flight");
         float resumeY=run.PlayerY;for(int i=0;i<60;i++)Frame(controller);
         Check(run.PlayerY<resumeY-20&&run.VelocityY<=0,"Released lift remained stuck after pause/resume");
+    }
+
+    private static void BossChargeControls()
+    {
+        FieldInfo active=typeof(BossEncounter).GetField("ContactActive");
+        Check(active!=null,"Boss charge contact model is missing");
+        foreach(BossKind boss in Enum.GetValues(typeof(BossKind)))
+        foreach(CharacterKind character in Enum.GetValues(typeof(CharacterKind)))
+        {
+            var run=new RunnerSession(new RunnerSave(),147);
+            run.StartBossPractice(boss,character,false);run.SkipPracticeIntro();
+            // This isolates player routing during enemy actions; survival and
+            // real charge damage are checked separately in the core suite.
+            SetField(run,"<InvincibleRemaining>k__BackingField",1000f);
+            for(int i=0;i<120*60&&!(bool)active.GetValue(run.CurrentBoss);i++)run.Update(1f/120);
+            Check((bool)active.GetValue(run.CurrentBoss),"No actual lunge reached its strike phase: "+boss);
+            var controller=Controller(run);float x=run.PlayerX,y=run.PlayerY;
+            Keyboard.current=new Keyboard();Keyboard.current.aKey.isPressed=true;
+            Keyboard.current.spaceKey.wasPressedThisFrame=true;Keyboard.current.spaceKey.isPressed=true;
+            Keyboard.current.jKey.isPressed=true;Keyboard.current.eKey.wasPressedThisFrame=true;
+            Frame(controller);
+            Check(run.PlayerX<x,"Enemy lunge locked player steering: "+boss+" / "+character);
+            Check(run.PlayerY>y,"Enemy lunge locked jump/flap: "+boss+" / "+character);
+            // A shot may immediately strike nearby scenery in this same
+            // frame. The real firing cooldown proves a shot was emitted even
+            // when there is no surviving friendly projectile to count.
+            Check((bool)typeof(RunnerSession).GetField("shootingHeld",PrivateInstance).GetValue(run)&&
+                (double)typeof(RunnerSession).GetField("shotCooldown",PrivateInstance).GetValue(run)>0,
+                "Enemy lunge locked the common weapon: "+boss+" / "+character);
+            Check((run.SkillCooldownRemaining>0)==(character!=CharacterKind.Classic),"Enemy lunge changed character skill routing");
+        }
     }
 
 }

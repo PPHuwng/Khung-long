@@ -7,7 +7,7 @@ namespace CityDino
 {
     /// <summary>Scene entry, input, persistence and menus. The simulation owns all gameplay state.</summary>
     [DisallowMultipleComponent]
-    public sealed class CityRunnerController : MonoBehaviour
+    public sealed partial class CityRunnerController : MonoBehaviour
     {
         private const string SaveKey = "CityDino.Save.v1";
         private const string StartingDistrictKey = "CityDino.StartDistrict";
@@ -89,6 +89,7 @@ namespace CityDino
             thunderSound = MakeThunder();
             shootSound = MakeTone("Shoot", 820, 360, 0.055f);
             skillSound = MakeTone("Skill", 330, 1050, 0.18f);
+            InitializeBossAudio();
         }
 
         private void Update()
@@ -168,6 +169,7 @@ namespace CityDino
                     Play(thunderSound);
                 }
             }
+            UpdateBossAudio();
             if (session.RunStars > oldStars) Play(coinSound);
             if (session.Lives < oldLives) Play(hurtSound);
             if (session.Lives > oldLives && oldState == RunState.Playing) Play(buySound);
@@ -250,6 +252,7 @@ namespace CityDino
 
         private void BeginRun()
         {
+            StopBossAudio(false);
             showShop = showHistory = showCharacters = showPractice = false;
             bestAtStart = session.Save.BestScore;
             thunderStage = lastThunderStrike = 0;
@@ -317,7 +320,7 @@ namespace CityDino
             if (Button(new Rect(98, 534, 130, 52), "Nhân vật", ink, cream, 16)) OpenCharacters();
             if (Button(new Rect(242, 534, 130, 52), "Cửa hàng", ink, cream, 16)) showShop = true;
             if (Button(new Rect(386, 534, 130, 52), "Thành tích", new Color32(231, 231, 215, 255), ink, 16)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 10  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 11  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), RunnerSession.CharacterName(session.Save.SelectedCharacter) + " · SẴN SÀNG ĐẤU BOSS", 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -536,12 +539,12 @@ namespace CityDino
         {
             switch (session.TransitionStage)
             {
-                case BossTransitionStage.Collect: return "NHẶT BỘ PHẢN LỰC · CHUẨN BỊ CẤT CÁNH";
+                case BossTransitionStage.Collect: return "NHẶT VÁN PHẢN LỰC · CHUẨN BỊ CẤT CÁNH";
                 case BossTransitionStage.Takeoff: return "ĐANG CẤT CÁNH · SẮP ĐẾN TRẬN KHÔNG CHIẾN";
                 case BossTransitionStage.Arrive: return session.IsFlyingBoss
                     ? "GIỮ SPACE / BAY ĐỂ LÊN · THẢ ĐỂ HẠ · J ĐỂ BẮN"
                     : "SẮP GIAO CHIẾN · J ĐỂ BẮN · CANH DẤU BÁO ĐỂ NÉ";
-                default: return session.IsFlyingBoss ? "TIẾN ĐẾN BỘ PHẢN LỰC" : "ĐANG TIẾN VÀO ĐẤU TRƯỜNG";
+                default: return session.IsFlyingBoss ? "TIẾN ĐẾN VÁN PHẢN LỰC" : "ĐANG TIẾN VÀO ĐẤU TRƯỜNG";
             }
         }
 
@@ -612,6 +615,7 @@ namespace CityDino
 
         private void StartPractice()
         {
+            StopBossAudio(false);
             if (!session.StartBossPractice(practiceBoss, practiceCharacter, practiceLearning)) return;
             practiceSettingsInitialized = true;
             showShop = showHistory = showCharacters = showPractice = false;
@@ -874,6 +878,7 @@ namespace CityDino
 
         private void GoToMenu()
         {
+            StopBossAudio(false);
             session.ReturnToMenu();
             showShop = showHistory = showCharacters = showPractice = false;
             FlushSave();
@@ -889,17 +894,20 @@ namespace CityDino
         private void OnApplicationFocus(bool focused)
         {
             if (focused || session == null) return;
+            StopBossAudio(true);
             if (session.State == RunState.Playing) session.TogglePause();
             FlushSave();
         }
         private void OnApplicationPause(bool paused) { if (paused) OnApplicationFocus(false); }
         private void OnApplicationQuit()
         {
+            StopBossAudio(true);
             if (session != null && (session.State == RunState.Playing || session.State == RunState.Paused)) session.ReturnToMenu();
             FlushSave();
         }
         private void OnDestroy()
         {
+            DisposeBossAudio();
             if (session != null) session.SaveChanged -= SaveProgress;
             FlushSave();
             if (world != null) world.Dispose();
@@ -995,6 +1003,7 @@ namespace CityDino
         private void ToggleSound()
         {
             muted = !muted;
+            if (muted) StopBossAudio(true);
             PlayerPrefs.SetInt("CityDino.Muted", muted ? 1 : 0);
             PlayerPrefs.Save();
         }

@@ -28,6 +28,10 @@ if [[ "${1:-}" == "--input-mapping" ]]; then
   printf '%s\n' 'Stub-backed production pointer-mapping checks; this does not run Unity events or hardware.'
   exec "$dotnet_command" run --project "$repo_dir/Tests/InputMapping/InputMapping.csproj" --configuration Release
 fi
+if [[ "${1:-}" == "--audio-contracts" ]]; then
+  printf '%s\n' 'Production audio event and PCM checks with API stubs; no Unity audio playback.'
+  exec "$dotnet_command" run --project "$repo_dir/Tests/AudioContracts/AudioContracts.csproj" --configuration Release
+fi
 if [[ "${1:-}" == "--compile-unity" ]]; then
   printf '%s\n' 'Compile-only Unity API stub check; this does not run the Unity Editor.'
   exec "$dotnet_command" build "$repo_dir/Tests/UnityCompile/UnityCompile.csproj" --configuration Release --nologo

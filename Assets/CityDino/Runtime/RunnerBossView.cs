@@ -25,7 +25,7 @@ namespace CityDino
             if (boss != null) DrawBossBody(boss, session.ArenaPhase, clock, session.BossPhaseRemaining);
             DrawDino(session, session.PlayerAnimationTime);
             foreach (BossProjectile projectile in session.BossProjectiles)
-                if (!projectile.Removed) DrawBossProjectile(projectile);
+                if (!projectile.Removed) DrawBossProjectile(projectile, clock);
             GUI.color = Color.white;
         }
 
@@ -124,7 +124,9 @@ namespace CityDino
             Color tint = defeated ? new Color(0.48f, 0.51f, 0.53f, 0.75f)
                 : Color.Lerp(Color.white, new Color(1f, .55f, .35f, 1f), hit);
             GUI.color = tint;
-            if (art.BossAtlas != null)
+            if (art.BossActionAtlas != null)
+                GUI.DrawTextureWithTexCoords(rect, art.BossActionAtlas, art.GetBossActionUV(boss.Kind, BossActionFrame(boss)), true);
+            else if (art.BossAtlas != null)
                 GUI.DrawTextureWithTexCoords(rect, art.BossAtlas, art.GetBossUV(boss.Kind), true);
             else DrawBossFallback(rect, boss.Kind);
             GUI.color = Color.white;
@@ -135,6 +137,7 @@ namespace CityDino
             }
 
             DrawBossMovingDetails(boss, rect, clock, rage);
+            DrawBossRigAction(boss, rect, clock);
             DrawBossMuzzle(boss, rect, clock);
             if (hit > 0f) DrawBossImpact(rect, hit, clock);
 
@@ -379,14 +382,21 @@ namespace CityDino
             }
             else if (obstacle.Kind == BossAttackKind.ShieldDrone)
             {
-                Fill(rect, WithAlpha(metal, alpha));
-                Fill(new Rect(rect.x + 5f, rect.y + 5f, rect.width - 10f, rect.height - 10f), WithAlpha(Hex(0x638ca0), alpha));
-                Fill(new Rect(rect.x + 9f, rect.y + 10f, rect.width - 18f, 8f), WithAlpha(Hex(0x203a50), alpha));
-                Fill(new Rect(rect.x + 14f, rect.y + 12f, 9f, 4f), WithAlpha(Hex(0xff8975), alpha));
-                Fill(new Rect(rect.xMax - 23f, rect.y + 12f, 9f, 4f), WithAlpha(light, alpha));
-                for (int i = 0; i < 3; i++)
-                    Fill(new Rect(rect.x + 10f + i * 17f, rect.yMax - 10f, 10f, 3f), WithAlpha(light, alpha));
+                // A suspended turbine and plasma shield, rather than a flat
+                // plastic crate. The faint complete field still marks its
+                // rectangular contact footprint honestly.
+                Fill(rect, WithAlpha(light, .12f * alpha));
+                Disc(new Rect(rect.x + 3f, rect.y + 4f, rect.width - 6f, rect.height - 8f), WithAlpha(metal, alpha));
+                float size = Mathf.Min(rect.height - 10f, rect.width * .57f);
+                DrawElectricOrb(new Rect(rect.center.x - size * .5f, rect.center.y - size * .5f, size, size), clock, alpha);
+                for (int i = 0; i < 2; i++)
+                {
+                    float x = i == 0 ? rect.x + 2f : rect.xMax - 2f;
+                    Line(new Vector2(x, rect.y + 7f), new Vector2(x, rect.yMax - 7f), WithAlpha(light, .8f * alpha), 3f);
+                }
             }
+            else if (obstacle.Kind == BossAttackKind.ElectricPillar)
+                DrawEnergyPillar(rect, clock, alpha, flash);
             else
             {
                 // Electric pillars and gate bars fill the complete live
@@ -420,6 +430,7 @@ namespace CityDino
             bool highLaser = telegraph.Kind == BossAttackKind.LaserHigh;
             Color color = active ? (highLaser ? Hex(0xd480ff) : Hex(0xff765b))
                 : highLaser ? Hex(0xd3a2ff) : Hex(0xffce73);
+            if (DrawBossSpecialWarning(telegraph, clock, color)) return;
             if (!active && telegraph.Kind == BossAttackKind.AirGate)
             {
                 // Preview the two travelling bars, leaving the physical safe
@@ -539,10 +550,26 @@ namespace CityDino
             }
         }
 
-        private static void DrawBossProjectile(BossProjectile projectile)
+        private void DrawBossProjectile(BossProjectile projectile, float clock)
         {
             Rect rect = new Rect(projectile.X, GroundY - projectile.Y - projectile.Height,
                 projectile.Width, projectile.Height);
+            if (!projectile.Friendly && projectile.Kind == BossAttackKind.ElectricOrb)
+            {
+                DrawElectricOrb(rect, clock);
+                return;
+            }
+            if (!projectile.Friendly && projectile.Kind == BossAttackKind.Shockwave)
+            {
+                DrawRobotShockwave(rect, clock);
+                return;
+            }
+            if (!projectile.Friendly && (projectile.Kind == BossAttackKind.CrossMissile ||
+                projectile.Kind == BossAttackKind.MissileRain || projectile.Kind == BossAttackKind.Missile))
+            {
+                DrawDirectionalMissile(projectile, rect, clock);
+                return;
+            }
             Color edge = projectile.Friendly ? Hex(0x8ce7f2) : Hex(0xff8b66);
             Fill(rect, edge);
             if (rect.width > 4 && rect.height > 4)

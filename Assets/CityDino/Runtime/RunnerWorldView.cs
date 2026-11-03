@@ -786,6 +786,7 @@ namespace CityDino
             float width = session.IsDucking ? RunnerGeometry.PlayerDuckWidth : RunnerGeometry.PlayerStandingWidth;
             float height = session.IsDucking ? RunnerGeometry.PlayerDuckHeight : RunnerGeometry.PlayerStandingHeight;
             Rect rect = new Rect(x - width / 2f, GroundY - y - height + bob, width, height);
+            Rect flightBody = rect;
             if (session.IsFlyingBoss && session.FlightDeviceCollected)
                 DrawAttachedFlightDevice(session, rect, time);
             if (session.ShieldReady)
@@ -820,6 +821,8 @@ namespace CityDino
             if (texture != null)
                 GUI.DrawTextureWithTexCoords(rect, texture, uv, true);
             else Fill(rect, Hex(0x7fbd72));
+            if (session.IsFlyingBoss && session.FlightDeviceCollected)
+                DrawFlightDeviceFront(session, flightBody);
             if (hasGround && running && y <= 1f && session.Elapsed > 0.5f)
             {
                 for (int i = 0; i < 4; i++)

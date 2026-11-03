@@ -222,13 +222,27 @@ internal static partial class Program
             if(!mark.Visible)continue;
             if(mark.Kind==BossAttackKind.AirGate)
             {Forbid(-1000,mark.GapY+8);Forbid(mark.GapY+mark.GapHeight-RunnerSession.StandingHeight-8,1000);}
+            else if(mark.Kind==BossAttackKind.CrossMissile&&mark.GapHeight>0)
+            {Forbid(-1000,mark.GapY+8);Forbid(mark.GapY+mark.GapHeight-RunnerSession.StandingHeight-8,1000);}
             else if(mark.Kind==BossAttackKind.AirLaser)
                 Forbid(mark.Y-RunnerSession.StandingHeight-14,mark.Y+mark.Height+14);
+            else if(mark.Kind==BossAttackKind.GunshipDive)
+                Forbid(mark.Y-RunnerSession.StandingHeight-12,mark.Y+mark.Height+12);
+            else if(mark.Kind==BossAttackKind.MissileRain&&mark.GapWidth>0)
+            {
+                float targetX=mark.GapX+mark.GapWidth*.5f;
+                if(run.PlayerX<mark.GapX+65||run.PlayerX>mark.GapX+mark.GapWidth-65)
+                    run.SetHorizontal(Math.Max(-1,Math.Min(1,(targetX-run.PlayerX)/(RunnerSession.HorizontalSpeed/120))));
+            }
         }
+        BossEncounter boss=run.CurrentBoss;
+        if(boss.ContactActive&&boss.AttackKind==BossAttackKind.GunshipDive&&
+            boss.ContactX+boss.ContactWidth>run.PlayerX-65&&boss.ContactX<run.PlayerX+650)
+            Forbid(boss.ContactY-RunnerSession.StandingHeight-12,boss.ContactY+boss.ContactHeight+12);
         foreach(BossProjectile p in run.BossProjectiles)
         {
-            if(p.Friendly||p.Removed||p.VelocityX>=0||p.X+p.Width<run.PlayerX-60)continue;
-            float until=Math.Max(0,(p.X-run.PlayerX-45)/-p.VelocityX);
+            if(p.Friendly||p.Removed||p.VelocityX==0)continue;
+            float until=HorizontalThreatTimeV11(run,p);
             if(until>2.3f)continue;
             float y=p.Y+p.VelocityY*until;
             Forbid(y-RunnerSession.StandingHeight-8,y+p.Height+8);

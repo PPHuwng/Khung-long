@@ -131,7 +131,7 @@ namespace CityDino
         private void DrawFlightPickup(RunnerSession session, float clock)
         {
             Rect rect = new Rect(session.FlightDeviceX - 43f,
-                GroundY - session.FlightDeviceY - 44f, 86f, 44f);
+                GroundY - session.FlightDeviceY - 24f, 86f, 24f);
             float pulse = .25f + .1f * Mathf.Sin(clock * 7f);
             Disc(new Rect(rect.x - 12, rect.y - 10, rect.width + 24, rect.height + 20),
                 new Color(.52f, .87f, 1f, pulse), true);
@@ -144,37 +144,69 @@ namespace CityDino
                 Hex(0xe6f9ff), 2f);
         }
 
+        private static Rect FlightBoardRect(RunnerSession session, Rect body)
+        {
+            Rect target = new Rect(body.center.x - 75f, body.yMax - 2f, 150f, 35f);
+            if (session.ArenaPhase != BossPhase.Intro) return target;
+            float progress = Mathf.Clamp01((session.BossTransitionProgress * RunnerSession.BossIntroDuration - 1.4f) / .5f);
+            progress = progress * progress * (3f - 2f * progress);
+            Rect pickup = new Rect(session.FlightDeviceX - 43f,
+                GroundY - session.FlightDeviceY - 24f, 86f, 24f);
+            return new Rect(Mathf.Lerp(pickup.x, target.x, progress), Mathf.Lerp(pickup.y, target.y, progress),
+                Mathf.Lerp(pickup.width, target.width, progress), Mathf.Lerp(pickup.height, target.height, progress));
+        }
+
         private void DrawAttachedFlightDevice(RunnerSession session, Rect body, float clock)
         {
-            Rect pack = new Rect(body.center.x - 69f, body.y + body.height * .36f, 120f, 64f);
-            if (session.FacingLeft) pack.x = body.center.x - 51f;
-            DrawFlightDeviceSprite(pack, session.FacingLeft);
-            float thrust = .55f + .22f * Mathf.Sin(clock * 27f) + Mathf.Clamp01(session.VelocityY / 230f) * .35f;
+            // Only the exhaust is behind the rider. The deck is below the feet
+            // and drawn afterwards, so the dinosaur cannot hide the equipment.
+            Rect board = FlightBoardRect(session, body);
+            float thrust = .55f + .13f * Mathf.Sin(clock * 27f) + Mathf.Clamp01(session.VelocityY / 230f) * .4f;
             for (int i = 0; i < 2; i++)
             {
-                float x = pack.x + pack.width * (.28f + i * .43f);
-                Fill(new Rect(x, pack.yMax - 5f, 8f, 12f + thrust * 15f), Hex(0x70e7ff));
-                Fill(new Rect(x + 2f, pack.yMax - 4f, 4f, 8f + thrust * 12f), Hex(0xf1ffff));
+                float fraction = .30f + i * .42f;
+                if (session.FacingLeft) fraction = 1f - fraction;
+                float x = board.x + board.width * fraction;
+                float y = board.yMax - 3f;
+                float length = 13f + thrust * 19f;
+                Disc(new Rect(x - 10f, y - 2f, 20f, length + 9f), new Color(.25f, .8f, 1f, .14f), true);
+                Line(new Vector2(x, y), new Vector2(x + Mathf.Sin(clock * 21f + i) * 2f, y + length),
+                    Hex(0x5edfff), 6f);
+                Line(new Vector2(x, y), new Vector2(x, y + length * .7f), Hex(0xe9ffff), 2.5f);
+                for (int particle = 0; particle < 3; particle++)
+                {
+                    float phase = Repeat(clock * 2.4f + particle / 3f + i * .17f, 1f);
+                    Fill(new Rect(x - 2f + Mathf.Sin(phase * 8f + i) * phase * 6f,
+                        y + length + phase * 18f, 3f, 3f), new Color(.58f, .92f, 1f, (1f - phase) * .5f));
+                }
             }
+        }
+
+        private void DrawFlightDeviceFront(RunnerSession session, Rect body)
+        {
+            DrawFlightDeviceSprite(FlightBoardRect(session, body), session.FacingLeft);
         }
 
         private void DrawFlightDeviceSprite(Rect rect, bool facingLeft = false)
         {
             GUI.color = Color.white;
-            if (art.FlightDevice != null)
+            if (art.Hoverboard != null)
             {
-                Rect uv = art.FlightDeviceUV;
+                Rect uv = art.HoverboardUV;
                 if (facingLeft) uv = new Rect(uv.x + uv.width, uv.y, -uv.width, uv.height);
-                GUI.DrawTextureWithTexCoords(rect, art.FlightDevice, uv, true);
+                GUI.DrawTextureWithTexCoords(rect, art.Hoverboard, uv, true);
             }
             else
             {
-                // Import-safe fallback: the same silhouette is a visual tool,
-                // not an extension of the dinosaur's collision body.
-                Fill(new Rect(rect.x + rect.width * .39f, rect.y + rect.height * .15f, rect.width * .22f, rect.height * .7f), Hex(0x526e87));
-                Fill(new Rect(rect.x, rect.y + rect.height * .3f, rect.width * .42f, rect.height * .27f), Hex(0x9ce9f1));
-                Fill(new Rect(rect.x + rect.width * .58f, rect.y + rect.height * .3f, rect.width * .42f, rect.height * .27f), Hex(0x9ce9f1));
-                Fill(new Rect(rect.x + rect.width * .44f, rect.y + rect.height * .24f, rect.width * .12f, rect.height * .25f), Hex(0xffd47c));
+                // Import-safe board fallback; the equipment does not extend
+                // the dinosaur's physical collision silhouette.
+                Fill(new Rect(rect.x, rect.y + rect.height * .18f, rect.width, rect.height * .28f), Hex(0xece4cc));
+                Fill(new Rect(rect.x + 2f, rect.y + rect.height * .46f, rect.width - 4f, rect.height * .13f), Hex(0xc5a66a));
+                for (int i = 0; i < 2; i++)
+                {
+                    float x = rect.x + rect.width * (.22f + i * .42f);
+                    Disc(new Rect(x, rect.y + rect.height * .52f, rect.width * .17f, rect.height * .46f), Hex(0x337a89));
+                }
             }
         }
     }

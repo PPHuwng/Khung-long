@@ -4,7 +4,8 @@ namespace CityDino
 {
     public enum BossPhase { None, Intro, Fighting, Victory }
     public enum BossKind { Tank, Sentinel, Gunship }
-    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone, DroneLow, MineDrop, CrateDrop, ElectricPillar, ShieldDrone, AirGate, AirSpread, AirLaser, AirMine }
+    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone, DroneLow, MineDrop, CrateDrop, ElectricPillar, ShieldDrone, AirGate, AirSpread, AirLaser, AirMine, TankRam, RobotDash, GunshipDive, CrossMissile, MissileRain, ElectricOrb }
+    public enum BossAction { Idle, Windup, Strike, Recovery }
 
     /// <summary>Visible body and combat state; all coordinates use the runner's bottom-up world space.</summary>
     public sealed class BossEncounter
@@ -24,6 +25,13 @@ namespace CityDino
         public float ShotFlashRemaining;
         public float LandingFlashRemaining;
         public float Recoil;
+        public BossAction Action;
+        public float ActionProgress;
+        public BossAttackKind AttackKind;
+        public bool FacingLeft = true;
+        public float ContactX, ContactY, ContactWidth, ContactHeight;
+        public bool ContactActive;
+        public int ChargeSourceTelegraphId;
     }
 
     public sealed class BossProjectile
@@ -40,6 +48,7 @@ namespace CityDino
         public bool Removed;
         public float Lifetime = 8f;
         public int SourceTelegraphId;
+        public float Radius;
     }
 
     /// <summary>Warning first, then an optional live beam or ground blast in this exact rectangle.</summary>
@@ -58,6 +67,10 @@ namespace CityDino
         public int SourceTelegraphId;
         public float GapY;
         public float GapHeight;
+        public float GapX, GapWidth;
+        public float AimX, AimY;
+        public float OriginX, OriginY;
+        public float VelocityX, VelocityY;
         public bool Visible { get { return DelayRemaining <= 0f; } }
     }
 }

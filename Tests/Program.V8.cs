@@ -331,7 +331,7 @@ internal static partial class Program
         if(run.IsFlyingBoss){FlightBotInputV10(run);return;}
         bool high=run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserHigh&&(m.Active||m.Remaining<.65f));
         bool low=run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserLow&&(m.Active||m.Remaining<.32f));
-        bool drone=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&p.Kind==BossAttackKind.Drone&&
+        bool drone=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&(p.Kind==BossAttackKind.Drone||(p.Kind==BossAttackKind.ElectricOrb&&p.Y>=55))&&
             p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+125)||
             run.BossObstacles.Any(o=>o.Active&&!o.Removed&&o.Kind==BossAttackKind.ShieldDrone&&o.X+o.Width>run.PlayerX-55&&o.X<run.PlayerX+150);
         // Select a genuinely clear interval across the whole visible salvo.
@@ -347,18 +347,18 @@ internal static partial class Program
             if(run.PlayerX>left&&run.PlayerX<right)threatTime=Math.Min(threatTime,seconds);
         }
         foreach(BossTelegraph mark in run.BossTelegraphs)
-            if(mark.Visible&&(mark.Kind==BossAttackKind.Artillery||mark.Kind==BossAttackKind.Missile)&&
-                (run.CurrentBoss.Kind==BossKind.Gunship||mark.Active||mark.Remaining<(earlyArtillery?mark.Duration+.01f:.4f)))
+            if(mark.Visible&&(mark.Kind==BossAttackKind.Artillery||mark.Kind==BossAttackKind.Missile||mark.Kind==BossAttackKind.MissileRain)&&
+                (mark.Kind==BossAttackKind.MissileRain||run.CurrentBoss.Kind==BossKind.Gunship||mark.Active||mark.Remaining<(earlyArtillery?mark.Duration+.01f:.4f)))
             {
-                float fall=mark.Kind==BossAttackKind.Artillery?485f:620f;
+                float fall=mark.Kind==BossAttackKind.Artillery?485f:mark.Kind==BossAttackKind.MissileRain?335f:620f;
                 float pace=1f+Math.Min(.3f,((run.BossNumber-1)/3)*.04f)+(run.CurrentBoss.RageLevel-1)*.08f;
                 float until=mark.Active?0:mark.Remaining+Math.Max(0,430f-bodyTop)/(fall*pace);
                 AddDanger(mark.X-60f,mark.X+mark.Width+60f,until);
             }
         foreach(BossProjectile p in run.BossProjectiles)
-            if(!p.Friendly&&!p.Removed&&(p.Kind==BossAttackKind.Artillery||p.Kind==BossAttackKind.Missile))
+            if(!p.Friendly&&!p.Removed&&(p.Kind==BossAttackKind.Artillery||p.Kind==BossAttackKind.Missile||p.Kind==BossAttackKind.MissileRain))
             {
-                float blastWidth=p.Kind==BossAttackKind.Artillery?100f:78f;
+                float blastWidth=p.Kind==BossAttackKind.Artillery?100f:p.Kind==BossAttackKind.MissileRain?62f:78f;
                 float centre=p.X+p.Width*.5f;
                 float until=Math.Max(0,p.Y-bodyTop)/Math.Max(1f,-p.VelocityY);
                 AddDanger(centre-blastWidth*.5f-60f,centre+blastWidth*.5f+60f,until);
@@ -398,6 +398,10 @@ internal static partial class Program
         bool groundThreat=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&
             (p.Kind==BossAttackKind.Cannon||p.Kind==BossAttackKind.Shockwave||p.Kind==BossAttackKind.DroneLow)&&
             p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+110)||
+            run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&
+                (p.Kind==BossAttackKind.CrossMissile||(p.Kind==BossAttackKind.ElectricOrb&&p.Y<55))&&
+                HorizontalThreatTimeV11(run,p)<.25f)||
+            ChargeThreatV11(run)||
             run.BossObstacles.Any(o=>o.Active&&!o.Removed&&(o.Kind==BossAttackKind.MineDrop||o.Kind==BossAttackKind.CrateDrop)&&o.X+o.Width>run.PlayerX-55&&o.X<run.PlayerX+170);
         // If a trailing high drone catches the descending part of a jump,
         // use the available second jump to remain above its visible lane.
@@ -406,7 +410,7 @@ internal static partial class Program
         if(!high&&!drone&&(low||groundThreat))
         {
             if(run.PlayerY<=.01f)run.Jump();
-            else if((NeedsGroundAirExtensionV9(run)||NeedsLowAirExtensionV9(run)||NeedsObstacleAirExtensionV10(run))&&run.VelocityY<0&&run.PlayerY<105)run.Jump();
+            else if((NeedsGroundAirExtensionV9(run)||NeedsLowAirExtensionV9(run)||NeedsObstacleAirExtensionV10(run)||NeedsSpecialAirExtensionV11(run))&&run.VelocityY<0&&run.PlayerY<145)run.Jump();
         }
     }
 
@@ -427,10 +431,10 @@ internal static partial class Program
             var warned=new Dictionary<int,BossWarningObservation>();var appeared=new HashSet<int>();var kinds=new HashSet<BossAttackKind>();
             // Hold fire for pattern coverage; health staging explicitly tests
             // all three attack phases, not a full-health victory.
-            for(int i=0;i<120*40;i++)
+            for(int i=0;i<120*70;i++)
             {
-                if(i==120*13)run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.5f;
-                if(i==120*26)run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
+                if(i==120*22)run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.5f;
+                if(i==120*44)run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
                 foreach(BossTelegraph mark in run.BossTelegraphs)
                 {
                     if(!mark.Visible)continue;
