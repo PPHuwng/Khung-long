@@ -32,6 +32,9 @@ namespace CityDino
         public float ContactX, ContactY, ContactWidth, ContactHeight;
         public bool ContactActive;
         public int ChargeSourceTelegraphId;
+        public bool FullSweep;
+        public float SweepEndX;
+        public int Tier = 1;
     }
 
     public sealed class BossProjectile
@@ -71,6 +74,8 @@ namespace CityDino
         public float AimX, AimY;
         public float OriginX, OriginY;
         public float VelocityX, VelocityY;
+        public bool FullSweep;
+        public float SweepEndX;
         public bool Visible { get { return DelayRemaining <= 0f; } }
     }
 }

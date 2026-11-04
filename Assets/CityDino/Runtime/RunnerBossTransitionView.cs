@@ -8,6 +8,11 @@ namespace CityDino
     {
         private void DrawBossTransition(RunnerSession session)
         {
+            if (session.ArenaPhase == BossPhase.Victory)
+            {
+                DrawBossForwardDeparture(session);
+                return;
+            }
             BossEncounter boss = session.CurrentBoss;
             BossKind kind = boss == null ? BossKind.Tank : boss.Kind;
             float blend = Mathf.Clamp01(session.TransitionSceneBlend);
@@ -37,6 +42,74 @@ namespace CityDino
             }
             DrawDino(session, session.PlayerAnimationTime);
             GUI.color = Color.white;
+        }
+
+        private void DrawBossForwardDeparture(RunnerSession session)
+        {
+            BossEncounter boss = session.CurrentBoss;
+            BossKind kind = boss == null ? BossKind.Tank : boss.Kind;
+            float clock = session.BossElapsed;
+            float camera = session.BossExitCameraX;
+            float elevation = session.TransitionElevation;
+            float progress = session.ExitTravelProgress;
+            Matrix4x4 canvas = GUI.matrix;
+            gaps.Clear();
+            try
+            {
+                if (kind == BossKind.Gunship) DrawAerialArenaBackdrop(clock);
+                GUI.matrix = canvas * Matrix4x4.TRS(new Vector3(-camera, kind == BossKind.Gunship ? elevation * 680f : 0f, 0f),
+                    Quaternion.identity, Vector3.one);
+                if (kind != BossKind.Gunship)
+                {
+                    DrawArenaBackdrop(kind, clock, false);
+                    DrawArenaFloor(kind, Width, RunnerSession.BossExitStreetX - Width);
+                    if (art.ArenaBackdropAtlas != null)
+                    {
+                        Rect endUv = art.GetArenaBackdropUV(kind);
+                        endUv.x += endUv.width * .8f;
+                        endUv.width *= .2f;
+                        GUI.color = Color.white;
+                        GUI.DrawTextureWithTexCoords(new Rect(Width, 0f, RunnerSession.BossExitStreetX - Width, GroundY),
+                            art.ArenaBackdropAtlas, endUv, true);
+                    }
+                    else Fill(new Rect(Width, 0f, RunnerSession.BossExitStreetX - Width, GroundY),
+                        kind == BossKind.Tank ? Hex(0x6e756c) : Hex(0x2e4661));
+                }
+                else
+                {
+                    // The landing apron rises from below as the rider descends,
+                    // reaching the street before the hero crosses the exit gate.
+                    DrawArenaFloor(BossKind.Sentinel, 1110f, RunnerSession.BossExitStreetX - 1110f);
+                    Fill(new Rect(1110f, GroundY - 34f, RunnerSession.BossExitStreetX - 1110f, 28f), Hex(0x426c86));
+                }
+                DrawArenaGate(kind, Mathf.Clamp01((progress - .08f) / .46f), clock, RunnerSession.BossExitGateX);
+                GUI.matrix = canvas * Matrix4x4.TRS(new Vector3(RunnerSession.BossExitStreetX - camera,
+                    kind == BossKind.Gunship ? elevation * 680f : 0f, 0f), Quaternion.identity, Vector3.one);
+                DrawDestinationStreet(session);
+                GUI.matrix = canvas * Matrix4x4.TRS(new Vector3(-camera, 0f, 0f), Quaternion.identity, Vector3.one);
+                if (boss != null) DrawBossBody(boss, session.ArenaPhase, clock, session.BossPhaseRemaining);
+            }
+            finally { GUI.matrix = canvas; }
+            DrawDino(session, session.PlayerAnimationTime);
+            GUI.color = Color.white;
+        }
+
+        private void DrawDestinationStreet(RunnerSession session)
+        {
+            // Match the exact frozen run clock and scroll at the final frame;
+            // switching back to normal play must not rewind the city/road.
+            Palette palette = ForDistrict(session.CurrentDistrict);
+            // Settle any palette blend held over from before the boss so the
+            // normal renderer uses this exact destination on the next frame.
+            initialized = true;
+            shownDistrict = session.CurrentDistrict;
+            previousPalette = nextPalette = palette;
+            DrawSky(palette, session.Distance, session.Elapsed);
+            DrawCity(palette, session.Distance, session.Elapsed);
+            DrawDistrictAtmosphere(session.CurrentDistrict, palette, session.Distance, session.Elapsed,
+                session.Speed / RunnerSession.InitialSpeed);
+            DrawRoad(palette, session.Distance, session.Speed / RunnerSession.InitialSpeed);
+            DrawWeather(palette, session.Distance, session.Elapsed);
         }
 
         private void DrawApproachStreet(RunnerSession session, float clock)
@@ -100,32 +173,6 @@ namespace CityDino
                 float y = 190f + i * 79f % 480f;
                 Cloud(x, y, .55f + i % 4 * .17f, new Color(1f, 1f, 1f, strength * (.17f + i % 3 * .07f)));
             }
-        }
-
-        private static void DrawArenaGate(BossKind kind, float progress, float clock)
-        {
-            Color metal = kind == BossKind.Tank ? Hex(0x40564f) : Hex(0x354b60);
-            Fill(new Rect(20, GroundY - 290, 22, 290), metal);
-            Fill(new Rect(218, GroundY - 290, 22, 290), metal);
-            Fill(new Rect(20, GroundY - 290, 220, 25), Hex(0x263f4d));
-            float open = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((progress - .15f) / .65f));
-            if (kind == BossKind.Sentinel)
-            {
-                float bottom = GroundY - open * 255f;
-                Fill(new Rect(42, bottom - 255f, 176, 255f), Hex(0x536d7d));
-                for (int i = 0; i < 8; i++)
-                    Fill(new Rect(46, bottom - 246 + i * 31, 168, 4), Hex(0x2b4355));
-            }
-            else
-            {
-                float y = GroundY - 68f - open * 190f;
-                Fill(new Rect(28, y, 200, 16), Hex(0xf0c373));
-                for (int i = 0; i < 9; i++)
-                    Fill(new Rect(32 + i * 23, y, 12, 16), Hex(0x314553));
-            }
-            Color lamp = open > .7f ? Hex(0x91e6bc) : Hex(0xffbc66);
-            Fill(new Rect(24, GroundY - 282, 12, 10), lamp);
-            Fill(new Rect(222, GroundY - 282, 12, 10), lamp);
         }
 
         private void DrawFlightPickup(RunnerSession session, float clock)

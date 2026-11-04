@@ -30,6 +30,7 @@ namespace CityDino
         private BossKind practiceBoss = BossKind.Tank;
         private CharacterKind practiceCharacter = CharacterKind.Classic;
         private bool practiceLearning = true, practiceSettingsInitialized;
+        private int practiceTier = 1;
         private float nextSave, ambientTime, nextShotSound;
         private int bestAtStart;
         private int shopTab;
@@ -320,7 +321,7 @@ namespace CityDino
             if (Button(new Rect(98, 534, 130, 52), "Nhân vật", ink, cream, 16)) OpenCharacters();
             if (Button(new Rect(242, 534, 130, 52), "Cửa hàng", ink, cream, 16)) showShop = true;
             if (Button(new Rect(386, 534, 130, 52), "Thành tích", new Color32(231, 231, 215, 255), ink, 16)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 11  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 12  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), RunnerSession.CharacterName(session.Save.SelectedCharacter) + " · SẴN SÀNG ĐẤU BOSS", 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -520,10 +521,10 @@ namespace CityDino
                     : new Color32(130, 165, 183, 255));
             Text(new Rect(1028, 142, 190, 27), Mathf.CeilToInt(boss.Health) + " / " + Mathf.CeilToInt(boss.MaxHealth), 17, cream, FontStyle.Bold, TextAnchor.MiddleRight);
             string phase = "PHA " + boss.RageLevel + (boss.RageLevel >= 3 ? " · CUỒNG NỘ" : "");
-            string status = session.ArenaPhase == BossPhase.Intro ? BossJourneyHint()
-                : session.ArenaPhase == BossPhase.Victory ? session.IsFlyingBoss ? "ĐÃ HẠ BOSS · ĐANG HẠ CÁNH VỀ THÀNH PHỐ" : "ĐÃ HẠ BOSS · TRỞ LẠI ĐƯỜNG CHẠY"
+            string status = "CẤP " + session.BossTier + " · " + (session.ArenaPhase == BossPhase.Intro ? BossJourneyHint()
+                : session.ArenaPhase == BossPhase.Victory ? session.IsFlyingBoss ? "ĐÃ HẠ BOSS · HẠ CÁNH VÀ QUA CỔNG PHÍA TRƯỚC" : "ĐÃ HẠ BOSS · TIẾN QUA CỔNG PHÍA TRƯỚC"
                 : phase + " · " + boss.AttackName + (boss.Vulnerable
-                    ? " · LÕI HỞ: GIỮ J HOẶC NÚT BẮN" : " · CANH DẤU BÁO VÀ NÉ ĐÒN");
+                    ? " · LÕI HỞ: GIỮ J HOẶC NÚT BẮN" : " · CANH DẤU BÁO VÀ NÉ ĐÒN"));
             Text(new Rect(58, 177, 1158, 18), status, 12, cream, FontStyle.Bold, TextAnchor.MiddleCenter);
             if (session.IsPractice && session.PracticeLearning && session.ArenaPhase == BossPhase.Fighting)
             {
@@ -602,6 +603,7 @@ namespace CityDino
                 practiceBoss = session.CurrentBoss.Kind;
                 practiceCharacter = session.CurrentCharacter;
                 practiceLearning = session.PracticeLearning;
+                practiceTier = session.BossTier;
                 practiceSettingsInitialized = true;
             }
             else if (!practiceSettingsInitialized)
@@ -616,7 +618,7 @@ namespace CityDino
         private void StartPractice()
         {
             StopBossAudio(false);
-            if (!session.StartBossPractice(practiceBoss, practiceCharacter, practiceLearning)) return;
+            if (!session.StartBossPractice(practiceBoss, practiceCharacter, practiceLearning, practiceTier)) return;
             practiceSettingsInitialized = true;
             showShop = showHistory = showCharacters = showPractice = false;
             thunderStage = lastThunderStrike = 0;
@@ -629,6 +631,7 @@ namespace CityDino
             practiceBoss = session.CurrentBoss.Kind;
             practiceCharacter = session.CurrentCharacter;
             practiceLearning = session.PracticeLearning;
+            practiceTier = session.BossTier;
             StartPractice();
         }
 
@@ -648,9 +651,18 @@ namespace CityDino
             Box(new Rect(70, 34, 1140, 652), cream);
             Text(new Rect(102, 56, 990, 32), "ĐẤU TẬP BOSS", 27, ink, FontStyle.Bold);
             if (Button(new Rect(1148, 51, 40, 38), "×", new Color32(231, 231, 215, 255), ink, 23)) showPractice = false;
-            Text(new Rect(102, 98, 1060, 25), "Chọn đối thủ và thử mọi nhân vật. Không tốn đồ đã mua, không cộng sao hay ghi thành tích.", 15, soft);
+            Text(new Rect(102, 101, 146, 23), "CẤP BOSS: " + practiceTier, 15, ink, FontStyle.Bold);
+            int[] tiers = { 1, 2, 3, 5, 8 };
+            for (int i = 0; i < tiers.Length; i++)
+            {
+                int tier = tiers[i];
+                bool selected = practiceTier == tier;
+                if (Button(new Rect(258 + i * 88, 96, 80, 29), (selected ? "● " : "") + "CẤP " + tier,
+                    selected ? mint : new Color32(231, 231, 215, 255), ink, 13)) practiceTier = tier;
+            }
+            Text(new Rect(716, 101, 462, 23), "Cấp cao: thêm đợt chiêu, đạn nhanh và khó né hơn.", 13, soft);
             DrawPracticeBoss(new Rect(102, 138, 344, 181), BossKind.Tank,
-                "Mặt đất · Đạn pháo, mìn lăn và thùng chắn.");
+                "Mặt đất · Loạt pháo, drone, húc ngắn hoặc quét sân.");
             DrawPracticeBoss(new Rect(468, 138, 344, 181), BossKind.Gunship,
                 "Trên trời · Cổng điện, đạn tỏa và mìn bay.");
             DrawPracticeBoss(new Rect(834, 138, 344, 181), BossKind.Sentinel,
@@ -665,7 +677,8 @@ namespace CityDino
                 ? "5 tim · Boss ít máu hơn · Đòn chậm và báo trước lâu hơn để học cách né."
                 : "3 tim · Máu boss, tốc độ và các đòn đánh giống trận boss khi chạy thật.", 15, soft);
             if (Button(new Rect(834, 519, 344, 43), "VÀO ĐẤU TẬP    →", ink, cream, 19)) StartPractice();
-            Text(new Rect(102, 622, 1060, 32), practiceBoss == BossKind.Gunship
+            Text(new Rect(102, 605, 1060, 22), "Không tốn đồ đã mua, không cộng sao hoặc ghi thành tích. Có thể thử cả nhân vật chưa mở.", 13, soft);
+            Text(new Rect(102, 640, 1060, 24), practiceBoss == BossKind.Gunship
                 ? "← → / A D: di chuyển · Giữ SPACE / BAY để lên, thả để hạ · J: giữ bắn · E: kỹ năng riêng"
                 : "← → / A D: di chuyển · SPACE: nhảy kép · ↓ / S: cúi · J: giữ bắn · E: kỹ năng riêng", 14, ink, FontStyle.Normal, TextAnchor.MiddleCenter);
         }
@@ -706,7 +719,7 @@ namespace CityDino
             Box(new Rect(340, 122, 600, 534), cream);
             Text(new Rect(378, 150, 524, 26), "KẾT QUẢ ĐẤU TẬP", 16, soft, FontStyle.Bold, TextAnchor.MiddleCenter);
             Text(new Rect(378, 199, 524, 54), session.PracticeWon ? "Đã hạ boss!" : "Thử thêm một lượt!", 38, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
-            Text(new Rect(378, 269, 524, 28), session.CurrentBoss == null ? "ĐẤU TẬP" : PracticeBossName(session.CurrentBoss.Kind), 18, soft, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Text(new Rect(378, 269, 524, 28), session.CurrentBoss == null ? "ĐẤU TẬP" : PracticeBossName(session.CurrentBoss.Kind) + " · CẤP " + session.BossTier, 18, soft, FontStyle.Bold, TextAnchor.MiddleCenter);
             Stat(new Rect(400, 327, 220, 75), "THỜI GIAN GIAO CHIẾN", session.PracticeElapsed.ToString("0.0") + " s");
             Stat(new Rect(658, 327, 220, 75), "SỐ LẦN TRÚNG ĐÒN", session.PracticeHits.ToString());
             Text(new Rect(378, 415, 524, 25), "Ví sao, kỷ lục và đồ cho lượt chạy được giữ nguyên.", 15, soft, FontStyle.Normal, TextAnchor.MiddleCenter);

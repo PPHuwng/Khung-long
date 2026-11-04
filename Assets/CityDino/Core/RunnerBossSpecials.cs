@@ -7,61 +7,87 @@ namespace CityDino
     {
         private bool PlanBossSpecial(BossAttackKind kind, float warning)
         {
-            if (kind == BossAttackKind.TankRam || kind == BossAttackKind.RobotDash || kind == BossAttackKind.GunshipDive)
+            if (IsBossCharge(kind))
             {
                 float height = kind == BossAttackKind.TankRam ? 68f : kind == BossAttackKind.RobotDash ? 110f : 70f;
                 float y = kind == BossAttackKind.GunshipDive ? Math.Max(35f, Math.Min(280f, PlayerY + 12f)) : 0f;
-                BossTelegraph cue = AddSpecialCue(kind, 0f, Math.Max(1.25f * BossPracticeWarningScale, warning),
-                    90f, y, 1000f, height);
-                cue.OriginX = CurrentBoss.X;
-                cue.OriginY = CurrentBoss.Y;
-                cue.AimX = Math.Max(100f, Math.Min(500f, PlayerX - 170f));
-                cue.AimY = y;
-                // The boss has time to return to its position before choosing
-                // another attack; learning stretches both timing systems.
-                bossActionCycle = Math.Max(bossActionCycle, 4.5f / BossPracticePace);
+                float cueTime = Math.Max(1.25f * BossPracticeWarningScale, warning), delay = 0f, end = 0f;
+                int casts = BossRepeatCount;
+                for (int i = 0; i < casts; i++)
+                {
+                    // Variant is chosen once when planning and appears in the
+                    // cue. It never secretly switches destination during travel.
+                    bool full = random.Next(2) == 0;
+                    float endpoint = full ? -CurrentBoss.Width - 24f : Math.Max(100f, Math.Min(500f, PlayerX - 170f));
+                    float left = Math.Min(90f, endpoint + 8f);
+                    BossTelegraph cue = AddSpecialCue(kind, delay * BossPracticePace, cueTime,
+                        left, y, CanvasWidth - left, height);
+                    cue.OriginX = CurrentBoss.X; cue.OriginY = CurrentBoss.Y;
+                    cue.AimX = cue.SweepEndX = endpoint; cue.AimY = y; cue.FullSweep = full;
+                    float strike = BossChargeStrikeDuration(full), recovery = BossChargeRecoveryDuration(full);
+                    end = delay + cueTime + strike + recovery;
+                    // Next warning is visible during the harmless return, but
+                    // its expiry is safely later than the complete recovery.
+                    delay += cueTime + strike + Math.Max(.1f, recovery - cueTime + .15f);
+                }
+                bossActionCycle = Math.Max(bossActionCycle, end + .2f / BossPracticePace);
+                CurrentBoss.AttackName = AttackName(kind) + (casts > 1 ? " · " + casts + " lượt" : "");
+                return true;
             }
-            else if (kind == BossAttackKind.CrossMissile)
+            if (kind == BossAttackKind.CrossMissile)
             {
-                float cueTime = Math.Max(1.2f * BossPracticeWarningScale, warning);
+                float cueTime = Math.Max(1.2f * BossPracticeWarningScale, warning), last = 0f;
                 if (IsFlyingBoss)
                 {
                     float gapY = (bossAttackIndex / 7) % 2 == 0 ? 55f : 135f;
-                    float gapHeight = 190f;
+                    float gapHeight = BossAirGapHeight;
                     float low = Math.Max(8f, gapY * .5f - 12f);
                     float high = Math.Min(330f, gapY + gapHeight + (360f - gapY - gapHeight) * .5f - 12f);
-                    AddCrossMissileCue(0f, cueTime, low, true, gapY, gapHeight);
-                    AddCrossMissileCue(0f, cueTime, high, false, gapY, gapHeight);
-                    if (bossPatternRage >= 2)
+                    int waves = BossTier == 1 ? (bossPatternRage >= 2 ? 2 : 1) : Math.Min(5, BossRepeatCount + (bossPatternRage >= 2 ? 1 : 0));
+                    for (int wave = 0; wave < waves; wave++)
                     {
-                        AddCrossMissileCue(.55f, cueTime, low, false, gapY, gapHeight);
-                        AddCrossMissileCue(.55f, cueTime, high, true, gapY, gapHeight);
+                        last = BossTier == 1 ? wave * .55f : BossCastSpacing(wave * .7f);
+                        AddCrossMissileCue(last, cueTime, low, wave % 2 == 0, gapY, gapHeight);
+                        AddCrossMissileCue(last, cueTime, high, wave % 2 != 0, gapY, gapHeight);
                     }
                 }
-                else
+                else if (BossTier == 1)
                 {
                     AddCrossMissileCue(0f, cueTime, 18f, true, 0f, 0f);
                     AddCrossMissileCue(0f, cueTime, 18f, false, 0f, 0f);
                     if (bossPatternRage >= 3)
-                        AddCrossMissileCue(.9f, cueTime, 18f, bossAttackIndex % 2 == 0, 0f, 0f);
+                    { last = .9f; AddCrossMissileCue(last, cueTime, 18f, bossAttackIndex % 2 == 0, 0f, 0f); }
+                }
+                else
+                {
+                    for (int wave = 0; wave < BossRepeatCount; wave++)
+                    {
+                        last = BossCastSpacing(wave * 1.3f);
+                        AddCrossMissileCue(last, cueTime, 18f, true, 0f, 0f);
+                        AddCrossMissileCue(last, cueTime, 18f, false, 0f, 0f);
+                    }
                 }
                 bossActionCycle = Math.Max(bossActionCycle, 4.8f / BossPracticePace);
+                if (BossTier > 1) ExtendBossCycle(last, cueTime, 3.4f / BossTierPace);
             }
             else if (kind == BossAttackKind.MissileRain)
             {
-                // Keep one gap for the entire wave, placed within a short move
-                // of the locked player position. Later waves do not chase it.
-                float centre = Math.Max(220f, Math.Min(620f, PlayerX + (bossAttackIndex % 2 == 0 ? -140f : 140f)));
-                float gapWidth = 240f, gapX = centre - gapWidth * .5f;
-                float cueTime = Math.Max(1.45f * BossPracticeWarningScale, warning);
-                for (int wave = 0; wave < (bossPatternRage >= 3 ? 2 : 1); wave++)
+                float side = BossTier == 1 ? (bossAttackIndex % 2 == 0 ? -1f : 1f) : (random.Next(2) == 0 ? -1f : 1f);
+                float centre = Math.Max(220f, Math.Min(620f, PlayerX + side * 140f));
+                float gapWidth = Math.Max(210f, 240f - BossExtraWaves * 10f), gapX = centre - gapWidth * .5f;
+                float cueTime = Math.Max(1.45f * BossPracticeWarningScale, warning), last = 0f;
+                int waves = Math.Min(4, (bossPatternRage >= 3 ? 2 : 1) + BossExtraWaves);
+                for (int wave = 0; wave < waves; wave++)
                 {
                     for (int lane = 0; lane < 6; lane++)
                     {
                         float x = 110f + lane * 130f;
                         const float blastWidth = 62f;
                         if (x + blastWidth * .5f > gapX && x - blastWidth * .5f < gapX + gapWidth) continue;
-                        BossTelegraph cue = AddSpecialCue(kind, wave * .8f, cueTime,
+                        float stagger = BossTier >= 3 ? ((wave % 2 == 0 ? lane : 5 - lane) * .055f) : 0f;
+                        float delay = BossCastSpacing(wave * .8f + stagger);
+                        last = Math.Max(last, delay);
+                        BossTelegraph cue = AddSpecialCue(kind, delay, cueTime,
                             x - blastWidth * .5f, 0f, blastWidth, 430f);
                         cue.GapX = gapX; cue.GapWidth = gapWidth;
                         cue.OriginX = x - 13f; cue.OriginY = 430f;
@@ -69,24 +95,26 @@ namespace CityDino
                     }
                 }
                 bossActionCycle = Math.Max(bossActionCycle, 4.9f / BossPracticePace);
+                if (BossTier > 1) ExtendBossCycle(last, cueTime, 1.9f / BossTierPace);
             }
             else if (kind == BossAttackKind.ElectricOrb)
             {
-                int count = bossPatternRage >= 3 ? 3 : 2;
+                int count = Math.Min(6, (bossPatternRage >= 3 ? 3 : 2) + BossExtraWaves);
+                float last = 0f;
                 for (int i = 0; i < count; i++)
                 {
-                    // Alternating low/high orbs are separated long enough to
-                    // land or crouch between waves, rather than form a wall.
                     float y = i % 2 == 0 ? 12f : 62f;
-                    BossTelegraph cue = AddSpecialCue(kind, i * 1.1f, Math.Max(.95f * BossPracticeWarningScale, warning),
+                    last = BossCastSpacing(i * 1.1f);
+                    BossTelegraph cue = AddSpecialCue(kind, last, Math.Max(.95f * BossPracticeWarningScale, warning),
                         90f, y, 1000f, 36f);
                     cue.OriginX = CurrentBoss.X - 20f; cue.OriginY = y;
                     cue.VelocityX = -300f; cue.VelocityY = 0f;
                 }
                 bossActionCycle = Math.Max(bossActionCycle, 4.8f / BossPracticePace);
+                if (BossTier > 1) ExtendBossCycle(last, Math.Max(.95f * BossPracticeWarningScale, warning), 2.8f / BossTierPace);
             }
             else return false;
-            CurrentBoss.AttackName = AttackName(kind);
+            CurrentBoss.AttackName = AttackName(kind) + (BossTier > 1 ? " · liên hoàn cấp " + BossTier : "");
             return true;
         }
 

@@ -393,8 +393,31 @@ internal static partial class Program
         // instead of assuming the far-left corner is safe for every combo.
         if(danger.Count==0&&run.CurrentBoss.Kind==BossKind.Sentinel)
             direction=run.PlayerX<594?1:run.PlayerX>606?-1:0;
+        // The opposing missiles are launched together and meet at X665.
+        // Move there after the visible crossfire cue so one ordinary jump
+        // clears each pair, rather than spending both jumps on split arrivals.
+        bool crossfire = run.BossTelegraphs.Any(m=>m.Visible&&!m.Active&&m.Kind==BossAttackKind.CrossMissile)||
+            run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&p.Kind==BossAttackKind.CrossMissile);
+        if(danger.Count==0&&crossfire)
+            direction=run.PlayerX<661?1:run.PlayerX>669?-1:0;
+        // Later tiers may warn a second pillar while the first is still live.
+        // Do not run through the current pillar to flee the future marker:
+        // rise above the existing column, using the real second jump, first.
+        bool PillarInRoute(float x,float width) { return direction<0
+            ?x+width>run.PlayerX-220&&x<run.PlayerX+55
+            :x<run.PlayerX+220&&x+width>run.PlayerX-55; }
+        bool pillarBlocksRoute = direction!=0&&(run.BossObstacles.Any(o=>o.Active&&!o.Removed&&
+            o.Kind==BossAttackKind.ElectricPillar&&PillarInRoute(o.X,o.Width))||
+            run.BossTelegraphs.Any(m=>m.Visible&&!m.Active&&m.Kind==BossAttackKind.ElectricPillar&&
+                m.Remaining<.65f&&PillarInRoute(m.X,m.Width)));
+        if(pillarBlocksRoute&&run.PlayerY<155)direction=0;
         run.SetHorizontal(direction);
         run.SetDucking(high||drone);
+        if(pillarBlocksRoute)
+        {
+            run.SetDucking(false);
+            if(run.PlayerY<=.01f||(run.PlayerY>=75&&run.PlayerY<140&&run.VelocityY>0))run.Jump();
+        }
         bool groundThreat=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&
             (p.Kind==BossAttackKind.Cannon||p.Kind==BossAttackKind.Shockwave||p.Kind==BossAttackKind.DroneLow)&&
             p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+110)||

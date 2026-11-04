@@ -63,6 +63,7 @@ internal static class Program
         Test("practice retry key replays its selected trial without starting a normal run", PracticeRetryKey);
         Test("pause and release clear held flight thrust before resuming", FlightPauseRelease);
         Test("enemy lunges keep player steering jumping flying shooting and skills available", BossChargeControls);
+        Test("selected practice danger tier survives start and retry without consuming normal stock", PracticeTierRetry);
         Console.WriteLine();
         Console.WriteLine("Input mapping: " + passed + " passed, " + failed + " failed.");
         Console.WriteLine("Production mapping ran against math/device stubs; Unity event delivery and device hardware were not executed.");
@@ -346,6 +347,24 @@ internal static class Program
         ((IList<BossProjectile>)run.BossProjectiles).Clear();
         Frame(controller);Check(run.ArenaPhase==BossPhase.Victory&&!run.BossProjectiles.Any(p=>p.Friendly&&!p.Removed)&&run.SkillCooldownRemaining==0&&run.PlayerY==0,
             "Victory fire/skill controls leaked to shooting, a skill or tap-jump");
+        // Real forward departure, rather than only a phase flag: pressing left,
+        // jump, fire or a skill cannot reverse the staged exit through the gate.
+        foreach(BossKind boss in Enum.GetValues(typeof(BossKind)))
+        {
+            run=Session(CharacterKind.Raptor);EnterArena(run,boss);
+            for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+            run.CurrentBoss.Health=0;run.Update(.01f);
+            for(int i=0;i<300&&run.ExitTravelProgress<=.02f;i++)run.Update(1f/120);
+            Check(run.ArenaPhase==BossPhase.Victory&&run.ExitTravelProgress>.02f,"Real forward exit fixture did not start");
+            controller=Controller(run);Keyboard.current=new Keyboard();Touchscreen.current=null;Mouse.current=null;
+            Keyboard.current.aKey.isPressed=true;Keyboard.current.spaceKey.isPressed=true;Keyboard.current.spaceKey.wasPressedThisFrame=true;
+            Keyboard.current.jKey.isPressed=true;Keyboard.current.eKey.wasPressedThisFrame=true;
+            float worldX=run.DepartureWorldX,y=run.PlayerY;int score=run.Score;
+            Frame(controller);
+            Check(run.DepartureWorldX>worldX&&!run.FacingLeft&&run.Score==score&&run.SkillCooldownRemaining==0&&
+                !run.BossProjectiles.Any(p=>p.Friendly&&!p.Removed),"Player commands interrupted or reversed forward departure");
+            Check(run.PlayerY<=y+.001f,"Held jump/lift made the leaving character rise instead of following the landing scene");
+        }
     }
     private static void ModalStartKeys()
     {
@@ -553,6 +572,35 @@ internal static class Program
                 (double)typeof(RunnerSession).GetField("shotCooldown",PrivateInstance).GetValue(run)>0,
                 "Enemy lunge locked the common weapon: "+boss+" / "+character);
             Check((run.SkillCooldownRemaining>0)==(character!=CharacterKind.Classic),"Enemy lunge changed character skill routing");
+        }
+    }
+
+    private static void PracticeTierRetry()
+    {
+        foreach(int tier in new[]{2,5,8})
+        {
+            var save=new RunnerSave{Wallet=4321,BestScore=7654,LastScore=1234,PurchasedHearts=2,
+                PurchasedShield=true,PurchasedWaterReserve=true,PurchasedWarmReserve=true};
+            var run=new RunnerSession(save,14);int saves=0;run.SaveChanged+=()=>saves++;
+            var controller=Controller(run);SetField(controller,"showPractice",true);
+            SetField(controller,"practiceBoss",BossKind.Gunship);SetField(controller,"practiceCharacter",CharacterKind.Raptor);
+            SetField(controller,"practiceLearning",false);SetField(controller,"practiceTier",tier);
+            typeof(CityRunnerController).GetMethod("StartPractice",PrivateInstance).Invoke(controller,null);
+            Check(run.IsPractice&&run.BossTier==tier&&run.CurrentBoss.Tier==tier,"Selected danger tier did not reach production practice");
+            float hp=run.CurrentBoss.MaxHealth;
+            Check(hp>800,"Higher-tier practice kept first-round helicopter health");
+            run.SkipPracticeIntro();
+            typeof(RunnerSession).GetMethod("FinishPractice",PrivateInstance).Invoke(run,new object[]{false,"Tier retry input fixture"});
+            Keyboard.current=new Keyboard();Keyboard.current.rKey.wasPressedThisFrame=true;Frame(controller);
+            Check(run.State==RunState.Playing&&run.IsPractice&&run.BossTier==tier&&run.CurrentBoss.Tier==tier,
+                "R retry silently reset danger tier");
+            Check(run.CurrentBoss.Kind==BossKind.Gunship&&run.CurrentCharacter==CharacterKind.Raptor&&!run.PracticeLearning&&
+                run.CurrentBoss.MaxHealth==hp,"Retry changed the chosen training round");
+            Check(save.Wallet==4321&&save.BestScore==7654&&save.LastScore==1234&&save.PurchasedHearts==2&&
+                save.PurchasedShield&&save.PurchasedWaterReserve&&save.PurchasedWarmReserve&&
+                !save.OwnsRaptor&&!save.OwnsTriceratops&&save.SelectedCharacter==CharacterKind.Classic&&saves==0,
+                "Training danger-tier input spent normal inventory or unlocked a trial character");
+            Keyboard.current=null;
         }
     }
 

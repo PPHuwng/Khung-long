@@ -34,7 +34,7 @@ internal static class Program
         Test("running art stays consistent in menu, pause, death and legacy fallback",RunningLifecycle);
         Test("boss arenas replace the scrolling world and all district weather",ArenaIsolation);
         Test("all three bosses stay at their shared physical bounds under canvas transforms",BossSprites);
-        Test("boss projectiles and attack telegraphs use exact live collision rectangles",BossAttackGeometry);
+        Test("boss projectiles and attack telegraphs use their exact live damage geometry",BossAttackGeometry);
         Test("boss weak point clearly changes between protected and vulnerable states",BossWeakPoint);
         Test("boss arena effects and dead encounter remain frozen with gameplay",ArenaLifecycle);
         Test("live boss entry, motion and recoil preserve exact physical sprites",DynamicBossBodies);
@@ -61,6 +61,10 @@ internal static class Program
         Test("robot electricity is a true circular energy sphere with a harmless soft halo",ElectricOrbRendering);
         Test("front rear and falling missiles point their metal nose along the actual velocity",DirectionalMissileRendering);
         Test("missile rain warns its physical strips while keeping the real escape corridor clear",MissileRainRendering);
+        Test("ordnance uses separate source art and shared round damage cores instead of flying boxes",OrdnanceRenderingV12);
+        Test("partial and full-left sweeps reveal distinct locked stop and screen-edge signals",SweepWarningsV12);
+        Test("practice tier controls and combat HUD distinguish danger level from health phase",TierHudV12);
+        Test("victory moves through the exit behind the boss while arena and street scroll forward",ForwardExitRenderingV12);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
         Console.WriteLine("Recorded production draw calls with affine API stubs; no Unity rasterization or Editor execution.");
         return failed==0?0:1;
@@ -623,7 +627,7 @@ internal static class Program
         var shots=(IList<BossProjectile>)run.BossProjectiles;shots.Clear();
         var signals=(IList<BossTelegraph>)run.BossTelegraphs;signals.Clear();
         var friendly=new BossProjectile{Id=100,Friendly=true,X=321,Y=123,Width=18,Height=8};
-        var enemy=new BossProjectile{Id=101,Friendly=false,X=564,Y=51,Width=24,Height=15};
+        var enemy=new BossProjectile{Id=101,Friendly=false,Kind=BossAttackKind.Cannon,X=564,Y=51,Width=30,Height=22,Radius=11,VelocityX=-425};
         var removed=new BossProjectile{Id=102,Friendly=false,X=631,Y=66,Width=31,Height=17,Removed=true};
         shots.Add(friendly);shots.Add(enemy);shots.Add(removed);
         var signal=new BossTelegraph{Id=103,Kind=BossAttackKind.Artillery,X=428,Y=0,Width=73,Height=113,Remaining=.4f,Duration=1,Active=false};signals.Add(signal);
@@ -633,9 +637,11 @@ internal static class Program
             foreach(BossProjectile shot in new[]{friendly,enemy})
             {
                 Rect physical=new Rect(shot.X,RunnerSession.GroundY-shot.Y-shot.Height,shot.Width,shot.Height);
-                RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
+                Rect damage=shot.Friendly?physical:new Rect(physical.center.x-shot.Radius,physical.center.y-shot.Radius,shot.Radius*2,shot.Radius*2);
+                RecordedDraw draw=GUI.DrawCalls.Single(d=>d.Texture?.name=="CityDino disc"&&SameRect(d.Position,damage));
                 Point(draw.Centre,canvas.MultiplyPoint3x4(physical.center),"Projectile left its physical position under letterbox");
-                Check(shot.Friendly?draw.Color.b>draw.Color.r:draw.Color.r>draw.Color.b,"Friendly/enemy projectiles are visually indistinguishable");
+                if(shot.Friendly)Check(draw.Color.b>draw.Color.r,"Friendly energy is not distinguished from enemy ordnance");
+                else Check(GUI.DrawCalls.Any(d=>d.Texture==art.OrdnanceAtlas&&SamePoint(d.Centre,canvas.MultiplyPoint3x4(physical.center))),"Enemy shell lacks its centered source art");
             }
             Check(!GUI.DrawCalls.Any(d=>SameRect(d.Position,new Rect(removed.X,RunnerSession.GroundY-removed.Y-removed.Height,removed.Width,removed.Height))),"Removed projectile is still visible");
             Rect warning=new Rect(signal.X,RunnerSession.GroundY-signal.Y-signal.Height,signal.Width,signal.Height);
@@ -1046,8 +1052,9 @@ internal static class Program
             var shots=(IList<BossProjectile>)run.BossProjectiles;shots.Clear();
             var drone=new BossProjectile{Id=10001,Kind=BossAttackKind.DroneLow,X=543,Y=8,Width=50,Height=26};shots.Add(drone);
             Draw(view,run,Canvas(1.5f,320,0));Rect droneBody=new Rect(drone.X,RunnerSession.GroundY-drone.Y-drone.Height,drone.Width,drone.Height);
-            RecordedDraw droneDraw=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,droneBody));
-            Point(droneDraw.Centre,Canvas(1.5f,320,0).MultiplyPoint3x4(droneBody.center),"Ground drone moved away from its real low-lane damage body");
+            Vector3 droneCentre=Canvas(1.5f,320,0).MultiplyPoint3x4(droneBody.center);
+            Check(GUI.DrawCalls.Any(d=>d.Texture?.name=="CityDino disc"&&Math.Abs(d.Centre.x-droneCentre.x)<.03&&Math.Abs(d.Centre.y-droneCentre.y)<droneBody.height*.5f),"Ground drone does not show its rounded physical body");
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,droneBody)&&d.Color.a>.6f),"Ground drone regressed to a flying plastic rectangle");
         }
     }
     private static void BossVictoryFeedback()
@@ -1253,7 +1260,7 @@ internal static class Program
                 Check(GUI.DrawCalls.Any(d=>d.Texture==art.GetCharacterTexture(kind,0)),"Practice omits a trial character preview: "+kind);
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("LÀM QUEN")),"Learning selector is missing");
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("CHUẨN")),"Standard selector is missing");
-            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 11")),"Version footer is stale");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 12")),"Version footer is stale");
             Check(GUI.DrawCalls.Where(d=>d.Kind=="Button"&&d.Text!=null&&d.Text.StartsWith("BẮT ĐẦU")).All(d=>!d.Enabled),"Practice preparation leaves normal start active");
             Check(!run.Save.OwnsTriceratops&&!run.Save.OwnsRaptor&&run.State==RunState.Menu,"Previewing practice changed character ownership or began a run");
         }
@@ -1450,6 +1457,159 @@ internal static class Program
                     Point(paint.Centre,canvas.MultiplyPoint3x4(live.center),"Rain impact differs from its active damage rectangle");
                 }
             }
+        }
+    }
+
+    private static void OrdnanceRenderingV12()
+    {
+        var art=new RunnerArt();Check(art.OrdnanceAtlas!=null,"New mechanical ordnance PNG is missing");
+        PngAlpha png=ReadPngAlpha(Path.Combine(assetDirectory,"OrdnanceAtlas.png"));var crops=new HashSet<string>();
+        for(int cell=0;cell<4;cell++)
+        {
+            Rect uv=art.GetOrdnanceUV(cell);Check(uv.x>=0&&uv.y>=0&&uv.width>0&&uv.height>0&&uv.xMax<=1&&uv.yMax<=1,"Ordnance crop leaves actual PNG");
+            crops.Add(uv.x+":"+uv.y+":"+uv.width+":"+uv.height);
+            int opaque=0,clear=0;
+            for(int y=0;y<24;y++)for(int x=0;x<32;x++)
+                if(RenderedAlpha(png,new Rect(0,0,32,24),uv,false,x+.5f,y+.5f)>=128)opaque++;else clear++;
+            Check(opaque>70&&clear>15,"New source art is empty or has an opaque box backing: cell "+cell);
+        }
+        Check(crops.Count==4,"Four ordnance families reuse one sticker");
+        using(var view=new RunnerWorldView(art))
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        {
+            foreach(BossAttackKind kind in new[]{BossAttackKind.Cannon,BossAttackKind.Artillery,BossAttackKind.AirSpread})
+            {
+                float radius=kind==BossAttackKind.Cannon?11:kind==BossAttackKind.Artillery?14:6;
+                var shot=new BossProjectile{Id=128,Kind=kind,X=461,Y=82,Width=kind==BossAttackKind.Artillery?32:30,Height=kind==BossAttackKind.Artillery?32:22,Radius=radius,VelocityX=kind==BossAttackKind.Artillery?0:-325,VelocityY=kind==BossAttackKind.Artillery?-485:0};
+                DrawProjectileOnly(view,shot,.27f,canvas);Rect body=new Rect(shot.X,RunnerSession.GroundY-shot.Y-shot.Height,shot.Width,shot.Height);
+                Rect core=new Rect(body.center.x-radius,body.center.y-radius,radius*2,radius*2);
+                RecordedDraw solid=GUI.DrawCalls.Single(d=>d.Texture?.name=="CityDino disc"&&SameRect(d.Position,core));
+                Point(solid.Centre,canvas.MultiplyPoint3x4(body.center),"Round ordnance damage core drifted from projectile");
+                Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,body)&&d.Color.a>.6f),"Ordnance is still an opaque flying box");
+                if(kind!=BossAttackKind.AirSpread)
+                {
+                    RecordedDraw sprite=GUI.DrawCalls.Single(d=>d.Texture==art.OrdnanceAtlas);
+                    Check(SameRect(sprite.UV,art.GetOrdnanceUV(0)),"Shell selects another mechanical source cell");
+                    Point(sprite.Centre,canvas.MultiplyPoint3x4(body.center),"Velocity rotation moved shell art off its round contact core");
+                    Check(sprite.Position.width/sprite.Position.height>2.4f,"Long shell source was squashed into a plastic block");
+                }
+                else Check(GUI.DrawCalls.Any(d=>d.Texture?.name=="CityDino soft glow"&&d.Color.a<.3f),"Air spread lacks plasma light and tail");
+            }
+            foreach(int cell in new[]{1,2})
+            {
+                var obstacle=new BossObstacle{Id=129,Kind=cell==1?BossAttackKind.CrateDrop:BossAttackKind.MineDrop,X=487,Y=40,Width=56,Height=56,Radius=28,Remaining=4,Health=32,MaxHealth=32};
+                GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossObstacle",Private).Invoke(view,new object[]{obstacle,.43f});
+                RecordedDraw sprite=GUI.DrawCalls.Single(d=>d.Texture==art.OrdnanceAtlas);
+                Check(SameRect(sprite.UV,art.GetOrdnanceUV(cell)),"Mechanical obstacle selects wrong round source");
+                Point(sprite.Centre,canvas.MultiplyPoint3x4(new Vector3(515,RunnerSession.GroundY-68,0)),"Mechanical obstacle drifted from live round core");
+                Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,new Rect(487,RunnerSession.GroundY-96,56,56))&&d.Color.a>.6f),"Drone/mine regressed to an opaque cube");
+            }
+            var bar=new BossObstacle{Id=130,Kind=BossAttackKind.AirGate,X=620,Y=0,Width=44,Height=87,Remaining=4};
+            GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossObstacle",Private).Invoke(view,new object[]{bar,.43f});
+            var nodes=GUI.DrawCalls.Where(d=>d.Texture==art.OrdnanceAtlas).ToList();Check(nodes.Count==2,"Plasma gate lacks two actual emitter sprites");
+            foreach(RecordedDraw node in nodes)Check(SameRect(node.UV,art.GetOrdnanceUV(3))&&node.Position.y>=RunnerSession.GroundY-87&&node.Position.yMax<=RunnerSession.GroundY+.01f,"Gate node leaves its damaging bar or uses another asset");
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,new Rect(620,RunnerSession.GroundY-87,44,87))&&d.Color.a>.6f),"Plasma gate remains an opaque plastic slab");
+        }
+    }
+    private static void SweepWarningsV12()
+    {
+        var art=new RunnerArt();using(var view=new RunnerWorldView(art))
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        {
+            string partial="";
+            foreach(bool full in new[]{false,true})
+            {
+                var cue=new BossTelegraph{Id=8000,Kind=BossAttackKind.TankRam,X=full?-310:90,Y=0,Width=full?1400:1000,Height=68,Duration=1.25f,Remaining=.5f,FullSweep=full,SweepEndX=full?-310:350,AimX=full?-310:350};
+                GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{cue,.45f,new BossEncounter()});
+                Rect footprint=new Rect(cue.X,RunnerSession.GroundY-cue.Y-cue.Height,cue.Width,cue.Height);
+                Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,footprint)&&d.Color.a<.3f),"Sweep cue no longer paints its exact harmless locked lane");
+                float y=RunnerSession.GroundY-34;
+                if(full)
+                {
+                    Vector3 tip=canvas.MultiplyPoint3x4(new Vector2(14,y));
+                    Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SamePoint(LineEnd(d),tip)),"Full sweep does not show continuation through the left screen edge");
+                    Check(DrawSignature()!=partial,"Random full/partial variants are visually indistinguishable before striking");
+                }
+                else
+                {
+                    Vector3 stop=canvas.MultiplyPoint3x4(new Vector2(358,y));
+                    Check(GUI.DrawCalls.Any(d=>d.Texture?.name=="CityDino disc"&&SamePoint(d.Centre,stop)),"Partial sweep omits the locked stopping marker");partial=DrawSignature();
+                }
+            }
+        }
+    }
+    private static void TierHudV12()
+    {
+        var art=new RunnerArt();var save=new RunnerSave{Wallet=1200,PurchasedHearts=2,SelectedCharacter=CharacterKind.Classic};var run=new RunnerSession(save,32);
+        using(var view=new RunnerWorldView(art))
+        {
+            var controller=Ui(run,art,view);typeof(CityRunnerController).GetMethod("OpenPractice",Private).Invoke(controller,null);DrawUi(controller);
+            foreach(int tier in new[]{1,2,3,5,8})Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.EndsWith("CẤP "+tier)),"Practice preparation omits danger tier "+tier);
+            run.StartBossPractice(BossKind.Sentinel,CharacterKind.Raptor,false,5);Field(controller,"showPractice",false);run.SkipPracticeIntro();run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;run.Update(.01f);DrawUi(controller);
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("CẤP 5")&&d.Text.Contains("PHA 3")),"Danger tier is missing or confused with the boss health phase");
+            Check(save.Wallet==1200&&save.PurchasedHearts==2&&!save.OwnsRaptor,"Rendering danger tier consumed inventory or opened a trial avatar");
+        }
+    }
+    private static void ForwardExitRenderingV12()
+    {
+        var art=new RunnerArt();Check(art.ArenaGateAtlas!=null&&art.ArenaBackdropAtlas!=null,"Themed gate/backdrop source art missing");
+        Check(!SameRect(art.GetArenaBackdropUV(BossKind.Tank),art.GetArenaBackdropUV(BossKind.Sentinel)),"Tank and robot use the same generated arena background");
+        PngAlpha gatePng=ReadPngAlpha(Path.Combine(assetDirectory,"ArenaGateAtlas.png"));
+        foreach(BossKind gateKind in new[]{BossKind.Tank,BossKind.Sentinel})
+        {
+            int transparentPassage=0,total=0;Rect uv=art.GetArenaGateUV(gateKind);
+            for(int y=115;y<286;y+=10)for(int x=120;x<151;x+=10)
+            {total++;if(RenderedAlpha(gatePng,new Rect(0,0,270,330),uv,false,x+.5f,y+.5f)<128)transparentPassage++;}
+            Check(transparentPassage>total*.6f,"Generated gate has no real transparent passage behind its opening shutter");
+        }
+        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=ArenaFixture(kind);BossEncounter boss=run.CurrentBoss;
+            Check(RunnerSession.BossExitGateX>boss.X+boss.Width,"Exit gate lies in front of the undefeated boss instead of behind it");
+            typeof(RunnerSession).GetMethod("BeginBossVictory",Private).Invoke(run,null);
+            int score=run.Score;float elapsed=run.Elapsed;Advance(run,RunnerSession.BossExplosionDuration+.12f);
+            float previousGate=float.PositiveInfinity,previousRoad=float.PositiveInfinity,world=run.DepartureWorldX;bool crossed=false,gateShown=false,streetShown=false;
+            for(int sample=0;sample<13&&run.ArenaPhase==BossPhase.Victory;sample++)
+            {
+                Draw(view,run,canvas);
+                Check(run.DepartureWorldX>=world-.001f&&run.BossExitCameraX>=0&&!run.FacingLeft,"Victory backs toward the entrance instead of continuing forward");world=run.DepartureWorldX;
+                float gateCentre=RunnerSession.BossExitGateX-run.BossExitCameraX;
+                var gates=GUI.DrawCalls.Where(d=>d.Texture==art.ArenaGateAtlas&&Math.Abs(d.Position.width-270)<.03&&Math.Abs(d.Position.height-330)<.03).ToList();
+                RecordedDraw gate=gates.FirstOrDefault(d=>SamePoint(d.Centre,canvas.MultiplyPoint3x4(new Vector3(gateCentre,RunnerSession.GroundY-165+run.TransitionElevation*680,0))));
+                Check(gate!=null,"Forward exit gate is not drawn at its world position behind the defeated boss");gateShown=true;
+                Near(gate.Centre.x,canvas.MultiplyPoint3x4(new Vector3(gateCentre,0,0)).x,"Exit gate has a different camera than the journey");
+                Check(gate.Centre.x<=previousGate+.03f,"Exit gate moves right like the entrance being replayed");previousGate=gate.Centre.x;
+                Check(SameRect(gate.UV,art.GetArenaGateUV(kind)),"Exit gate does not match this boss theme");
+                var roads=GUI.DrawCalls.Where(d=>d.Texture==art.Road).ToList();
+                Check(roads.Count>0,"Next running street never approaches from beyond the exit");
+                float roadX=roads[0].Matrix.MultiplyPoint3x4(new Vector3(0,0,0)).x;
+                float expectedX=canvas.MultiplyPoint3x4(new Vector3(RunnerSession.BossExitStreetX-run.BossExitCameraX,0,0)).x;
+                Near(roadX,expectedX,"Next street is entering from the old left entrance");
+                Check(roadX<=previousRoad+.03f,"Next street scrolls backward during departure");previousRoad=roadX;streetShown=true;
+                if(kind==BossKind.Gunship&&run.TransitionElevation>.1f)
+                {
+                    float floorY=roads[0].Matrix.MultiplyPoint3x4(new Vector3(0,0,0)).y;
+                    Check(floorY>canvas.MultiplyPoint3x4(new Vector3(0,RunnerSession.GroundY,0)).y+30,"A new street floor popped up inside the still airborne arena");
+                }
+                if(run.DepartureWorldX>=RunnerSession.BossExitGateX)
+                {crossed=true;Check(run.PlayerY<.1f&&!run.FlightDeviceCollected,"Hero passed the exit gate before landing on its visible road");}
+                Check(run.Score==score&&run.Elapsed==elapsed,"Cinematic exit advanced the suspended run score or clock");
+                if(sample==5)
+                {
+                    string frozen=DrawSignature();Vector3 frozenGate=gate.Centre;
+                    Vector3 frozenRoad=roads[0].Matrix.MultiplyPoint3x4(new Vector3(0,0,0));
+                    run.TogglePause();run.Update(3);GUI.DrawCalls.Clear();GUI.matrix=canvas;view.Draw(run,9999);
+                    Check(DrawSignature()==frozen,"Paused forward exit kept scrolling the gate or street");
+                    RecordedDraw pausedGate=GUI.DrawCalls.Single(d=>d.Texture==art.ArenaGateAtlas&&Math.Abs(d.Position.width-270)<.03&&Math.Abs(d.Position.height-330)<.03);
+                    Point(pausedGate.Centre,frozenGate,"Paused exit gate changed its camera transform with ambient time");
+                    RecordedDraw pausedRoad=GUI.DrawCalls.First(d=>d.Texture==art.Road);
+                    Point(pausedRoad.Matrix.MultiplyPoint3x4(new Vector3(0,0,0)),frozenRoad,"Paused destination street changed its camera transform");run.TogglePause();
+                }
+                Advance(run,.23f);
+            }
+            Check(gateShown&&streetShown&&crossed,"Journey failed to pass the far-side exit before returning to the run");
         }
     }
 

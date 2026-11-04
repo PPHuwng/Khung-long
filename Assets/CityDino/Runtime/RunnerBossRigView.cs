@@ -198,6 +198,7 @@ namespace CityDino
             Rect rect = new Rect(mark.X, GroundY - mark.Y - mark.Height, mark.Width, mark.Height);
             if (mark.Kind == BossAttackKind.TankRam || mark.Kind == BossAttackKind.RobotDash || mark.Kind == BossAttackKind.GunshipDive)
             {
+                if (mark.FullSweep) color = Hex(0xff9879);
                 DrawBossWarningRect(rect, color, mark);
                 float offset = Repeat(clock * 155f, 74f);
                 for (float x = rect.x + 12f + offset; x < rect.xMax - 22f; x += 74f)
@@ -205,6 +206,34 @@ namespace CityDino
                     float y = rect.center.y;
                     Line(new Vector2(x + 12f, y - 9f), new Vector2(x, y), WithAlpha(color, .8f), 3f);
                     Line(new Vector2(x, y), new Vector2(x + 12f, y + 9f), WithAlpha(color, .8f), 3f);
+                    if (mark.FullSweep)
+                    {
+                        Line(new Vector2(x + 23f, y - 9f), new Vector2(x + 11f, y), WithAlpha(color, .65f), 2f);
+                        Line(new Vector2(x + 11f, y), new Vector2(x + 23f, y + 9f), WithAlpha(color, .65f), 2f);
+                    }
+                }
+                // A stop bracket means a partial lunge. A double arrow at the
+                // screen edge means the body will cross the entire left side;
+                // the random destination is already locked in this cue.
+                float stopX = Mathf.Clamp(mark.SweepEndX + 8f, 24f, Width - 24f);
+                float centreY = rect.center.y;
+                if (mark.FullSweep)
+                {
+                    Line(new Vector2(58f, centreY), new Vector2(14f, centreY), color, 4f);
+                    for (int i = 0; i < 2; i++)
+                    {
+                        float x = 14f + i * 14f;
+                        Line(new Vector2(x + 10f, centreY - 12f), new Vector2(x, centreY), color, 3f);
+                        Line(new Vector2(x, centreY), new Vector2(x + 10f, centreY + 12f), color, 3f);
+                    }
+                }
+                else
+                {
+                    float half = Mathf.Min(19f, rect.height * .36f);
+                    Line(new Vector2(stopX, centreY - half), new Vector2(stopX, centreY + half), color, 3f);
+                    Line(new Vector2(stopX, centreY - half), new Vector2(stopX + 11f, centreY - half), color, 3f);
+                    Line(new Vector2(stopX, centreY + half), new Vector2(stopX + 11f, centreY + half), color, 3f);
+                    Disc(new Rect(stopX - 4f, centreY - 4f, 8f, 8f), WithAlpha(color, .65f));
                 }
                 return true;
             }
@@ -264,6 +293,182 @@ namespace CityDino
                 return true;
             }
             return false;
+        }
+
+        private bool DrawOrdnanceSprite(Rect rect, int cell, Color tint, float angle = 0f)
+        {
+            if (art.OrdnanceAtlas == null) return false;
+            Color previousColor = GUI.color;
+            Matrix4x4 canvas = GUI.matrix;
+            try
+            {
+                GUI.color = tint;
+                if (Mathf.Abs(angle) > .01f)
+                {
+                    GUI.matrix = canvas * Matrix4x4.TRS(new Vector3(rect.center.x, rect.center.y, 0f),
+                        Quaternion.Euler(0f, 0f, angle), Vector3.one);
+                    rect = new Rect(-rect.width * .5f, -rect.height * .5f, rect.width, rect.height);
+                }
+                GUI.DrawTextureWithTexCoords(rect, art.OrdnanceAtlas, art.GetOrdnanceUV(cell), true);
+            }
+            finally { GUI.matrix = canvas; GUI.color = previousColor; }
+            return true;
+        }
+
+        private static Vector2 ProjectileDirection(BossProjectile projectile)
+        {
+            float length = Mathf.Sqrt(projectile.VelocityX * projectile.VelocityX + projectile.VelocityY * projectile.VelocityY);
+            return length > .01f ? new Vector2(projectile.VelocityX / length, -projectile.VelocityY / length)
+                : new Vector2(-1f, 0f);
+        }
+
+        private void DrawArmoredShell(BossProjectile projectile, Rect rect, float clock)
+        {
+            Vector2 direction = ProjectileDirection(projectile);
+            float radius = projectile.Radius > 0f ? projectile.Radius : Mathf.Min(rect.width, rect.height) * .45f;
+            Rect core = new Rect(rect.center.x - radius, rect.center.y - radius, radius * 2f, radius * 2f);
+            Vector2 tail = rect.center - direction * radius * .8f;
+            float trail = 15f + Mathf.Sin(clock * 31f + projectile.Id) * 4f;
+            Line(tail - direction * trail, tail, new Color(1f, .47f, .19f, .32f), radius * .8f);
+            Line(tail - direction * trail * .65f, tail, Hex(0xffecc0), Mathf.Max(1f, radius * .2f));
+            Disc(core, Hex(0x5d7683));
+            // The collision is a round metal core. Nose, fins and the trail
+            // outside this disc are deliberately forgiving decoration.
+            float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg - 180f;
+            // Use the shell's long side profile rather than stretching it to
+            // the old box. Only the clearly drawn circular metal core hits;
+            // the pointed nose, fins and exhaust are forgiving decoration.
+            Rect shell = new Rect(rect.center.x - radius * 2.05f, rect.center.y - radius * .74f,
+                radius * 4.1f, radius * 1.48f);
+            if (!DrawOrdnanceSprite(shell, 0, Color.white, angle))
+                DrawDirectionalMissile(projectile, rect, clock);
+            Disc(new Rect(rect.center.x - radius * .32f, rect.center.y - radius * .32f,
+                radius * .64f, radius * .64f), Hex(0xffbe6f));
+        }
+
+        private void DrawPlasmaBolt(BossProjectile projectile, Rect rect, float clock)
+        {
+            Vector2 direction = ProjectileDirection(projectile);
+            float radius = projectile.Radius > 0f ? projectile.Radius : Mathf.Min(rect.width, rect.height) * .5f;
+            Rect core = new Rect(rect.center.x - radius, rect.center.y - radius, radius * 2f, radius * 2f);
+            float pulse = .8f + .16f * Mathf.Sin(clock * 32f + projectile.Id);
+            Vector2 tail = rect.center - direction * radius;
+            Line(tail - direction * (16f + pulse * 8f), tail, new Color(.25f, .75f, 1f, .27f), radius * 1.6f);
+            Line(tail - direction * 15f, tail, Hex(0xb3f4ff), Mathf.Max(1f, radius * .36f));
+            Disc(new Rect(core.x - radius, core.y - radius, core.width + radius * 2f, core.height + radius * 2f),
+                new Color(.3f, .79f, 1f, .23f), true);
+            Disc(core, Hex(0x489bd8));
+            Disc(new Rect(rect.center.x - radius * .58f, rect.center.y - radius * .58f,
+                radius * 1.16f, radius * 1.16f), Hex(0xbef7ff));
+            Disc(new Rect(rect.center.x - radius * .26f, rect.center.y - radius * .26f,
+                radius * .52f, radius * .52f), Color.white);
+        }
+
+        private void DrawPulsePellet(Rect rect, BossProjectile projectile, float clock)
+        {
+            Vector2 direction = ProjectileDirection(projectile);
+            Line(rect.center - direction * 12f, rect.center, new Color(.47f, .89f, 1f, .35f), rect.height * .72f);
+            Disc(rect, Hex(0x71e0f0));
+            Disc(new Rect(rect.x + rect.width * .2f, rect.y + rect.height * .2f,
+                rect.width * .6f, rect.height * .6f), Hex(0xf0ffff));
+        }
+
+        private void DrawWingDrone(Rect rect, float clock)
+        {
+            Color metal = Hex(0x426375), light = Hex(0x8ce6f8);
+            Disc(new Rect(rect.x + rect.width * .08f, rect.y + rect.height * .23f,
+                rect.width * .84f, rect.height * .65f), metal);
+            for (int i = 0; i < 2; i++)
+            {
+                float x = rect.x + rect.width * (.2f + i * .6f);
+                Disc(new Rect(x - rect.width * .17f, rect.y, rect.width * .34f, rect.height * .4f), Hex(0x243d4f));
+                float blade = rect.width * (.13f + .035f * Mathf.Sin(clock * 45f + i));
+                Line(new Vector2(x - blade, rect.y + rect.height * .16f),
+                    new Vector2(x + blade, rect.y + rect.height * .16f), light, 2f);
+                Line(new Vector2(x, rect.yMax - 4f), new Vector2(x, rect.yMax + 8f + Mathf.Sin(clock * 31f) * 2f),
+                    new Color(.37f, .86f, 1f, .5f), 3f);
+            }
+            Disc(new Rect(rect.center.x - 5f, rect.center.y - 3f, 10f, 8f), Hex(0xffb874));
+        }
+
+        private void DrawAssaultDrone(BossObstacle obstacle, Rect rect, float clock, float alpha, float flash)
+        {
+            float radius = obstacle.Radius > 0f ? obstacle.Radius : Mathf.Min(rect.width, rect.height) * .5f;
+            Rect shield = new Rect(rect.center.x - radius, rect.center.y - radius, radius * 2f, radius * 2f);
+            Color tint = Color.Lerp(Color.white, Hex(0xffecc3), flash);
+            Disc(shield, new Color(.23f, .62f, .8f, .19f * alpha));
+            bool hasDroneArt = DrawOrdnanceSprite(rect, 1, WithAlpha(tint, alpha));
+            if (!hasDroneArt)
+            {
+                // Rounded shield and articulated side engines replace the
+                // former wooden crate even while the atlas is importing.
+                Disc(new Rect(rect.x + rect.width * .12f, rect.y + rect.height * .17f,
+                    rect.width * .76f, rect.height * .68f), WithAlpha(Hex(0x3d5b71), alpha));
+                Disc(new Rect(rect.x + rect.width * .24f, rect.y + rect.height * .29f,
+                    rect.width * .52f, rect.height * .42f), WithAlpha(Hex(0x7998a7), alpha));
+                for (int i = 0; i < 2; i++)
+                {
+                    float x = rect.x + rect.width * (.12f + i * .76f);
+                    Line(new Vector2(x, rect.y + rect.height * .35f), new Vector2(x, rect.y + rect.height * .71f),
+                        WithAlpha(Hex(0x243e52), alpha), 8f);
+                }
+            }
+            if (!hasDroneArt)
+            {
+                float eye = 5f + Mathf.Sin(clock * 7f + obstacle.Id) * .6f;
+                Disc(new Rect(rect.center.x - eye, rect.y + rect.height * .37f - eye, eye * 2f, eye * 2f),
+                    WithAlpha(Hex(0xffbc75), alpha));
+            }
+            for (int i = 0; i < 2; i++)
+            {
+                float x = rect.x + rect.width * (.2f + i * .6f);
+                float exhaust = 9f + Mathf.Sin(clock * 28f + i) * 3f;
+                Line(new Vector2(x, rect.yMax - 5f), new Vector2(x + 6f, rect.yMax - 5f + exhaust),
+                    WithAlpha(Hex(0x76dbf6), alpha * .65f), 4f);
+            }
+            for (int i = 0; i < 6; i++)
+            {
+                float angle = clock * 2.2f + i * 1.0471976f;
+                float x = rect.center.x + Mathf.Cos(angle) * radius * .87f;
+                float y = rect.center.y + Mathf.Sin(angle) * radius * .87f;
+                Disc(new Rect(x - 2f, y - 2f, 4f, 4f), WithAlpha(Hex(0x95e8ff), alpha * .75f));
+            }
+        }
+
+        private void DrawPlasmaGate(Rect rect, float clock, float alpha, float flash)
+        {
+            Color cyan = Color.Lerp(Hex(0x6eddfa), Color.white, flash);
+            // The pale field spans exactly the damaging rectangular bar; the
+            // opening between the two bars is never painted or bridged.
+            Fill(rect, WithAlpha(cyan, alpha * .13f));
+            float nodeSize = Mathf.Min(rect.width * .74f, Mathf.Max(10f, rect.height * .38f));
+            for (int i = 0; i < 2; i++)
+            {
+                float y = i == 0 ? rect.y : rect.yMax - nodeSize;
+                Rect node = new Rect(rect.center.x - nodeSize * .5f, y, nodeSize, nodeSize);
+                Disc(node, WithAlpha(Hex(0x29495c), alpha));
+                DrawOrdnanceSprite(node, 3, WithAlpha(Color.white, alpha));
+                Disc(new Rect(node.center.x - nodeSize * .19f, node.center.y - nodeSize * .19f,
+                    nodeSize * .38f, nodeSize * .38f), WithAlpha(cyan, alpha));
+            }
+            for (int branch = 0; branch < 3; branch++)
+            {
+                Vector2 previous = new Vector2(rect.x + rect.width * (.18f + branch * .32f), rect.y);
+                int count = Math.Max(2, (int)(rect.height / 13f));
+                for (int segment = 1; segment <= count; segment++)
+                {
+                    float y = rect.y + rect.height * segment / count;
+                    float x = rect.x + rect.width * (.18f + branch * .32f) +
+                        Mathf.Sin(clock * 29f + segment * 3.2f + branch) * rect.width * .12f;
+                    x = Mathf.Clamp(x, rect.x + 2f, rect.xMax - 2f);
+                    Vector2 next = new Vector2(x, y);
+                    Line(previous, next, WithAlpha(cyan, alpha * .29f), 7f);
+                    Line(previous, next, WithAlpha(Hex(0xe3fcff), alpha * .91f), 1.8f);
+                    previous = next;
+                }
+            }
+            Line(new Vector2(rect.x + 1f, rect.y), new Vector2(rect.x + 1f, rect.yMax), WithAlpha(cyan, alpha * .6f), 1f);
+            Line(new Vector2(rect.xMax - 1f, rect.y), new Vector2(rect.xMax - 1f, rect.yMax), WithAlpha(cyan, alpha * .6f), 1f);
         }
 
         private void DrawDirectionalMissile(BossProjectile missile, Rect rect, float clock)

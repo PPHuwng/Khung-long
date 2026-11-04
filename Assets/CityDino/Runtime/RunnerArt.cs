@@ -31,6 +31,9 @@ namespace CityDino
         public readonly Texture2D FlightDevice;
         public readonly Texture2D Hoverboard;
         public readonly Texture2D BossActionAtlas;
+        public readonly Texture2D OrdnanceAtlas;
+        public readonly Texture2D ArenaBackdropAtlas;
+        public readonly Texture2D ArenaGateAtlas;
         public readonly Rect HoverboardUV = new Rect(46f / 2172f, 161f / 724f, 2080f / 2172f, 378f / 724f);
         // The earlier pack crop remains available for old resource consumers;
         // the current cinematic and ride use the hoverboard above.
@@ -179,6 +182,9 @@ namespace CityDino
             FlightDevice = Resources.Load<Texture2D>("CityDino/FlightDevice");
             Hoverboard = Resources.Load<Texture2D>("CityDino/Hoverboard");
             BossActionAtlas = Resources.Load<Texture2D>("CityDino/BossActionAtlas");
+            OrdnanceAtlas = Resources.Load<Texture2D>("CityDino/OrdnanceAtlas");
+            ArenaBackdropAtlas = Resources.Load<Texture2D>("CityDino/ArenaBackdropAtlas");
+            ArenaGateAtlas = Resources.Load<Texture2D>("CityDino/ArenaGateAtlas");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
@@ -292,6 +298,36 @@ namespace CityDino
         {
             int row = kind == BossKind.Tank ? 0 : kind == BossKind.Sentinel ? 1 : 2;
             return BossActionUvs[row * 4 + System.Math.Max(0, System.Math.Min(3, pose))];
+        }
+
+        // Visible alpha bounds from the unchanged generated sheet: shell,
+        // assault drone, circular mine and plasma emitter node.
+        private static readonly Rect[] OrdnanceUvs =
+        {
+            new Rect(79f / 1536f, 670f / 1024f, 593f / 1536f, 211f / 1024f),
+            new Rect(896f / 1536f, 552f / 1024f, 511f / 1536f, 448f / 1024f),
+            new Rect(155f / 1536f, 58f / 1024f, 467f / 1536f, 443f / 1024f),
+            new Rect(931f / 1536f, 80f / 1024f, 416f / 1536f, 400f / 1024f),
+        };
+
+        public Rect GetOrdnanceUV(int cell)
+        {
+            return OrdnanceUvs[System.Math.Max(0, System.Math.Min(3, cell))];
+        }
+
+        private static readonly Rect[] ArenaGateUvs =
+        {
+            new Rect(12f/1774f, 35f/887f, 864f/1774f, 811f/887f),
+            new Rect(899f/1774f, 34f/887f, 862f/1774f, 836f/887f),
+        };
+
+        public Rect GetArenaGateUV(BossKind kind)
+        {
+            return ArenaGateUvs[kind == BossKind.Tank ? 0 : 1];
+        }
+        public Rect GetArenaBackdropUV(BossKind kind)
+        {
+            return new Rect(0f, kind == BossKind.Tank ? .5f : 0f, 1f, .5f);
         }
 
         public Rect GetBossUV(BossKind kind)

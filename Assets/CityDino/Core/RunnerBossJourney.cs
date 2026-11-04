@@ -13,12 +13,17 @@ namespace CityDino
         public const float FlightThrust = 1000f;
         public const float BossExplosionDuration = 1.6f;
         public const float BossOutroDuration = 3.2f;
+        // These coordinates belong to the cinematic corridor, not scored
+        // running distance. The exit sits beyond the defeated boss.
+        public const float BossExitGateX = 1320f;
+        public const float BossExitStreetX = 1536f;
         private bool flightLiftHeld;
         private float flapCooldown;
         private float entranceClock;
         private float departureClock;
         private float departurePlayerX, departurePlayerY;
         private double practiceCombatClock;
+        private int practiceBossTier = 1;
 
         public bool IsPractice { get; private set; }
         public bool PracticeLearning { get; private set; }
@@ -35,6 +40,32 @@ namespace CityDino
         public float FlightDeviceX { get { return 470f; } }
         public float FlightDeviceY { get { return 18f; } }
         public bool FlightDeviceCollected { get; private set; }
+        public float ExitTravelProgress
+        {
+            get { return ArenaPhase == BossPhase.Victory
+                ? SmoothClamp((departureClock - BossExplosionDuration) / BossOutroDuration, true) : 0f; }
+        }
+        public float DepartureWorldX
+        {
+            get { return ArenaPhase == BossPhase.Victory
+                ? Blend(departurePlayerX, BossExitStreetX + StartPlayerX, ExitTravelProgress) : PlayerX; }
+        }
+        public float BossExitCameraX
+        {
+            get { return ArenaPhase == BossPhase.Victory ? BossExitStreetX * ExitTravelProgress : 0f; }
+        }
+        public float ExitLandingProgress
+        {
+            get
+            {
+                // Land before reaching the exit, including a victory from
+                // the far-right edge where the gate is approached sooner.
+                float route = Math.Max(1f, BossExitStreetX + StartPlayerX - departurePlayerX);
+                float landingEnd = Math.Max(.1f, Math.Min(.58f,
+                    (BossExitGateX - 48f - departurePlayerX) / route));
+                return SmoothClamp(ExitTravelProgress / landingEnd, true);
+            }
+        }
         public float BossTransitionProgress
         {
             get { return ArenaPhase == BossPhase.Intro ? SmoothClamp(entranceClock / BossIntroDuration, false)
@@ -45,7 +76,11 @@ namespace CityDino
             get { return ArenaPhase == BossPhase.Intro ? SmoothClamp((entranceClock - 1.4f) / 2.4f, true)
                 : ArenaPhase == BossPhase.Victory ? 1f - SmoothClamp((departureClock - BossExplosionDuration) / BossOutroDuration, true) : 1f; }
         }
-        public float TransitionElevation { get { return IsFlyingBoss ? TransitionSceneBlend : 0f; } }
+        public float TransitionElevation
+        {
+            get { return IsFlyingBoss ? ArenaPhase == BossPhase.Victory
+                ? 1f - ExitLandingProgress : TransitionSceneBlend : 0f; }
+        }
         public BossTransitionStage TransitionStage
         {
             get
@@ -77,18 +112,23 @@ namespace CityDino
             practiceCombatClock = 0d;
             flightLiftHeld = false;
             flapCooldown = entranceClock = departureClock = 0f;
+            departurePlayerX = StartPlayerX;
+            departurePlayerY = 0f;
             FlightDeviceCollected = false;
+            practiceBossTier = 1;
         }
 
-        public bool StartBossPractice(BossKind kind, CharacterKind character, bool learning = true)
+        public bool StartBossPractice(BossKind kind, CharacterKind character, bool learning = true, int tier = 1)
         {
             if ((State != RunState.Menu && State != RunState.GameOver) ||
-                !Enum.IsDefined(typeof(BossKind), kind) || !Enum.IsDefined(typeof(CharacterKind), character)) return false;
+                !Enum.IsDefined(typeof(BossKind), kind) || !Enum.IsDefined(typeof(CharacterKind), character) ||
+                tier < 1 || tier > 100000) return false;
             // Do not call StartRun/BeginRunItems: training must not spend stock,
             // grant stars or change the character selected for normal runs.
             ResetBossRun();
             IsPractice = true;
             PracticeLearning = learning;
+            practiceBossTier = tier;
             entities.Clear(); patternBag.Clear(); districtBag.Clear();
             nextEntityId = nextPatternId = activePatternId = 0;
             recorded = false;
@@ -209,19 +249,26 @@ namespace CityDino
             departurePlayerY = PlayerY;
             flightLiftHeld = false;
             horizontalAxis = HorizontalVelocity = 0f;
+            FacingLeft = false;
+            IsDucking = duckRequested = false;
         }
 
         private void ApplyBossDeparture(float dt)
         {
             if (departureClock <= BossExplosionDuration) return;
-            float progress = SmoothClamp((departureClock - BossExplosionDuration) / BossOutroDuration, true);
+            float progress = ExitTravelProgress;
             float beforeY = PlayerY;
-            PlayerX = Blend(departurePlayerX, StartPlayerX, progress);
-            PlayerY = IsFlyingBoss ? Blend(departurePlayerY, 0f, progress)
+            // Move forward through the far exit while the camera follows. The
+            // screen coordinate settles at the normal running lane only
+            // because scenery advances to the left; world travel never reverses.
+            PlayerX = DepartureWorldX - BossExitCameraX;
+            PlayerY = IsFlyingBoss ? Blend(departurePlayerY, 0f, ExitLandingProgress)
                 : Blend(departurePlayerY, 0f, SmoothClamp((departureClock - BossExplosionDuration) / .9f, true));
             VelocityY = dt > 0f ? (PlayerY - beforeY) / dt : 0f;
             AnimationVelocityY = VelocityY;
-            if (progress >= .95f) FlightDeviceCollected = false;
+            FacingLeft = false;
+            IsDucking = duckRequested = false;
+            if (IsFlyingBoss && ExitLandingProgress >= 1f) FlightDeviceCollected = false;
             grounded = PlayerY <= .001f;
         }
 

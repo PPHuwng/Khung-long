@@ -191,7 +191,8 @@ namespace CityDino
             if ((!session.IsFlyingBoss || !session.FlightDeviceCollected) && session.PlayerY >= -.5f &&
                 session.PlayerY <= 1f && !session.IsDucking && clock >= nextFootstep &&
                 (!session.IsBossArena || session.ArenaPhase == BossPhase.Intro && session.TransitionStage != BossTransitionStage.Arrive ||
-                 session.ArenaPhase == BossPhase.Fighting && Math.Abs(session.HorizontalVelocity) > 20f && !session.IsDashing))
+                 session.ArenaPhase == BossPhase.Fighting && Math.Abs(session.HorizontalVelocity) > 20f && !session.IsDashing ||
+                 session.ArenaPhase == BossPhase.Victory && session.ExitTravelProgress > 0f))
             {
                 nextFootstep = clock + .22d;
                 bossCentre.PlayOneShot(footstepSound);

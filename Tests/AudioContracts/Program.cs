@@ -19,6 +19,7 @@ internal static class Program
         Test("movement sources follow boss type, pause, mute, focus and menu", ControllerLifecycle);
         Test("footsteps only play on real ground and aircraft approach", Footsteps);
         Test("generated effects contain bounded non-silent samples and distinct defeat bursts", Samples);
+        Test("higher-tier repeated sweeps each emit one charge sound without replay on silent resume", RepeatedChargeIdentity);
         Console.WriteLine(passed + " passed; " + failed + " failed. Stub sound commands and samples only; no audio device or Unity mixer.");
         if (failed != 0) Environment.Exit(1);
     }
@@ -143,6 +144,15 @@ internal static class Program
         Check(!Source(controller, "bossCentre").OneShots.Any(x => x.Contains("Footstep")), "Stationary arena player made footsteps");
         ground.SetHorizontal(1f); ground.Update(.05f); Call(controller, "UpdateBossAudio");
         Check(Source(controller, "bossCentre").OneShots.Any(x => x.Contains("Footstep")), "Actual arena movement had no footsteps");
+        // The victorious actor walks through the gate behind the boss. The
+        // explosion hold is still motionless and must not make footsteps.
+        ground=Practice();controller=Controller(ground);Call(controller,"UpdateBossAudio");
+        ground.CurrentBoss.Health=0;ground.Update(.01f);Call(controller,"UpdateBossAudio");
+        Source(controller,"bossCentre").OneShots.Clear();
+        for(int i=0;i<60;i++){ground.Update(1f/120);Call(controller,"UpdateBossAudio");}
+        Check(!Source(controller,"bossCentre").OneShots.Any(x=>x.Contains("Footstep")),"Explosion hold made walking footsteps before departure");
+        for(int i=0;i<240;i++){ground.Update(1f/120);Call(controller,"UpdateBossAudio");}
+        Check(ground.ExitTravelProgress>0&&Source(controller,"bossCentre").OneShots.Any(x=>x.Contains("Footstep")),"Actual forward gate traversal has no walking sound");
     }
     private static void Samples()
     {
@@ -158,4 +168,29 @@ internal static class Program
         foreach (float time in new[] { .03f, .26f, .59f, .95f })
         { int offset = (int)(time * defeat.frequency); Check(defeat.Samples.Skip(offset).Take(300).Any(v => Math.Abs(v) > .02f), "Defeat burst missing"); }
     }
+    private static void RepeatedChargeIdentity()
+    {
+        // Output-only audio audit: protection lets the observer hear every cast;
+        // this does not claim survival or an easy path at this danger tier.
+        var run=new RunnerSession(null,441);run.StartBossPractice(BossKind.Tank,CharacterKind.Classic,false,5);run.SkipPracticeIntro();
+        run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;Property(run,"InvincibleRemaining",1000f);
+        var tracker=new BossSoundTracker();var seen=new HashSet<int>();int heard=0;
+        for(int i=0;i<120*95;i++)
+        {
+            BossEncounter boss=run.CurrentBoss;bool first=boss.ContactActive&&seen.Add(boss.ChargeSourceTelegraphId);
+            var cues=tracker.Observe(run,false);int chargeCues=SoundCount(cues,BossSoundKind.Charge);heard+=chargeCues;
+            Check(chargeCues==(first?1:0),"Repeated charge was silent or sounded more than once for its source ID");
+            Check(SoundCount(tracker.Observe(run,false),BossSoundKind.Charge)==0,"Second observation replayed the same active sweep");
+            Check(tracker.TrackedCount<100,"Repeated high-tier waves leaked audio identity records");run.Update(1f/120);
+        }
+        Check(seen.Count>=3&&heard==seen.Count,"High-tier repeated casts were not heard as distinct actions");
+        // One muted action is consumed silently, then the next new source may play.
+        run.CurrentBoss.ContactActive=true;run.CurrentBoss.ChargeSourceTelegraphId=900001;
+        Check(SoundCount(tracker.Observe(run,true),BossSoundKind.Charge)==0&&
+            SoundCount(tracker.Observe(run,false),BossSoundKind.Charge)==0,"Unmuting replayed a missed sweep");
+        run.CurrentBoss.ChargeSourceTelegraphId=900002;
+        Check(SoundCount(tracker.Observe(run,false),BossSoundKind.Charge)==1&&
+            SoundCount(tracker.Observe(run,false),BossSoundKind.Charge)==0,"A fresh source did not re-arm exactly once");
+    }
+
 }

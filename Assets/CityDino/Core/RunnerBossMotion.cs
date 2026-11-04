@@ -11,6 +11,18 @@ namespace CityDino
         private float bossChargeLaneY, bossChargeLaneHeight;
         private BossAttackKind bossChargeKind;
         private int bossChargeSourceId;
+        private bool bossChargeFullSweep;
+        private float bossChargeStrikeSeconds, bossChargeRecoverySeconds;
+
+        public float BossChargeStrikeDuration(bool fullSweep)
+        {
+            return (fullSweep ? 1.65f : 1.1f) / (BossTierPace * BossPracticePace);
+        }
+
+        public float BossChargeRecoveryDuration(bool fullSweep)
+        {
+            return (fullSweep ? 1f : .85f) / BossPracticePace;
+        }
 
         private static bool IsBossCharge(BossAttackKind kind)
         {
@@ -28,23 +40,36 @@ namespace CityDino
             bossChargeActive = false;
             bossChargeStartedAt = 0d;
             bossChargeSourceId = 0;
+            bossChargeFullSweep = false;
+            bossChargeStrikeSeconds = bossChargeRecoverySeconds = 0f;
             if (CurrentBoss == null) return;
             CurrentBoss.ContactActive = false;
             CurrentBoss.ChargeSourceTelegraphId = 0;
             CurrentBoss.Action = BossAction.Idle;
             CurrentBoss.ActionProgress = 0f;
             CurrentBoss.FacingLeft = true;
+            CurrentBoss.FullSweep = false;
+            CurrentBoss.SweepEndX = CurrentBoss.X;
         }
 
         private void BeginBossCharge(BossTelegraph source)
         {
             if (CurrentBoss == null || source == null || !IsBossCharge(source.Kind) ||
-                State != RunState.Playing || ArenaPhase != BossPhase.Fighting) return;
+                State != RunState.Playing || ArenaPhase != BossPhase.Fighting || bossChargeActive) return;
             bossChargeActive = true;
             bossChargeStartedAt = bossClock;
             bossChargeStartX = CurrentBoss.X;
             bossChargeStartY = CurrentBoss.Y;
-            bossChargeAimX = Math.Max(100f, Math.Min(500f, source.AimX));
+            bossChargeFullSweep = source.FullSweep;
+            if (bossChargeFullSweep)
+            {
+                float endpoint = source.SweepEndX < -CurrentBoss.Width ? source.SweepEndX : source.AimX;
+                if (endpoint >= -CurrentBoss.Width) endpoint = -CurrentBoss.Width - 24f;
+                bossChargeAimX = Math.Max(-CurrentBoss.Width - 160f, Math.Min(-CurrentBoss.Width - 8f, endpoint));
+            }
+            else bossChargeAimX = Math.Max(100f, Math.Min(500f, source.AimX));
+            bossChargeStrikeSeconds = BossChargeStrikeDuration(bossChargeFullSweep);
+            bossChargeRecoverySeconds = BossChargeRecoveryDuration(bossChargeFullSweep);
             bossChargeLaneY = source.Y;
             bossChargeLaneHeight = source.Height;
             bossChargeAimY = source.Kind == BossAttackKind.GunshipDive
@@ -56,14 +81,16 @@ namespace CityDino
             CurrentBoss.Action = BossAction.Strike;
             CurrentBoss.ActionProgress = 0f;
             CurrentBoss.ContactActive = false;
+            CurrentBoss.FullSweep = bossChargeFullSweep;
+            CurrentBoss.SweepEndX = bossChargeAimX;
             CurrentBoss.ShotFlashRemaining = .22f;
         }
 
         private bool ApplyBossCharge(float homeX, float homeY)
         {
             if (!bossChargeActive || ArenaPhase != BossPhase.Fighting) return false;
-            float strikeDuration = 1.1f / BossPracticePace;
-            float recoveryDuration = .85f / BossPracticePace;
+            float strikeDuration = bossChargeStrikeSeconds;
+            float recoveryDuration = bossChargeRecoverySeconds;
             float age = (float)(bossClock - bossChargeStartedAt);
             if (age >= strikeDuration + recoveryDuration)
             {
@@ -75,11 +102,13 @@ namespace CityDino
             }
             CurrentBoss.AttackKind = bossChargeKind;
             CurrentBoss.FacingLeft = true;
+            CurrentBoss.FullSweep = bossChargeFullSweep;
+            CurrentBoss.SweepEndX = bossChargeAimX;
             if (age < strikeDuration)
             {
                 float progress = Math.Max(0f, age / strikeDuration);
-                // A constant horizontal sweep makes both the warning and the
-                // time to contact readable; recovery eases back into patrol.
+                // The locked endpoint may be mid-arena or entirely beyond the
+                // left edge. Constant travel preserves the warned time to hit.
                 CurrentBoss.X = bossChargeStartX + (bossChargeAimX - bossChargeStartX) * progress;
                 CurrentBoss.Y = bossChargeStartY + (bossChargeAimY - bossChargeStartY) * BossMotionEase(progress * 4f);
                 CurrentBoss.Action = BossAction.Strike;
@@ -125,6 +154,8 @@ namespace CityDino
                 CurrentBoss.AttackKind = next.Kind;
                 CurrentBoss.Action = BossAction.Windup;
                 CurrentBoss.ActionProgress = Math.Max(0f, Math.Min(1f, 1f - next.Remaining / Math.Max(.001f, next.Duration)));
+                CurrentBoss.FullSweep = IsBossCharge(next.Kind) && next.FullSweep;
+                CurrentBoss.SweepEndX = IsBossCharge(next.Kind) ? next.AimX : CurrentBoss.X;
                 if (IsBossCharge(next.Kind)) CurrentBoss.ChargeSourceTelegraphId = next.SourceTelegraphId;
             }
             else if (CurrentBoss.ShotFlashRemaining > 0f)

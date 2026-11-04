@@ -76,7 +76,8 @@ internal static partial class Program
                 minX=Math.Min(minX,boss.X);maxX=Math.Max(maxX,boss.X);
                 minY=Math.Min(minY,boss.Y);maxY=Math.Max(maxY,boss.Y);
                 bool charging=IsChargeV11(boss.AttackKind)&&(boss.Action==BossAction.Strike||boss.Action==BossAction.Recovery);
-                Check(boss.X>=(charging?99.99f:809.99f)&&boss.X+boss.Width<=RunnerSession.CanvasWidth-15.9f,
+                float minimum = charging && boss.FullSweep ? boss.SweepEndX - .01f : charging ? 99.99f : 809.99f;
+                Check(boss.X>=minimum&&boss.X+boss.Width<=RunnerSession.CanvasWidth-15.9f,
                     "Boss body invaded player lane or left screen: "+boss.Kind+"@"+boss.X);
                 Check(boss.Y>=-.01f,"Boss body sank below the flat arena");
                 if(boss.Kind==BossKind.Gunship&&!charging)Check(RunnerSession.GroundY-boss.Y-boss.Height>=214f,"Patrolling gunship body rose behind the combat HUD");

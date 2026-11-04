@@ -129,7 +129,7 @@ namespace CityDino
 
         private void CreateBossArena(BossKind kind)
         {
-            float growth = IsPractice ? 1f : 1f + Math.Min(0.6f, ((BossNumber - 1) / 3) * 0.1f);
+            float growth = BossHealthScale;
             float hp = (kind == BossKind.Tank ? 750f : kind == BossKind.Sentinel ? 840f : 800f) * growth;
             if (IsPractice && PracticeLearning) hp *= 0.65f;
             CurrentBoss = new BossEncounter
@@ -138,7 +138,8 @@ namespace CityDino
                 Y = kind == BossKind.Gunship ? 148f : 0f,
                 Width = kind == BossKind.Sentinel ? 172f : kind == BossKind.Gunship ? 270f : 250f,
                 Height = kind == BossKind.Sentinel ? 225f : kind == BossKind.Gunship ? 130f : 150f,
-                Vulnerable = false, AttackName = "Đang tiến vào khu vực", AttackProgress = 0f
+                Vulnerable = false, AttackName = "Đang tiến vào khu vực", AttackProgress = 0f,
+                Tier = BossTier
             };
             ArenaPhase = BossPhase.Intro;
             BossPhaseRemaining = BossIntroDuration;

@@ -29,88 +29,6 @@ namespace CityDino
             GUI.color = Color.white;
         }
 
-        private void DrawArenaBackdrop(BossKind kind, float clock)
-        {
-            if (kind == BossKind.Gunship)
-            {
-                DrawAerialArenaBackdrop(clock);
-                return;
-            }
-            Color sky = kind == BossKind.Tank ? Hex(0x485c68)
-                : kind == BossKind.Sentinel ? Hex(0x202c43) : Hex(0x19334d);
-            Color horizon = kind == BossKind.Tank ? Hex(0xc6b694)
-                : kind == BossKind.Sentinel ? Hex(0x46657a) : Hex(0x849bab);
-            for (int i = 0; i < 25; i++)
-                Fill(new Rect(0, i * GroundY / 25f, Width, GroundY / 25f + 1), Color.Lerp(sky, horizon, i / 24f));
-
-            if (kind == BossKind.Tank)
-            {
-                // Stacked containers and fence posts are scenery behind the flat combat surface.
-                for (int i = 0; i < 7; i++)
-                {
-                    float x = i * 214f - 30f;
-                    float y = 382f + i % 2 * 29f;
-                    Fill(new Rect(x, y, 189, 141), i % 2 == 0 ? Hex(0x52605c) : Hex(0x796e5d));
-                    Fill(new Rect(x + 7, y + 8, 175, 4), Hex(0x8e998c));
-                    for (int rib = 0; rib < 8; rib++)
-                        Fill(new Rect(x + 12 + rib * 23, y + 18, 3, 114), new Color(0.1f, 0.18f, 0.18f, 0.3f));
-                }
-                for (int i = 0; i < 16; i++)
-                {
-                    float x = i * 88;
-                    Fill(new Rect(x, 477, 4, 75), Hex(0x253c44));
-                    Line(new Vector2(x, 486), new Vector2(x + 88, 516), new Color(0.65f, 0.74f, 0.69f, 0.35f), 1);
-                }
-            }
-            else if (kind == BossKind.Sentinel)
-            {
-                for (int i = 0; i < 6; i++)
-                {
-                    float x = i * 252f - 30;
-                    Fill(new Rect(x, 145, 28, 390), Hex(0x263d50));
-                    Fill(new Rect(x + 4, 147, 5, 388), Hex(0x567389));
-                    Fill(new Rect(x + 28, 182, 221, 18), Hex(0x29455d));
-                    Fill(new Rect(x + 66, 235, 105, 168), Hex(0x25364c));
-                    Fill(new Rect(x + 73, 241, 91, 5), Hex(0x538092));
-                    for (int light = 0; light < 4; light++)
-                        Fill(new Rect(x + 80 + light * 19, 270, 8, 4), WithAlpha(Hex(0x96d5db), 0.35f));
-                }
-                Fill(new Rect(0, 510, Width, 40), Hex(0x3a5367));
-                for (int i = 0; i < 24; i++) Fill(new Rect(i * 58, 518, 38, 3), Hex(0x82969b));
-            }
-            else
-            {
-                for (int i = 0; i < 18; i++)
-                {
-                    float x = i * 81f;
-                    float height = 96 + i * 47 % 150;
-                    Fill(new Rect(x, 520 - height, 67, height), i % 2 == 0 ? Hex(0x3d5c72) : Hex(0x4a6b7b));
-                    for (int y = 0; y < 4; y++)
-                        Fill(new Rect(x + 11, 537 - height + y * 29, 8, 5), WithAlpha(Hex(0xffe2a3), 0.42f));
-                }
-                Fill(new Rect(0, 523, Width, 28), Hex(0x284354));
-                for (int i = 0; i < 7; i++)
-                {
-                    float x = Repeat(i * 235f - clock * 30f, Width + 160f) - 80;
-                    Line(new Vector2(x, 260 + i * 31), new Vector2(x + 72, 260 + i * 31),
-                        new Color(0.79f, 0.9f, 0.97f, 0.08f), 1.5f);
-                }
-            }
-
-            Fill(new Rect(0, GroundY, Width, Height - GroundY), Hex(0x182d3b));
-            Fill(new Rect(0, GroundY, Width, 7), Hex(0xa7b6b3));
-            Fill(new Rect(0, GroundY + 7, Width, 55), Hex(0x465b64));
-            for (int i = 0; i < 22; i++)
-                Fill(new Rect(i * 64, GroundY + 12, 38, 5), Hex(0xdbbd68));
-            Fill(new Rect(0, GroundY + 58, Width, 3), Hex(0x70828a));
-            if (kind == BossKind.Gunship)
-            {
-                Fill(new Rect(557, GroundY + 21, 7, 26), Hex(0xb3c7c9));
-                Fill(new Rect(609, GroundY + 21, 7, 26), Hex(0xb3c7c9));
-                Fill(new Rect(557, GroundY + 31, 59, 6), Hex(0xb3c7c9));
-            }
-        }
-
         private void DrawBossBody(BossEncounter boss, BossPhase phase, float clock, float phaseRemaining)
         {
             Rect rect = new Rect(boss.X, GroundY - boss.Y - boss.Height, boss.Width, boss.Height);
@@ -353,14 +271,22 @@ namespace CityDino
             float alpha = obstacle.Active ? 1f : .25f;
             Color metal = Color.Lerp(Hex(0x365065), Hex(0xffecb8), flash);
             Color light = Color.Lerp(Hex(0x8fe5f4), Color.white, flash);
-            if (obstacle.Radius > 0f)
+            if (obstacle.Kind == BossAttackKind.CrateDrop)
+                DrawAssaultDrone(obstacle, rect, clock, alpha, flash);
+            else if (obstacle.Radius > 0f)
             {
                 // Round mines use the same full disc as CircleTouchesPlayer;
                 // decorative lights stay inside that physical silhouette.
                 Disc(rect, WithAlpha(metal, alpha));
-                Rect core = new Rect(rect.x + rect.width * .16f, rect.y + rect.height * .16f,
-                    rect.width * .68f, rect.height * .68f);
-                Disc(core, WithAlpha(Hex(0x93b2bb), alpha));
+                float spin = clock * (obstacle.Kind == BossAttackKind.MineDrop ? 140f : 75f) + obstacle.Id * 11f;
+                bool hasMineArt = DrawOrdnanceSprite(rect, 2,
+                    WithAlpha(Color.Lerp(Color.white, Hex(0xffecb8), flash), alpha), spin);
+                if (!hasMineArt)
+                {
+                    Rect core = new Rect(rect.x + rect.width * .16f, rect.y + rect.height * .16f,
+                        rect.width * .68f, rect.height * .68f);
+                    Disc(core, WithAlpha(Hex(0x93b2bb), alpha));
+                }
                 Disc(new Rect(rect.center.x - 5f, rect.center.y - 5f, 10f, 10f),
                     WithAlpha(Hex(0xff9765), alpha));
                 for (int i = 0; i < 4; i++)
@@ -370,15 +296,6 @@ namespace CityDino
                     float y = rect.center.y + Mathf.Sin(angle) * rect.height * .32f;
                     Disc(new Rect(x - 2f, y - 2f, 4f, 4f), WithAlpha(light, alpha));
                 }
-            }
-            else if (obstacle.Kind == BossAttackKind.CrateDrop)
-            {
-                Fill(rect, WithAlpha(Color.Lerp(Hex(0x806c4d), Hex(0xffe9bc), flash), alpha));
-                Rect inset = new Rect(rect.x + 5f, rect.y + 5f, rect.width - 10f, rect.height - 10f);
-                Fill(inset, WithAlpha(Hex(0xcaa15b), alpha));
-                Line(new Vector2(inset.x + 3f, inset.y + 3f), new Vector2(inset.xMax - 3f, inset.yMax - 3f), WithAlpha(metal, alpha), 5f);
-                Line(new Vector2(inset.xMax - 3f, inset.y + 3f), new Vector2(inset.x + 3f, inset.yMax - 3f), WithAlpha(metal, alpha), 5f);
-                Fill(new Rect(rect.center.x - 4f, rect.center.y - 5f, 8f, 10f), WithAlpha(Hex(0xffd87d), alpha));
             }
             else if (obstacle.Kind == BossAttackKind.ShieldDrone)
             {
@@ -397,6 +314,8 @@ namespace CityDino
             }
             else if (obstacle.Kind == BossAttackKind.ElectricPillar)
                 DrawEnergyPillar(rect, clock, alpha, flash);
+            else if (obstacle.Kind == BossAttackKind.AirGate)
+                DrawPlasmaGate(rect, clock, alpha, flash);
             else
             {
                 // Electric pillars and gate bars fill the complete live
@@ -554,6 +473,21 @@ namespace CityDino
         {
             Rect rect = new Rect(projectile.X, GroundY - projectile.Y - projectile.Height,
                 projectile.Width, projectile.Height);
+            if (projectile.Friendly)
+            {
+                DrawPulsePellet(rect, projectile, clock);
+                return;
+            }
+            if (projectile.Kind == BossAttackKind.Cannon || projectile.Kind == BossAttackKind.Artillery)
+            {
+                DrawArmoredShell(projectile, rect, clock);
+                return;
+            }
+            if (projectile.Kind == BossAttackKind.AirSpread)
+            {
+                DrawPlasmaBolt(projectile, rect, clock);
+                return;
+            }
             if (!projectile.Friendly && projectile.Kind == BossAttackKind.ElectricOrb)
             {
                 DrawElectricOrb(rect, clock);
@@ -570,24 +504,12 @@ namespace CityDino
                 DrawDirectionalMissile(projectile, rect, clock);
                 return;
             }
-            Color edge = projectile.Friendly ? Hex(0x8ce7f2) : Hex(0xff8b66);
-            Fill(rect, edge);
-            if (rect.width > 4 && rect.height > 4)
-                Fill(new Rect(rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4),
-                    projectile.Friendly ? Hex(0xe8ffff) : Hex(0xffe3ae));
-            if (!projectile.Friendly && (projectile.Kind == BossAttackKind.Drone || projectile.Kind == BossAttackKind.DroneLow))
+            if (projectile.Kind == BossAttackKind.Drone || projectile.Kind == BossAttackKind.DroneLow)
             {
-                float y = rect.y + rect.height * .25f;
-                Fill(new Rect(rect.x + 4f, y, rect.width - 8f, 3f), Hex(0x38495a));
-                Fill(new Rect(rect.x + rect.width * .22f, rect.y + rect.height * .43f, rect.width * .24f, 4f), Hex(0xff5f61));
-                Fill(new Rect(rect.x + rect.width * .58f, rect.y + rect.height * .43f, rect.width * .22f, 4f), Hex(0xffe9bc));
+                DrawWingDrone(rect, clock);
+                return;
             }
-            else if (!projectile.Friendly && (projectile.Kind == BossAttackKind.Missile || projectile.Kind == BossAttackKind.Artillery))
-            {
-                Fill(new Rect(rect.x + 3f, rect.y + 3f, rect.width - 6f, Mathf.Min(8f, rect.height * .23f)), Hex(0xffecaf));
-                Line(new Vector2(rect.x + 4f, rect.yMax - 9f), new Vector2(rect.center.x, rect.yMax - 3f), Hex(0xb34f45), 2f);
-                Line(new Vector2(rect.center.x, rect.yMax - 3f), new Vector2(rect.xMax - 4f, rect.yMax - 9f), Hex(0xb34f45), 2f);
-            }
+            DrawArmoredShell(projectile, rect, clock);
         }
     }
 }
