@@ -40,7 +40,7 @@ namespace CityDino
         {
             bossPatternRage = GetBossRage(CurrentBoss.Health, CurrentBoss.MaxHealth);
             CurrentBoss.RageLevel = bossPatternRage;
-            float basicCycle = CurrentBoss.Kind == BossKind.Gunship
+            float basicCycle = IsFreeMovementBoss
                 ? (bossPatternRage == 1 ? 4.6f : bossPatternRage == 2 ? 4.2f : 3.8f)
                 : (bossPatternRage == 1 ? 3.9f : bossPatternRage == 2 ? 3.5f : 3.2f);
             bossActionCycle = basicCycle / (BossPracticePace * BossTierTempo);
@@ -49,6 +49,7 @@ namespace CityDino
             CurrentBoss.Vulnerable = false;
             if (CurrentBoss.Kind == BossKind.Tank) PlanTankPattern(warning);
             else if (CurrentBoss.Kind == BossKind.Sentinel) PlanRobotPattern(warning);
+            else if (CurrentBoss.Kind == BossKind.Submarine) PlanSubmarinePattern(warning);
             else PlanAircraftPattern(warning);
         }
 
@@ -90,7 +91,7 @@ namespace CityDino
             else
             {
                 int count = primaryBossAttack == BossAttackKind.MineDrop ? Math.Min(2, bossPatternRage) + BossExtraWaves
-                    : Math.Min(3, BossRepeatCount);
+                    : Math.Min(5, BossRepeatCount);
                 float spacing = primaryBossAttack == BossAttackKind.MineDrop ? BossCastSpacing(.92f) : BossCastSpacing(1.35f), last = 0f;
                 // Preserve the first tour's mine rhythm.
                 if (BossTier == 1) spacing = .62f;
@@ -142,7 +143,7 @@ namespace CityDino
                 : choice == 2 ? BossAttackKind.AirMine : choice == 3 ? BossAttackKind.AirLaser
                 : choice == 4 ? BossAttackKind.GunshipDive : choice == 5 ? BossAttackKind.CrossMissile : BossAttackKind.MissileRain;
             if (PlanBossSpecial(primaryBossAttack, warning)) return;
-            int casts = primaryBossAttack == BossAttackKind.AirMine ? Math.Min(5, (bossPatternRage >= 2 ? 2 : 1) + BossExtraWaves) : BossRepeatCount;
+            int casts = primaryBossAttack == BossAttackKind.AirMine ? Math.Min(7, (bossPatternRage >= 2 ? 2 : 1) + BossExtraWaves) : BossRepeatCount;
             float last = 0f;
             for (int i = 0; i < casts; i++)
             {
@@ -242,6 +243,12 @@ namespace CityDino
                 case BossAttackKind.CrossMissile: return "Tên lửa gọng kìm · trước và sau";
                 case BossAttackKind.MissileRain: return "Mưa tên lửa · tìm hành lang an toàn";
                 case BossAttackKind.ElectricOrb: return "Lôi cầu liên hoàn";
+                case BossAttackKind.Torpedo: return "Ngư lôi gọng kìm";
+                case BossAttackKind.FishShoal: return "Triệu hồi đàn cá máy";
+                case BossAttackKind.SeaMine: return "Thủy lôi nổi · bắn phá hoặc tránh cột";
+                case BossAttackKind.SonarBeam: return "Tia sonar khóa độ sâu";
+                case BossAttackKind.DepthCharge: return "Bom chìm · tìm hành lang trống";
+                case BossAttackKind.SubmarineRam: return "Tàu ngầm đột kích · đổi độ sâu";
                 default: return "Đạn pháo thấp";
             }
         }
@@ -267,7 +274,7 @@ namespace CityDino
                 }
                 else if (mark.Remaining <= 0f)
                 {
-                    if (mark.Kind == BossAttackKind.LaserLow || mark.Kind == BossAttackKind.LaserHigh || mark.Kind == BossAttackKind.AirLaser)
+                    if (mark.Kind == BossAttackKind.LaserLow || mark.Kind == BossAttackKind.LaserHigh || mark.Kind == BossAttackKind.AirLaser || mark.Kind == BossAttackKind.SonarBeam)
                     {
                         mark.Active = true; mark.Remaining = mark.Duration = .32f;
                         CurrentBoss.ShotFlashRemaining = .18f; CurrentBoss.Recoil = 1f;
@@ -286,7 +293,8 @@ namespace CityDino
             BossAttackKind kind = source.Kind;
             float lockedX = source.X + source.Width * .5f;
             float pace = (BossTierPace + (bossPatternRage - 1) * .08f) * BossPracticePace;
-            if (SpawnSpecialBossAttack(source, pace)) { }
+            if (SpawnUnderwaterAttack(source, pace)) { }
+            else if (SpawnSpecialBossAttack(source, pace)) { }
             else if (kind == BossAttackKind.MineDrop)
             {
                 AddBossObstacle(kind, CurrentBoss.X - 26f, 0f, 32f, 32f, -190f * pace, 0f, 10f, 16f, source.Id, 16f);

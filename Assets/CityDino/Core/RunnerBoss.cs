@@ -47,7 +47,7 @@ namespace CityDino
         public static string BossName(BossKind kind)
         {
             return kind == BossKind.Tank ? "XE TĂNG K-01"
-                : kind == BossKind.Sentinel ? "VỆ BINH G-02" : "TRỰC THĂNG H-03";
+                : kind == BossKind.Sentinel ? "VỆ BINH G-02" : kind == BossKind.Submarine ? "TÀU NGẦM N-04" : "TRỰC THĂNG H-03";
         }
 
         public void SetShooting(bool shooting)
@@ -103,6 +103,7 @@ namespace CityDino
             bossTelegraphs.Clear();
             ResetBossPatternState();
             ResetBossMotion();
+            ResetUnderwaterState();
             shootingHeld = bossRewardPaid = false;
             bossActionCycle = 3.7f;
             bossPatternRage = 1;
@@ -129,15 +130,16 @@ namespace CityDino
 
         private void CreateBossArena(BossKind kind)
         {
+            SuspendRunMissiles();
             float growth = BossHealthScale;
-            float hp = (kind == BossKind.Tank ? 750f : kind == BossKind.Sentinel ? 840f : 800f) * growth;
+            float hp = (kind == BossKind.Tank ? 750f : kind == BossKind.Sentinel ? 840f : kind == BossKind.Submarine ? 900f : 800f) * growth;
             if (IsPractice && PracticeLearning) hp *= 0.65f;
             CurrentBoss = new BossEncounter
             {
                 Kind = kind, Health = hp, MaxHealth = hp, X = CanvasWidth + 40f,
-                Y = kind == BossKind.Gunship ? 148f : 0f,
-                Width = kind == BossKind.Sentinel ? 172f : kind == BossKind.Gunship ? 270f : 250f,
-                Height = kind == BossKind.Sentinel ? 225f : kind == BossKind.Gunship ? 130f : 150f,
+                Y = kind == BossKind.Gunship ? 148f : kind == BossKind.Submarine ? 130f : 0f,
+                Width = kind == BossKind.Sentinel ? 172f : kind == BossKind.Gunship ? 270f : kind == BossKind.Submarine ? 300f : 250f,
+                Height = kind == BossKind.Sentinel ? 225f : kind == BossKind.Gunship ? 130f : kind == BossKind.Submarine ? 145f : 150f,
                 Vulnerable = false, AttackName = "Đang tiến vào khu vực", AttackProgress = 0f,
                 Tier = BossTier
             };
@@ -146,6 +148,7 @@ namespace CityDino
             bossClock = attackClock = shotCooldown = 0d;
             bossProjectiles.Clear(); bossTelegraphs.Clear(); ResetBossPatternState();
             ResetBossMotion();
+            ResetUnderwaterState();
             shootingHeld = bossRewardPaid = false;
             nextBossObjectId = bossAttackIndex = 0;
             bossActionCycle = 3.7f; bossPatternRage = 1; bossMotionRage = 1f;
@@ -154,10 +157,11 @@ namespace CityDino
 
         private BossKind SelectBossKind()
         {
-            if (BossNumber <= 3) return BossNumber == 1 ? BossKind.Tank : BossNumber == 2 ? BossKind.Gunship : BossKind.Sentinel;
+            if (BossNumber <= 4) return BossNumber == 1 ? BossKind.Tank : BossNumber == 2 ? BossKind.Gunship
+                : BossNumber == 3 ? BossKind.Submarine : BossKind.Sentinel;
             if (bossBag.Count == 0)
             {
-                bossBag.Add(BossKind.Tank); bossBag.Add(BossKind.Sentinel); bossBag.Add(BossKind.Gunship);
+                bossBag.Add(BossKind.Tank); bossBag.Add(BossKind.Sentinel); bossBag.Add(BossKind.Gunship); bossBag.Add(BossKind.Submarine);
                 for (int i = bossBag.Count - 1; i > 0; i--)
                 {
                     int j = random.Next(i + 1);
@@ -236,7 +240,8 @@ namespace CityDino
             float oldX = PlayerX;
             IntegrateHorizontal(dt);
             if (Math.Abs(PlayerX - oldX) > .0001f) FacingLeft = PlayerX < oldX;
-            if (IsFlyingBoss) IntegrateBossFlight(dt);
+            if (IsUnderwaterBoss) IntegrateBossSwim(dt);
+            else if (IsFlyingBoss) IntegrateBossFlight(dt);
             else { IntegratePlayer(dt); AnimationVelocityY = VelocityY; }
             if (CurrentBoss.Health <= 0f) { BeginBossVictory(); return; }
             shotCooldown = Math.Max(0d, shotCooldown - dt);
@@ -287,6 +292,11 @@ namespace CityDino
                         y += (float)Math.Sin(Math.PI * phase) * (48f + bossMotionRage * 10f);
                     if (CurrentBoss.Y > 8f && y <= 4f) CurrentBoss.LandingFlashRemaining = 0.32f;
                 }
+            }
+            else if (CurrentBoss.Kind == BossKind.Submarine)
+            {
+                baseX = 932f + (float)Math.Sin(time * .63f) * 42f;
+                y = 130f + (float)Math.Sin(time * .91f) * (32f + bossMotionRage * 6f);
             }
             else
             {
@@ -340,7 +350,13 @@ namespace CityDino
                 }
                 else
                 {
-                    if ((p.Kind == BossAttackKind.Artillery || p.Kind == BossAttackKind.Missile ||
+                    if (p.Kind == BossAttackKind.DepthCharge && p.Y <= 20f)
+                    {
+                        p.Removed = true;
+                        AddBossObstacle(p.Kind, p.X + p.Width * .5f - 32f, 0f, 64f, 64f,
+                            0f, 0f, .35f, 0f, p.SourceTelegraphId, 32f);
+                    }
+                    else if ((p.Kind == BossAttackKind.Artillery || p.Kind == BossAttackKind.Missile ||
                         p.Kind == BossAttackKind.MissileRain) && p.Y <= 0f)
                     {
                         p.Removed = true;
@@ -401,8 +417,8 @@ namespace CityDino
             BeginBossDeparture();
             if (!bossRewardPaid && !IsPractice)
             {
-                int baseReward = CurrentBoss.Kind == BossKind.Tank ? 300 : CurrentBoss.Kind == BossKind.Sentinel ? 450 : 600;
-                int reward = baseReward + Math.Min(600, ((BossNumber - 1) / 3) * 75);
+                int baseReward = CurrentBoss.Kind == BossKind.Tank ? 300 : CurrentBoss.Kind == BossKind.Sentinel ? 450 : CurrentBoss.Kind == BossKind.Submarine ? 550 : 600;
+                int reward = baseReward + Math.Min(600, ((BossNumber - 1) / 4) * 75);
                 RunStars = Math.Min(WalletLimit, RunStars + reward);
                 Save.Wallet = Math.Min(WalletLimit, Save.Wallet + reward);
                 bossRewardPaid = true;
@@ -412,6 +428,7 @@ namespace CityDino
 
         private void LeaveBossArena()
         {
+            SuspendRunMissiles();
             if (IsPractice) { FinishPractice(true, "Đã hoàn thành đấu tập"); return; }
             // Paused running entities retain their clock/position until now;
             // clear the return lane so the transition cannot cause a blind hit.

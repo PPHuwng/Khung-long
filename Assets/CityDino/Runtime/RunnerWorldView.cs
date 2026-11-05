@@ -69,6 +69,9 @@ namespace CityDino
                 if (!menu)
                 {
                     DrawEntities(session, palette, clock);
+                    foreach (RunMissile missile in session.RunMissiles)
+                        if (!missile.Removed) DrawRunMissileBody(missile.Id, missile.X, missile.Y,
+                            missile.Width, missile.Height, missile.VelocityX, missile.Radius, clock);
                     DrawDino(session, session.PlayerAnimationTime);
                 }
                 if (!menu)
@@ -81,7 +84,13 @@ namespace CityDino
                 }
                 // Storm rain stays in front of both the dark veil and flash.
                 DrawWeather(palette, scroll, clock);
-                if (!menu) DrawDarkness(session);
+                if (!menu)
+                {
+                    foreach (RunMissileWarning warning in session.RunMissileWarnings)
+                        DrawRunMissileWarning(warning.Count, warning.Y, warning.Height, warning.Remaining,
+                            warning.Duration, clock);
+                    DrawDarkness(session);
+                }
             }
             finally
             {
@@ -774,8 +783,9 @@ namespace CityDino
             float x = session.PlayerX;
             float y = session.PlayerY;
             float shadowScale = Mathf.Clamp(1f - y / 450f, 0.5f, 1f);
-            bool hasGround = !session.IsFlyingBoss ||
-                (session.ArenaPhase != BossPhase.Fighting && session.TransitionElevation < .12f);
+            bool hasGround = session.IsUnderwaterBoss
+                ? session.ArenaPhase != BossPhase.Fighting && session.WaterDepth < .02f
+                : !session.IsFlyingBoss || (session.ArenaPhase != BossPhase.Fighting && session.TransitionElevation < .12f);
             bool overGap = false;
             for (int i = 0; i < gaps.Count; i++) if (x >= gaps[i].x && x <= gaps[i].y) overGap = true;
             if (hasGround && !overGap && y > -30f)
@@ -823,6 +833,8 @@ namespace CityDino
             else Fill(rect, Hex(0x7fbd72));
             if (session.IsFlyingBoss && session.FlightDeviceCollected)
                 DrawFlightDeviceFront(session, flightBody);
+            if (session.IsUnderwaterBoss && session.DivingHelmetEquipped)
+                DrawDivingHelmet(session, flightBody, time);
             if (hasGround && running && y <= 1f && session.Elapsed > 0.5f)
             {
                 for (int i = 0; i < 4; i++)

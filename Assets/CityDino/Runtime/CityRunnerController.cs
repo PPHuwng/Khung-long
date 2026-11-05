@@ -30,7 +30,7 @@ namespace CityDino
         private BossKind practiceBoss = BossKind.Tank;
         private CharacterKind practiceCharacter = CharacterKind.Classic;
         private bool practiceLearning = true, practiceSettingsInitialized;
-        private int practiceTier = 1;
+        private int practiceTier = 3;
         private float nextSave, ambientTime, nextShotSound;
         private int bestAtStart;
         private int shopTab;
@@ -126,16 +126,21 @@ namespace CityDino
                 bool canShoot = session.IsBossArena && session.ArenaPhase == BossPhase.Fighting;
                 bool canSkill = session.CurrentCharacter != CharacterKind.Classic;
                 bool flying = session.FlightControlsEnabled;
+                bool swimming = session.SwimControlsEnabled;
+                bool freeMovement = flying || swimming;
                 bool shoot = canShoot && keys != null && keys.jKey.isPressed;
                 bool skill = canSkill && keys != null && keys.eKey.wasPressedThisFrame;
-                bool lift = flying && keys != null && (keys.spaceKey.isPressed || keys.upArrowKey.isPressed || keys.wKey.isPressed);
-                ReadGameplayPointers(session.IsBossArena, canSkill, flying,
+                bool lift = freeMovement && keys != null && (keys.spaceKey.isPressed || keys.upArrowKey.isPressed || keys.wKey.isPressed);
+                ReadMovementPointers(session.IsBossArena, canSkill, freeMovement, swimming,
                     ref horizontal, ref jump, ref duck, ref shoot, ref skill, ref lift);
                 session.SetHorizontal(horizontal);
-                session.SetDucking(!flying && duck);
+                session.SetDucking(!freeMovement && duck);
                 session.SetShooting(canShoot && shoot);
                 session.SetFlightLift(flying && lift);
-                if (jump && session.Jump()) Play(jumpSound);
+                session.SetSwimLift(swimming && lift);
+                session.SetSwimDive(swimming && duck);
+                if (jump && session.Jump())
+                    Play(swimming && bossClips != null ? bossClips[(int)BossSoundKind.Splash] : jumpSound);
                 if (skill && session.TryUseSkill()) Play(skillSound);
                 if (shoot && canShoot && Time.unscaledTime >= nextShotSound)
                 {
@@ -149,6 +154,8 @@ namespace CityDino
                 // cutscene, pause or modal may leak into flight/combat afterwards.
                 session.SetShooting(false);
                 session.SetFlightLift(false);
+                session.SetSwimLift(false);
+                session.SetSwimDive(false);
                 session.SetHorizontal(0f);
                 session.SetDucking(false);
             }
@@ -195,6 +202,13 @@ namespace CityDino
         private static void ReadGameplayPointers(bool canShoot, bool canSkill, bool flying,
             ref float horizontal, ref bool jump, ref bool duck, ref bool shoot, ref bool skill, ref bool lift)
         {
+            ReadMovementPointers(canShoot, canSkill, flying, false,
+                ref horizontal, ref jump, ref duck, ref shoot, ref skill, ref lift);
+        }
+
+        private static void ReadMovementPointers(bool canShoot, bool canSkill, bool freeMovement, bool swimming,
+            ref float horizontal, ref bool jump, ref bool duck, ref bool shoot, ref bool skill, ref bool lift)
+        {
             bool activeTouch = false;
             if (Touchscreen.current != null)
             {
@@ -206,13 +220,13 @@ namespace CityDino
                     bool held = touch.press.isPressed;
                     if (!down && !held) continue;
                     activeTouch = true;
-                    ApplyGameplayPointer(touch.position.ReadValue(), down, held, canShoot, canSkill, flying,
+                    ApplyMovementPointer(touch.position.ReadValue(), down, held, canShoot, canSkill, freeMovement, swimming,
                         ref horizontal, ref jump, ref duck, ref shoot, ref skill, ref lift);
                 }
             }
             if (!activeTouch && Mouse.current != null)
-                ApplyGameplayPointer(Mouse.current.position.ReadValue(), Mouse.current.leftButton.wasPressedThisFrame,
-                    Mouse.current.leftButton.isPressed, canShoot, canSkill, flying,
+                ApplyMovementPointer(Mouse.current.position.ReadValue(), Mouse.current.leftButton.wasPressedThisFrame,
+                    Mouse.current.leftButton.isPressed, canShoot, canSkill, freeMovement, swimming,
                     ref horizontal, ref jump, ref duck, ref shoot, ref skill, ref lift);
         }
 
@@ -235,6 +249,14 @@ namespace CityDino
             bool canShoot, bool canSkill, bool flying, ref float horizontal, ref bool jump,
             ref bool duck, ref bool shoot, ref bool skill, ref bool lift)
         {
+            ApplyMovementPointer(raw, down, held, canShoot, canSkill, flying, false,
+                ref horizontal, ref jump, ref duck, ref shoot, ref skill, ref lift);
+        }
+
+        private static void ApplyMovementPointer(Vector2 raw, bool down, bool held,
+            bool canShoot, bool canSkill, bool freeMovement, bool swimming, ref float horizontal, ref bool jump,
+            ref bool duck, ref bool shoot, ref bool skill, ref bool lift)
+        {
             float scale = Mathf.Min(Screen.width / CanvasWidth, Screen.height / CanvasHeight);
             Vector2 offset = new Vector2((Screen.width - CanvasWidth * scale) * 0.5f, (Screen.height - CanvasHeight * scale) * 0.5f);
             Vector2 point = (new Vector2(raw.x, Screen.height - raw.y) - offset) / Mathf.Max(scale, 0.001f);
@@ -243,11 +265,11 @@ namespace CityDino
             else if (canSkill && SkillButton.Contains(point)) { if (down) skill = true; }
             else if (MoveLeftButton.Contains(point)) { if (held) horizontal -= 1; }
             else if (MoveRightButton.Contains(point)) { if (held) horizontal += 1; }
-            else if (DuckButton.Contains(point)) { if (!flying && held) duck = true; }
+            else if (DuckButton.Contains(point)) { if ((!freeMovement || swimming) && held) duck = true; }
             else
             {
                 if (down) jump = true;
-                if (flying && held) lift = true;
+                if (freeMovement && held) lift = true;
             }
         }
 
@@ -312,7 +334,7 @@ namespace CityDino
             Box(new Rect(64, 56, 486, 602), cream);
             Text(new Rect(98, 85, 390, 24), "●  ENDLESS RUNNER", 15, soft, FontStyle.Bold);
             Text(new Rect(94, 151, 420, 88), "DINO CITY", 64, ink, FontStyle.Bold);
-            Text(new Rect(98, 250, 402, 62), "Luyện kỹ năng, chinh phục thành phố.\n10k: xe tăng · 20k: bay đấu trực thăng.", 17, soft);
+            Text(new Rect(98, 250, 402, 62), "Né tên lửa, chinh phục thành phố.\nBoss đầu cấp 3 · 30k: lặn đấu tàu ngầm.", 17, soft);
             Stat(new Rect(98, 330, 124, 64), "KỶ LỤC", session.Save.BestScore.ToString("N0"));
             Stat(new Rect(238, 330, 124, 64), "LƯỢT TRƯỚC", session.Save.LastScore.ToString("N0"));
             Stat(new Rect(378, 330, 124, 64), "VÍ SAO", session.Save.Wallet.ToString("N0"));
@@ -321,7 +343,7 @@ namespace CityDino
             if (Button(new Rect(98, 534, 130, 52), "Nhân vật", ink, cream, 16)) OpenCharacters();
             if (Button(new Rect(242, 534, 130, 52), "Cửa hàng", ink, cream, 16)) showShop = true;
             if (Button(new Rect(386, 534, 130, 52), "Thành tích", new Color32(231, 231, 215, 255), ink, 16)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 12  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 13  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), RunnerSession.CharacterName(session.Save.SelectedCharacter) + " · SẴN SÀNG ĐẤU BOSS", 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -454,6 +476,7 @@ namespace CityDino
         {
             bool ready = !session.IsBossArena || session.ArenaPhase == BossPhase.Fighting;
             bool flying = session.IsFlyingBoss;
+            bool swimming = session.IsUnderwaterBoss;
             Color disabled = new Color32(193, 204, 196, 255);
             Box(MoveLeftButton, ready ? cream : disabled);
             Text(MoveLeftButton, "←", 30, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -464,6 +487,7 @@ namespace CityDino
             float hintWidth = showShoot ? 466f : showSkill ? 596f : 728f;
             Box(new Rect(242, 632, hintWidth, 56), new Color(0.06f, 0.13f, 0.18f, 0.88f));
             string hint = !ready ? "Đang chuyển cảnh · ESC: tạm dừng\nChờ khủng long đến đấu trường"
+                : swimming ? "← → / A D: bơi ngang · J: giữ để bắn\nSPACE / ↑ / W: bơi lên · ↓ / S: lặn xuống" + (showSkill ? " · E: chiêu" : "")
                 : flying ? "← → / A D: di chuyển · J: giữ để bắn\nSPACE / ↑ / W: giữ để bay, thả để hạ" + (showSkill ? " · E: chiêu" : "")
                 : showShoot
                 ? "← → / A D: di chuyển · SPACE / ↑: nhảy kép\n↓ / S: cúi · J: giữ để bắn" + (showSkill ? " · E: chiêu" : "")
@@ -475,13 +499,13 @@ namespace CityDino
                 Text(ShootButton, "BẮN · J", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             }
             if (showSkill) DrawSkillControl();
-            if (!flying)
+            if (!flying || swimming)
             {
                 Box(DuckButton, ready ? cream : disabled);
-                Text(DuckButton, "CÚI ↓", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+                Text(DuckButton, swimming ? "LẶN ↓" : "CÚI ↓", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             }
             Box(JumpButton, ready ? mint : disabled);
-            Text(JumpButton, flying ? "BAY ↑" : "NHẢY ↑", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Text(JumpButton, swimming ? "BƠI ↑" : flying ? "BAY ↑" : "NHẢY ↑", 19, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
             Text(new Rect(38, 592, 680, 28), session.IsPractice
                 ? "ĐẤU TẬP · Không thưởng sao, không ghi kỷ lục · Né dấu báo trước đòn"
                 : session.IsBossArena
@@ -522,14 +546,16 @@ namespace CityDino
             Text(new Rect(1028, 142, 190, 27), Mathf.CeilToInt(boss.Health) + " / " + Mathf.CeilToInt(boss.MaxHealth), 17, cream, FontStyle.Bold, TextAnchor.MiddleRight);
             string phase = "PHA " + boss.RageLevel + (boss.RageLevel >= 3 ? " · CUỒNG NỘ" : "");
             string status = "CẤP " + session.BossTier + " · " + (session.ArenaPhase == BossPhase.Intro ? BossJourneyHint()
-                : session.ArenaPhase == BossPhase.Victory ? session.IsFlyingBoss ? "ĐÃ HẠ BOSS · HẠ CÁNH VÀ QUA CỔNG PHÍA TRƯỚC" : "ĐÃ HẠ BOSS · TIẾN QUA CỔNG PHÍA TRƯỚC"
+                : session.ArenaPhase == BossPhase.Victory ? session.IsUnderwaterBoss ? "ĐÃ HẠ BOSS · NỔI LÊN VÀ QUA CỔNG PHÍA TRƯỚC" : session.IsFlyingBoss ? "ĐÃ HẠ BOSS · HẠ CÁNH VÀ QUA CỔNG PHÍA TRƯỚC" : "ĐÃ HẠ BOSS · TIẾN QUA CỔNG PHÍA TRƯỚC"
                 : phase + " · " + boss.AttackName + (boss.Vulnerable
                     ? " · LÕI HỞ: GIỮ J HOẶC NÚT BẮN" : " · CANH DẤU BÁO VÀ NÉ ĐÒN"));
             Text(new Rect(58, 177, 1158, 18), status, 12, cream, FontStyle.Bold, TextAnchor.MiddleCenter);
             if (session.IsPractice && session.PracticeLearning && session.ArenaPhase == BossPhase.Fighting)
             {
                 Box(new Rect(334, 215, 612, 42), new Color(0.06f, 0.13f, 0.18f, 0.92f));
-                Text(new Rect(346, 226, 588, 22), session.IsFlyingBoss
+                Text(new Rect(346, 226, 588, 22), session.IsUnderwaterBoss
+                    ? "Giữ SPACE / BƠI để lên · ↓ / S / LẶN để xuống · J để bắn"
+                    : session.IsFlyingBoss
                     ? "Giữ SPACE / BAY để lên · Thả để xuống · Nhấn theo nhịp để giữ độ cao"
                     : "Dấu báo xuất hiện trước đòn · Bắn vỡ vật cản, nhảy hoặc cúi để né",
                     13, cream, FontStyle.Normal, TextAnchor.MiddleCenter);
@@ -540,12 +566,17 @@ namespace CityDino
         {
             switch (session.TransitionStage)
             {
-                case BossTransitionStage.Collect: return "NHẶT VÁN PHẢN LỰC · CHUẨN BỊ CẤT CÁNH";
+                case BossTransitionStage.Collect: return session.IsUnderwaterBoss
+                    ? "ĐỘI MŨ LẶN · CHUẨN BỊ XUỐNG NƯỚC" : "NHẶT VÁN PHẢN LỰC · CHUẨN BỊ CẤT CÁNH";
                 case BossTransitionStage.Takeoff: return "ĐANG CẤT CÁNH · SẮP ĐẾN TRẬN KHÔNG CHIẾN";
-                case BossTransitionStage.Arrive: return session.IsFlyingBoss
+                case BossTransitionStage.Diving: return "ĐANG LẶN XUỐNG · CHUẨN BỊ ĐẤU TÀU NGẦM";
+                case BossTransitionStage.Surfacing: return "NỔI LÊN MẶT NƯỚC · TIẾN QUA CỔNG PHÍA TRƯỚC";
+                case BossTransitionStage.Arrive: return session.IsUnderwaterBoss
+                    ? "SPACE / BƠI: LÊN · ↓ / LẶN: XUỐNG · J: BẮN"
+                    : session.IsFlyingBoss
                     ? "GIỮ SPACE / BAY ĐỂ LÊN · THẢ ĐỂ HẠ · J ĐỂ BẮN"
                     : "SẮP GIAO CHIẾN · J ĐỂ BẮN · CANH DẤU BÁO ĐỂ NÉ";
-                default: return session.IsFlyingBoss ? "TIẾN ĐẾN VÁN PHẢN LỰC" : "ĐANG TIẾN VÀO ĐẤU TRƯỜNG";
+                default: return session.IsUnderwaterBoss ? "TIẾN ĐẾN MŨ LẶN · CHUẨN BỊ LẶN" : session.IsFlyingBoss ? "TIẾN ĐẾN VÁN PHẢN LỰC" : "ĐANG TIẾN VÀO ĐẤU TRƯỜNG";
             }
         }
 
@@ -641,6 +672,7 @@ namespace CityDino
             {
                 case BossKind.Tank: return "XE TĂNG K-01";
                 case BossKind.Gunship: return "TRỰC THĂNG H-03";
+                case BossKind.Submarine: return "TÀU NGẦM N-04";
                 default: return "VỆ BINH G-02";
             }
         }
@@ -661,12 +693,14 @@ namespace CityDino
                     selected ? mint : new Color32(231, 231, 215, 255), ink, 13)) practiceTier = tier;
             }
             Text(new Rect(716, 101, 462, 23), "Cấp cao: thêm đợt chiêu, đạn nhanh và khó né hơn.", 13, soft);
-            DrawPracticeBoss(new Rect(102, 138, 344, 181), BossKind.Tank,
-                "Mặt đất · Loạt pháo, drone, húc ngắn hoặc quét sân.");
-            DrawPracticeBoss(new Rect(468, 138, 344, 181), BossKind.Gunship,
-                "Trên trời · Cổng điện, đạn tỏa và mìn bay.");
-            DrawPracticeBoss(new Rect(834, 138, 344, 181), BossKind.Sentinel,
-                "Nhà máy · Tia quét, cột điện và drone.");
+            DrawPracticeBoss(new Rect(102, 138, 252, 181), BossKind.Tank,
+                "Pháo, drone, húc và quét sân.");
+            DrawPracticeBoss(new Rect(376, 138, 252, 181), BossKind.Gunship,
+                "Cổng điện, đạn tỏa, mìn bay.");
+            DrawPracticeBoss(new Rect(650, 138, 252, 181), BossKind.Submarine,
+                "Ngư lôi, đàn cá máy, thủy lôi.");
+            DrawPracticeBoss(new Rect(924, 138, 252, 181), BossKind.Sentinel,
+                "Laser, hồ quang, lao đấm.");
             Text(new Rect(102, 332, 1060, 25), "NHÂN VẬT · Có thể thử cả nhân vật chưa mở khóa", 15, ink, FontStyle.Bold);
             DrawPracticeCharacter(new Rect(102, 369, 344, 130), CharacterKind.Classic);
             DrawPracticeCharacter(new Rect(468, 369, 344, 130), CharacterKind.Triceratops);
@@ -675,10 +709,12 @@ namespace CityDino
             if (Button(new Rect(468, 519, 344, 43), (!practiceLearning ? "●  " : "") + "THỬ THÁCH CHUẨN", !practiceLearning ? mint : new Color32(231, 231, 215, 255), ink, 18)) practiceLearning = false;
             Text(new Rect(102, 575, 1060, 23), practiceLearning
                 ? "5 tim · Boss ít máu hơn · Đòn chậm và báo trước lâu hơn để học cách né."
-                : "3 tim · Máu boss, tốc độ và các đòn đánh giống trận boss khi chạy thật.", 15, soft);
+                : "3 tim · Theo cấp đã chọn · Đòn đánh và luật sát thương tiêu chuẩn.", 15, soft);
             if (Button(new Rect(834, 519, 344, 43), "VÀO ĐẤU TẬP    →", ink, cream, 19)) StartPractice();
             Text(new Rect(102, 605, 1060, 22), "Không tốn đồ đã mua, không cộng sao hoặc ghi thành tích. Có thể thử cả nhân vật chưa mở.", 13, soft);
-            Text(new Rect(102, 640, 1060, 24), practiceBoss == BossKind.Gunship
+            Text(new Rect(102, 640, 1060, 24), practiceBoss == BossKind.Submarine
+                ? "← → / A D: bơi ngang · Giữ SPACE / BƠI để lên · ↓ / S / LẶN để xuống · J: bắn · E: kỹ năng"
+                : practiceBoss == BossKind.Gunship
                 ? "← → / A D: di chuyển · Giữ SPACE / BAY để lên, thả để hạ · J: giữ bắn · E: kỹ năng riêng"
                 : "← → / A D: di chuyển · SPACE: nhảy kép · ↓ / S: cúi · J: giữ bắn · E: kỹ năng riêng", 14, ink, FontStyle.Normal, TextAnchor.MiddleCenter);
         }
@@ -688,11 +724,16 @@ namespace CityDino
             bool selected = practiceBoss == kind;
             Box(rect, selected ? new Color32(220, 237, 203, 255) : new Color32(232, 237, 222, 255));
             Text(new Rect(rect.x + 12, rect.y + 12, rect.width - 24, 24), PracticeBossName(kind), 17, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
-            if (art.BossAtlas != null)
+            if (kind == BossKind.Submarine && art.SubmarineAtlas != null)
             {
-                Rect image = kind == BossKind.Sentinel ? new Rect(rect.x + 135, rect.y + 43, 74, 79)
-                    : kind == BossKind.Gunship ? new Rect(rect.x + 99, rect.y + 50, 146, 67)
-                    : new Rect(rect.x + 104, rect.y + 56, 136, 62);
+                Rect image = new Rect(rect.center.x - 91f, rect.y + 52f, 182f, 68f);
+                GUI.DrawTextureWithTexCoords(image, art.SubmarineAtlas, art.GetSubmarineUV(0), true);
+            }
+            else if (kind != BossKind.Submarine && art.BossAtlas != null)
+            {
+                Rect image = kind == BossKind.Sentinel ? new Rect(rect.center.x - 37f, rect.y + 43f, 74f, 79f)
+                    : kind == BossKind.Gunship ? new Rect(rect.center.x - 73f, rect.y + 50f, 146f, 67f)
+                    : new Rect(rect.center.x - 68f, rect.y + 56f, 136f, 62f);
                 GUI.DrawTextureWithTexCoords(image, art.BossAtlas, art.GetBossUV(kind), true);
             }
             Text(new Rect(rect.x + 12, rect.y + 127, rect.width - 24, 21), description, 12, soft, FontStyle.Normal, TextAnchor.MiddleCenter);

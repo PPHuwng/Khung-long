@@ -53,18 +53,18 @@ internal static partial class Program
     // health Classic fights and both-bound late paths do not use protection.
     private static RunnerSession IsolatedBossPattern(int number,float fraction)
     {
-        RunnerSession run=EnterBossFixture(number);
-        run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*fraction;
-        SetProperty(run,"InvincibleRemaining",10000f);
-        ReachFighting(run);
-        return run;
+        // Legacy family output/reference checks explicitly use standard C1
+        // practice; real normal-run C3 fights are exercised independently.
+        var run=TierPracticeV12(LegacyBossKindV13(number),1,617,true,fraction);
+        SetProperty(run,"Lives",1);return run;
     }
 
     private static void BossBodyMotionV9()
     {
         foreach(int number in new[]{1,2,3})
         {
-            RunnerSession run=EnterBossFixture(number);
+            RunnerSession run=new RunnerSession(null,617);
+            run.StartBossPractice(LegacyBossKindV13(number),CharacterKind.Classic,false,1);
             BossEncounter boss=run.CurrentBoss;float arrival=boss.X;
             run.Update(.2f);float during=boss.X;
             Check(arrival>RunnerSession.CanvasWidth&&during<arrival,"Boss did not visibly enter from outside: "+boss.Kind);
@@ -178,7 +178,7 @@ internal static partial class Program
     {
         RunnerSession run=IsolatedBossPattern(3,.2f);
         bool pending=false;
-        for(int i=0;i<120*7;i++)
+        for(int i=0;i<120*12;i++)
         {
             if(run.BossTelegraphs.Any(m=>!m.Visible)){pending=true;break;}
             run.Update(1f/120);
@@ -195,17 +195,17 @@ internal static partial class Program
             Near(run.CurrentBoss.X,x,0,"Dead boss body continued its patrol");Near(run.CurrentBoss.Y,y,0,"Dead boss body continued hovering");
         }
         for(int i=0;i<120*5&&run.IsBossArena;i++)run.Update(1f/120);
-        Check(!run.IsBossArena&&run.Save.Wallet==wallet&&run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0,
+        Check((!run.IsBossArena||run.IsPractice&&run.PracticeFinished&&run.PracticeWon)&&run.Save.Wallet==wallet&&run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0,
             "Return preserved delayed combat objects or duplicated reward");
         run.StartRun();Check(run.BossProjectiles.Count==0&&run.BossTelegraphs.Count==0&&!run.IsBossArena,"New run retained a staged attack");
     }
 
     private static void BossLatePathsV9()
     {
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in LegacyBossKindsV13)
         foreach(float x in new[]{RunnerSession.MinimumPlayerX,RunnerSession.MaximumPlayerX})
         {
-            RunnerSession run=EnterBossFixture(kind==BossKind.Tank?7:kind==BossKind.Gunship?8:9,startX:x);
+            RunnerSession run=EnterBossFixture(kind==BossKind.Tank?9:kind==BossKind.Gunship?10:12,startX:x);
             run.CurrentBoss.Kind=kind;
             run.CurrentBoss.Width=kind==BossKind.Sentinel?172:kind==BossKind.Gunship?270:250;
             run.CurrentBoss.Height=kind==BossKind.Sentinel?225:kind==BossKind.Gunship?130:150;

@@ -64,6 +64,11 @@ internal static class Program
         Test("pause and release clear held flight thrust before resuming", FlightPauseRelease);
         Test("enemy lunges keep player steering jumping flying shooting and skills available", BossChargeControls);
         Test("selected practice danger tier survives start and retry without consuming normal stock", PracticeTierRetry);
+        Test("normal 30k submarine and 40k robot retain C3 weapons for every character",UnderwaterNormalOrder);
+        Test("swimming keyboard supports rise release dive tap steering and shooting",SwimKeyboard);
+        Test("swimming multitouch separates up dive direction fire and skills at every scale",SwimTouch);
+        Test("swim pause releases both intents and practice retry preserves submarine tier and stock",SwimPauseRetry);
+        Test("normal running missile volleys do not unlock the boss weapon",MissileRunInput);
         Console.WriteLine();
         Console.WriteLine("Input mapping: " + passed + " passed, " + failed + " failed.");
         Console.WriteLine("Production mapping ran against math/device stubs; Unity event delivery and device hardware were not executed.");
@@ -279,7 +284,7 @@ internal static class Program
     }
     private static void EnterArena(RunnerSession run,BossKind boss)
     {
-        int ordinal=boss==BossKind.Tank?0:boss==BossKind.Gunship?1:2;
+        int ordinal=boss==BossKind.Tank?0:boss==BossKind.Gunship?1:boss==BossKind.Submarine?2:3;
         int milestone=(ordinal+1)*RunnerSession.BossScoreInterval;
         SetField(run,"<BossNumber>k__BackingField",ordinal);
         SetField(run,"<NextBossScore>k__BackingField",milestone);
@@ -602,6 +607,81 @@ internal static class Program
                 "Training danger-tier input spent normal inventory or unlocked a trial character");
             Keyboard.current=null;
         }
+    }
+
+    private static RunnerSession SwimArena(CharacterKind character=CharacterKind.Classic)
+    {
+        RunnerSession run=Session(character);EnterArena(run,BossKind.Submarine);
+        for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
+        Check(run.SwimControlsEnabled&&run.DivingHelmetEquipped,"Normal submarine did not enter swimming combat");
+        SetField(run,"<InvincibleRemaining>k__BackingField",1000f);
+        return run;
+    }
+    private static void UnderwaterNormalOrder()
+    {
+        foreach(CharacterKind character in Enum.GetValues(typeof(CharacterKind)))
+        {
+            var run=SwimArena(character);var controller=Controller(run);Keyboard.current=new Keyboard();
+            Keyboard.current.jKey.isPressed=true;Keyboard.current.spaceKey.isPressed=true;Frame(controller);
+            Check(run.BossNumber==3&&run.BossTier==3&&run.CurrentBoss.Kind==BossKind.Submarine&&run.BossProjectiles.Any(p=>p.Friendly),"All-character swim gun or third milestone failed");
+            var robot=Session(character);EnterArena(robot,BossKind.Sentinel);
+            Check(robot.BossNumber==4&&robot.CurrentBoss.Kind==BossKind.Sentinel&&robot.BossTier==3,"Robot did not move after submarine to40k");
+        }
+    }
+    private static void SwimKeyboard()
+    {
+        var run=SwimArena();var controller=Controller(run);float y=run.PlayerY,x=run.PlayerX;
+        Keyboard.current=new Keyboard();Keyboard.current.spaceKey.isPressed=true;Keyboard.current.dKey.isPressed=true;Keyboard.current.jKey.isPressed=true;
+        for(int i=0;i<35;i++)Frame(controller);
+        Check(run.PlayerY>y+20&&run.PlayerX>x&&run.BossProjectiles.Any(p=>p.Friendly),"Held swimup failed while steering/firing");
+        float high=run.PlayerY;Keyboard.current.spaceKey.isPressed=false;Keyboard.current.dKey.isPressed=false;
+        Keyboard.current.sKey.isPressed=true;for(int i=0;i<45;i++)Frame(controller);
+        Check(run.PlayerY<high-30&&!run.IsDucking,"Swim dive became ground crouch or failed to descend");
+        Keyboard.current.sKey.isPressed=false;Keyboard.current.spaceKey.wasPressedThisFrame=true;float low=run.PlayerY;Frame(controller);
+        Check(run.PlayerY>low,"Tap did not generate a real swimming stroke");
+    }
+    private static Inputs ReadSwim()
+    {
+        var method=typeof(CityRunnerController).GetMethod("ReadMovementPointers",BindingFlags.Static|BindingFlags.NonPublic);
+        object[] args={true,true,true,true,0f,false,false,false,false,false};method.Invoke(null,args);
+        return new Inputs{Horizontal=(float)args[4],Jump=(bool)args[5],Duck=(bool)args[6],Shoot=(bool)args[7],Skill=(bool)args[8],Lift=(bool)args[9]};
+    }
+    private static void SwimTouch()
+    {
+        foreach(int width in new[]{1280,1920})
+        {
+            Screen.width=width;Screen.height=720;float offset=(width-1280)*.5f;
+            Touchscreen.current=new Touchscreen();
+            Touchscreen.current.touches.Add(Touch(180+offset,67,false,true));
+            Touchscreen.current.touches.Add(Touch(1182+offset,67));
+            Touchscreen.current.touches.Add(Touch(784+offset,67,false,true));
+            Touchscreen.current.touches.Add(Touch(914+offset,67));
+            Inputs up=ReadSwim();Check(up.Horizontal==1&&up.Jump&&up.Lift&&up.Shoot&&up.Skill&&!up.Duck,"Swim multi-touch lost an independent action");
+            Touchscreen.current.touches[1]=Touch(1056+offset,67,false,true);
+            Inputs down=ReadSwim();Check(down.Duck&&!down.Lift&&!down.Jump&&down.Shoot&&down.Horizontal==1,"Dive button leaked to stroke/lift or consumed other fingers");
+        }
+    }
+    private static void SwimPauseRetry()
+    {
+        var run=SwimArena();var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.spaceKey.isPressed=true;
+        for(int i=0;i<20;i++)Frame(controller);Keyboard.current.escapeKey.wasPressedThisFrame=true;Frame(controller);
+        float y=run.PlayerY,clock=run.BossElapsed;Keyboard.current.escapeKey.wasPressedThisFrame=false;Keyboard.current.sKey.isPressed=true;
+        for(int i=0;i<15;i++)Frame(controller);Check(run.PlayerY==y&&run.BossElapsed==clock,"Pause kept swimming or consuming combat time");
+        Keyboard.current.spaceKey.isPressed=Keyboard.current.sKey.isPressed=false;Keyboard.current.escapeKey.wasPressedThisFrame=true;Frame(controller);
+        Keyboard.current.escapeKey.wasPressedThisFrame=false;float high=run.PlayerY;for(int i=0;i<80;i++)Frame(controller);
+        Check(run.PlayerY<high-10,"Lift remained stuck after pause and release");
+        var save=new RunnerSave{Wallet=4321,PurchasedHearts=2,PurchasedShield=true};run=new RunnerSession(save,4);
+        run.StartBossPractice(BossKind.Submarine,CharacterKind.Raptor,false,8);run.SkipPracticeIntro();
+        typeof(RunnerSession).GetMethod("FinishPractice",PrivateInstance).Invoke(run,new object[]{false,"Swim input retry"});
+        controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.rKey.wasPressedThisFrame=true;Frame(controller);
+        Check(run.IsPractice&&run.BossTier==8&&run.CurrentBoss.Kind==BossKind.Submarine&&run.CurrentCharacter==CharacterKind.Raptor&&!save.OwnsRaptor&&save.PurchasedHearts==2&&save.PurchasedShield&&save.Wallet==4321,"Swim retry changed tier/trial/normal inventory");
+    }
+    private static void MissileRunInput()
+    {
+        var run=Session(CharacterKind.Classic);
+        ((IList<RunMissile>)run.RunMissiles).Add(new RunMissile{Id=99001,VolleyId=901,X=900,Y=14,Width=40,Height=22,Radius=11,VelocityX=-500,Lifetime=5});
+        var controller=Controller(run);Keyboard.current=new Keyboard();Keyboard.current.jKey.isPressed=true;Keyboard.current.spaceKey.wasPressedThisFrame=true;
+        Frame(controller);Check(run.PlayerY>0&&!run.IsBossArena&&!run.BossProjectiles.Any(p=>p.Friendly),"Normal missiles enabled gun or blocked jump");
     }
 
 }

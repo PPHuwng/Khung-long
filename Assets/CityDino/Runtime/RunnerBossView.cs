@@ -31,6 +31,11 @@ namespace CityDino
 
         private void DrawBossBody(BossEncounter boss, BossPhase phase, float clock, float phaseRemaining)
         {
+            if (boss.Kind == BossKind.Submarine)
+            {
+                DrawSubmarineBody(boss, phase, clock, phaseRemaining);
+                return;
+            }
             Rect rect = new Rect(boss.X, GroundY - boss.Y - boss.Height, boss.Width, boss.Height);
             if (boss.Kind != BossKind.Gunship) GroundShadow(boss.X, boss.Width);
             int rage = Math.Max(1, Math.Min(3, boss.RageLevel));
@@ -265,6 +270,7 @@ namespace CityDino
 
         private void DrawBossObstacle(BossObstacle obstacle, float clock)
         {
+            if (DrawUnderwaterObstacle(obstacle, clock)) return;
             Rect rect = new Rect(obstacle.X, GroundY - obstacle.Y - obstacle.Height,
                 obstacle.Width, obstacle.Height);
             float flash = Mathf.Clamp01(obstacle.HitFlashRemaining / .12f);
@@ -343,6 +349,7 @@ namespace CityDino
 
         private void DrawBossTelegraph(BossTelegraph telegraph, float clock, BossEncounter boss)
         {
+            if (DrawUnderwaterTelegraph(telegraph, clock)) return;
             Rect rect = new Rect(telegraph.X, GroundY - telegraph.Y - telegraph.Height,
                 telegraph.Width, telegraph.Height);
             bool active = telegraph.Active;
@@ -471,6 +478,7 @@ namespace CityDino
 
         private void DrawBossProjectile(BossProjectile projectile, float clock)
         {
+            if (!projectile.Friendly && DrawUnderwaterProjectile(projectile, clock)) return;
             Rect rect = new Rect(projectile.X, GroundY - projectile.Y - projectile.Height,
                 projectile.Width, projectile.Height);
             if (projectile.Friendly)

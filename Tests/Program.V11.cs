@@ -176,7 +176,7 @@ internal static partial class Program
 
     private static void ElectricOrbShapeV11()
     {
-        RunnerSession corner=EnterBossFixture(3);ReachFighting(corner);ClearArenaThreats(corner);
+        RunnerSession corner=EnterBossFixture(4);ReachFighting(corner);ClearArenaThreats(corner);
         float foundX=0,foundY=0;bool found=false;
         for(float x=corner.PlayerX-90;x<corner.PlayerX+90&&!found;x+=2)
         for(float y=0;y<105&&!found;y+=2)
@@ -185,7 +185,7 @@ internal static partial class Program
         Check(found,"Could not construct independent transparent circle-corner case");
         ArenaShots(corner).Add(new BossProjectile{Id=999001,Kind=BossAttackKind.ElectricOrb,X=foundX,Y=foundY,Width=32,Height=32,Radius=16,Lifetime=1});
         corner.Update(.0001f);Check(corner.Lives==1&&corner.State==RunState.Playing,"Electric orb's transparent box corner inflicted damage");
-        RunnerSession hit=EnterBossFixture(3);ReachFighting(hit);ClearArenaThreats(hit);
+        RunnerSession hit=EnterBossFixture(4);ReachFighting(hit);ClearArenaThreats(hit);
         ArenaShots(hit).Add(new BossProjectile{Id=999002,Kind=BossAttackKind.ElectricOrb,X=hit.PlayerX+20,Y=45,Width=32,Height=32,Radius=16,Lifetime=1});
         Check(RunnerGeometry.CircleTouchesPlayer(hit.PlayerX+36,61,16,hit),"Orb contact fixture missed opaque body");
         hit.Update(.0001f);Check(hit.State==RunState.GameOver&&hit.Lives==0,"Visible circular electrical contact did not cause real damage");

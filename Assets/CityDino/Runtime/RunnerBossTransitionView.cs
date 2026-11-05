@@ -8,6 +8,12 @@ namespace CityDino
     {
         private void DrawBossTransition(RunnerSession session)
         {
+            if (session.IsUnderwaterBoss)
+            {
+                if (session.ArenaPhase == BossPhase.Victory) DrawUnderwaterForwardDeparture(session);
+                else DrawUnderwaterJourney(session);
+                return;
+            }
             if (session.ArenaPhase == BossPhase.Victory)
             {
                 DrawBossForwardDeparture(session);

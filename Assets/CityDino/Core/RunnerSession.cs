@@ -138,6 +138,7 @@ namespace CityDino
         {
             Save = SanitizeSave(save);
             random = new Random(seed);
+            runMissileRandom = new Random(unchecked(seed ^ 0x05a37d29));
             State = RunState.Menu;
             PlayerX = StartPlayerX;
             Speed = InitialSpeed;
@@ -291,6 +292,7 @@ namespace CityDino
             jumpsUsed = 0;
             coyoteRemaining = 0.1f;
             EndReason = "";
+            ResetRunMissiles();
             ResetBossRun();
             BeginCharacterRun();
             BeginRunSurvival();
@@ -345,6 +347,8 @@ namespace CityDino
             float currentSpeed = (float)(InitialSpeed + elapsedClock * SpeedAcceleration);
             float horizontal = currentSpeed + SpeedAcceleration * PhysicsStep +
                 Math.Max(HorizontalSpeed, IsDashing ? Math.Abs(DashVelocity) : 0f) + Math.Abs(WindPush) + motionX;
+            horizontal = Math.Max(horizontal, RunMissileCollisionSpeed() +
+                Math.Max(HorizontalSpeed, IsDashing ? Math.Abs(DashVelocity) : 0f));
             float vertical = Math.Abs(VelocityY) + Gravity * PhysicsStep + motionY;
             return Math.Min(PhysicsStep, 6f / Math.Max(1f, Math.Max(horizontal, vertical)));
         }
@@ -354,6 +358,7 @@ namespace CityDino
             if (State != RunState.Playing || (IsBossArena && ArenaPhase != BossPhase.Fighting))
                 return false;
             if (FlightControlsEnabled) return Flap();
+            if (SwimControlsEnabled) return SwimStroke();
 
             if (grounded || coyoteRemaining > 0f)
                 jumpsUsed = 1;
@@ -373,7 +378,7 @@ namespace CityDino
 
         public void SetDucking(bool ducking)
         {
-            duckRequested = State == RunState.Playing && (!IsBossArena || ArenaPhase == BossPhase.Fighting) && !IsFlyingBoss && ducking;
+            duckRequested = State == RunState.Playing && (!IsBossArena || ArenaPhase == BossPhase.Fighting) && !IsFreeMovementBoss && ducking;
             IsDucking = duckRequested && grounded;
         }
 
@@ -393,6 +398,7 @@ namespace CityDino
                 horizontalAxis = 0f;
                 shootingHeld = false;
                 flightLiftHeld = false;
+                ClearSwimIntent();
             }
             else if (State == RunState.Paused)
                 State = RunState.Playing;
@@ -409,6 +415,7 @@ namespace CityDino
             horizontalAxis = 0f;
             ResetBossArena();
             ResetPracticeRun();
+            ResetRunMissiles();
         }
 
         public bool BuyExtraHeart()
@@ -485,8 +492,9 @@ namespace CityDino
                 RunnerBiomeHazards.Tick(entity, dt, Speed);
             }
 
+            PrepareRunMissileCorridor();
             distanceToPattern -= travel;
-            if (distanceToPattern <= 0f)
+            if (distanceToPattern <= 0f && !RunMissileCorridorReserved)
             {
                 PatternType kind = ChoosePattern();
                 float width = AddPattern(kind);
@@ -514,6 +522,8 @@ namespace CityDino
                 RecoverFromFall();
             }
 
+            if (State == RunState.Playing)
+                TickRunMissiles(dt);
             if (State == RunState.Playing)
                 ResolveCollisions();
             if (State == RunState.Playing)

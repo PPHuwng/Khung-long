@@ -26,7 +26,7 @@ namespace CityDino
 
         private static bool IsBossCharge(BossAttackKind kind)
         {
-            return kind == BossAttackKind.TankRam || kind == BossAttackKind.RobotDash || kind == BossAttackKind.GunshipDive;
+            return kind == BossAttackKind.TankRam || kind == BossAttackKind.RobotDash || kind == BossAttackKind.GunshipDive || kind == BossAttackKind.SubmarineRam;
         }
 
         private static float BossMotionEase(float value)
@@ -72,7 +72,7 @@ namespace CityDino
             bossChargeRecoverySeconds = BossChargeRecoveryDuration(bossChargeFullSweep);
             bossChargeLaneY = source.Y;
             bossChargeLaneHeight = source.Height;
-            bossChargeAimY = source.Kind == BossAttackKind.GunshipDive
+            bossChargeAimY = (source.Kind == BossAttackKind.GunshipDive || source.Kind == BossAttackKind.SubmarineRam)
                 ? Math.Max(20f, Math.Min(250f, source.Y - 20f)) : 0f;
             bossChargeKind = source.Kind;
             bossChargeSourceId = source.SourceTelegraphId > 0 ? source.SourceTelegraphId : source.Id;
@@ -113,7 +113,7 @@ namespace CityDino
                 CurrentBoss.Y = bossChargeStartY + (bossChargeAimY - bossChargeStartY) * BossMotionEase(progress * 4f);
                 CurrentBoss.Action = BossAction.Strike;
                 CurrentBoss.ActionProgress = progress;
-                CurrentBoss.ContactActive = bossChargeKind != BossAttackKind.GunshipDive || progress >= .25f;
+                CurrentBoss.ContactActive = (bossChargeKind != BossAttackKind.GunshipDive && bossChargeKind != BossAttackKind.SubmarineRam) || progress >= .25f;
             }
             else
             {

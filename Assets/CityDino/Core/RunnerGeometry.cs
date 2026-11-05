@@ -35,7 +35,8 @@ namespace CityDino
         public static int GetPlayerFrame(RunnerSession session)
         {
             if (session == null) return 0;
-            if (session.IsFlyingBoss && session.FlightDeviceCollected)
+            if ((session.IsFlyingBoss && session.FlightDeviceCollected) ||
+                (session.IsUnderwaterBoss && session.DivingHelmetEquipped && (session.PlayerY > 3f || session.WaterDepth > .01f)))
                 return session.AnimationVelocityY > 80f ? 8
                     : session.AnimationVelocityY < -80f ? 10 : 9;
             if (session.IsDucking)

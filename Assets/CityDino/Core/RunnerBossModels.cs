@@ -3,8 +3,8 @@ using System;
 namespace CityDino
 {
     public enum BossPhase { None, Intro, Fighting, Victory }
-    public enum BossKind { Tank, Sentinel, Gunship }
-    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone, DroneLow, MineDrop, CrateDrop, ElectricPillar, ShieldDrone, AirGate, AirSpread, AirLaser, AirMine, TankRam, RobotDash, GunshipDive, CrossMissile, MissileRain, ElectricOrb }
+    public enum BossKind { Tank, Sentinel, Gunship, Submarine }
+    public enum BossAttackKind { Cannon, Artillery, LaserLow, LaserHigh, Shockwave, Missile, Drone, DroneLow, MineDrop, CrateDrop, ElectricPillar, ShieldDrone, AirGate, AirSpread, AirLaser, AirMine, TankRam, RobotDash, GunshipDive, CrossMissile, MissileRain, ElectricOrb, Torpedo, FishShoal, SeaMine, SonarBeam, DepthCharge, SubmarineRam }
     public enum BossAction { Idle, Windup, Strike, Recovery }
 
     /// <summary>Visible body and combat state; all coordinates use the runner's bottom-up world space.</summary>

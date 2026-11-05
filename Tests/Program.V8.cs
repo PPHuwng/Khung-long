@@ -17,11 +17,11 @@ internal static partial class Program
         Test("boss death records one result and restart clears the whole encounter", BossDeathV8);
         Test("boss victories award stars once and return to a safe preserved run", BossRewardsV8);
         Test("all three characters can shoot and only armored character reflects boss shots", BossCharacterCombatV8);
-        Test("boss milestones rotate after the first three and stop safely at the score limit", BossMilestoneSequenceV8);
+        Test("boss milestones rotate after the first four and stop safely at the score limit", BossMilestoneSequenceV8);
         Test("low-resource boss returns preserve resources and offer a real replacement drink", BossSurvivalReturnV8);
         Test("boss attack pace is independent of the stored unlimited running speed", BossIndependentPaceV8);
         Test("boss attacks are telegraphed and become real shared damage objects", BossAttackSignalsV8);
-        Test("free classic can defeat all three full-health bosses with real shots and evasive input", BossClassicVictoriesV8);
+        Test("free classic can defeat all four full-health bosses with real shots and evasive input", BossClassicVictoriesV8);
     }
 
     private static RunnerSession CharacterRun(CharacterKind character, District district=District.Day, int hearts=0, bool stockShield=false)
@@ -251,13 +251,13 @@ internal static partial class Program
             Check(run.IsBossArena&&run.BossNumber==number&&run.NextBossScore==(number+1)*10000,
                 "Milestone skipped/retriggered at boss "+number);
             kinds.Add(run.CurrentBoss.Kind);
-            if(number<=3)Check(run.CurrentBoss.Kind==(number==1?BossKind.Tank:number==2?BossKind.Gunship:BossKind.Sentinel),"First three boss order changed");
+            if(number<=4)Check(run.CurrentBoss.Kind==NormalBossKindV13(number),"First four boss order changed");
             WinBookkeepingFixture(run);
             run.Update(1f/120);
             Check(!run.IsBossArena&&run.BossNumber==number,"Cleared milestone immediately entered again");
         }
         for(int i=1;i<kinds.Count;i++)Check(kinds[i]!=kinds[i-1],"Boss bag repeated the previous boss at "+i);
-        for(int i=3;i<12;i+=3)Check(kinds.Skip(i).Take(3).Distinct().Count()==3,"Boss bag repeated before covering all three kinds");
+        for(int i=4;i<12;i+=4)Check(kinds.Skip(i).Take(4).Distinct().Count()==4,"Boss bag repeated before covering all four kinds");
 
         RunnerSession limit=CharacterRun(CharacterKind.Classic);
         SetProperty(limit,"NextBossScore",int.MaxValue-1);
@@ -297,9 +297,12 @@ internal static partial class Program
 
     private static float[] CaptureBossPace(float runningElapsed)
     {
-        RunnerSession run=CharacterRun(CharacterKind.Classic);
+        // Output-only reference family fixture fixes the boss plan while
+        // varying the stored runner speed. Normal C3 victories remain separate.
+        RunnerSession run=new RunnerSession(null,617);
+        run.StartBossPractice(BossKind.Tank,CharacterKind.Classic,false,1);
         SetProperty(run,"Elapsed",runningElapsed);SetProperty(run,"Speed",RunnerSession.InitialSpeed+runningElapsed*RunnerSession.SpeedAcceleration);
-        SetProperty(run,"Distance",199999f);SetProperty(run,"Score",9999);run.Update(1f/120);ReachFighting(run);
+        ReachFighting(run);
         // Output-only timing measurement; survival is covered by full fights.
         SetProperty(run,"InvincibleRemaining",1000f);
         var starts=new List<float>();var seen=new HashSet<int>();float velocity=0,warning=0;
@@ -328,6 +331,7 @@ internal static partial class Program
     private static void CombatBotInput(RunnerSession run, bool shoot, bool earlyArtillery=false)
     {
         run.SetShooting(shoot);
+        if(run.IsUnderwaterBoss){SwimBotInputV13(run);return;}
         if(run.IsFlyingBoss){FlightBotInputV10(run);return;}
         bool high=run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserHigh&&(m.Active||m.Remaining<.65f));
         bool low=run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserLow&&(m.Active||m.Remaining<.32f));
@@ -418,9 +422,18 @@ internal static partial class Program
             run.SetDucking(false);
             if(run.PlayerY<=.01f||(run.PlayerY>=75&&run.PlayerY<140&&run.VelocityY>0))run.Jump();
         }
+        // A compact four-shell burst can be crossed with a short early
+        // double jump, then land before the next burst. Waiting until late
+        // descent would spend the second jump across two separate bursts.
+        bool lateCannon = run.CurrentBoss.Kind==BossKind.Tank&&run.CurrentBoss.RageLevel>=3&&
+            run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&p.Kind==BossAttackKind.Cannon&&p.X+p.Width>run.PlayerX-55);
+        if(lateCannon&&run.PlayerY>=100&&run.PlayerY<145&&run.VelocityY>0)run.Jump();
         bool groundThreat=run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&
             (p.Kind==BossAttackKind.Cannon||p.Kind==BossAttackKind.Shockwave||p.Kind==BossAttackKind.DroneLow)&&
-            p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+110)||
+            p.X+p.Width>run.PlayerX-55&&p.X<run.PlayerX+110&&
+            // Do not start another jump for the tail of a shell that has
+            // already passed. It would waste the safe inter-burst landing.
+            (!lateCannon||p.Kind!=BossAttackKind.Cannon||p.X+p.Width*.5f>=run.PlayerX))||
             run.BossProjectiles.Any(p=>!p.Friendly&&!p.Removed&&
                 (p.Kind==BossAttackKind.CrossMissile||(p.Kind==BossAttackKind.ElectricOrb&&p.Y<55))&&
                 HorizontalThreatTimeV11(run,p)<.25f)||
@@ -445,7 +458,7 @@ internal static partial class Program
     private static void BossAttackSignalsV8()
     {
         int projectiles=0,beams=0;
-        for(int number=1;number<=3;number++)
+        foreach(int number in new[]{1,2,4})
         {
             RunnerSession run=EnterBossFixture(number);ReachFighting(run);
             // Trace every wave through forced HP stages; this is a signal audit,
@@ -517,13 +530,13 @@ internal static partial class Program
     private static void BossClassicVictoriesV8()
     {
         float longest=0;
-        for(int number=1;number<=3;number++)
+        for(int number=1;number<=4;number++)
         {
             RunnerSession run=EnterBossFixture(number);ReachFighting(run);
             Check(run.CurrentCharacter==CharacterKind.Classic&&run.Lives==1&&run.CurrentBoss.Health==run.CurrentBoss.MaxHealth,"Classic victory fixture altered health or granted advantages");
             float start=run.BossElapsed;int score=run.Score;float full=run.CurrentBoss.MaxHealth;int shots=0;
             var recent=new Queue<string>();var seenRage=new HashSet<int>();
-            for(int i=0;i<120*100&&run.ArenaPhase==BossPhase.Fighting&&run.State==RunState.Playing;i++)
+            for(int i=0;i<120*150&&run.ArenaPhase==BossPhase.Fighting&&run.State==RunState.Playing;i++)
             {
                 seenRage.Add(run.CurrentBoss.RageLevel);shots=Math.Max(shots,run.BossProjectiles.Count(p=>p.Friendly));
                 if(i%30==0){recent.Enqueue(run.BossElapsed.ToString("0.00")+" "+ArenaDescription(run));while(recent.Count>16)recent.Dequeue();}
@@ -534,7 +547,7 @@ internal static partial class Program
             Check(run.ArenaPhase==BossPhase.Victory&&run.CurrentBoss.Health==0&&shots>0,"Free Classic failed to defeat full-health "+run.CurrentBoss.Kind);
             Check(seenRage.SetEquals(new[]{1,2,3}),"Full-health fight skipped a real rage phase");
             float time=run.BossElapsed-start;longest=Math.Max(longest,time);
-            Check(time>=15&&time<90&&full>=500,"Boss ended instantly or became an excessively long damage sponge");
+            Check(time>=15&&time<135&&full>=500,"Boss ended instantly or became an excessively long damage sponge");
             Console.WriteLine("  Classic defeated "+run.CurrentBoss.Kind+" from "+full+" HP in "+time.ToString("0.0")+" combat seconds with real shots, no damage or skill.");
         }
         Check(longest>25,"Boss coverage did not exercise sustained combat");

@@ -105,6 +105,7 @@ internal static partial class Program
         RegisterV10Tests();
         RegisterV11Tests();
         RegisterV12Tests();
+        RegisterV13Tests();
         Console.WriteLine();
         Console.WriteLine("Gameplay core: " + passed + " passed, " + failures.Count + " failed.");
         foreach (string failure in failures) Console.Error.WriteLine(failure);
@@ -166,6 +167,7 @@ internal static partial class Program
         // This helper is used only by isolated mechanics and generation audits.
         // Real survival/supply traversal checks below do not call it.
         ClearHazards(run);
+        SetField(run,"nextRunMissileAt",double.MaxValue);
         // Generator/clock fixtures deliberately isolate running, while the
         // dedicated V8 integration tests below exercise real boss milestones.
         SetProperty(run,"NextBossScore",int.MaxValue);
@@ -1130,7 +1132,7 @@ internal static partial class Program
     { return (float)Math.Sin(time*e.MotionSpeed+e.MotionPhase)*e.MotionAmplitudeX; }
 
     private static void StopSpawns(RunnerSession run)
-    { SetField(run,"distanceToPattern",1000000f); SetField(run,"nextHeartAt",float.MaxValue); SetField(run,"nextPowerupAt",double.MaxValue); SetField(run,"nextSurvivalSupplyAt",double.MaxValue); }
+    { SetField(run,"distanceToPattern",1000000f); SetField(run,"nextHeartAt",float.MaxValue); SetField(run,"nextPowerupAt",double.MaxValue); SetField(run,"nextSurvivalSupplyAt",double.MaxValue); SetField(run,"nextRunMissileAt",double.MaxValue); }
 
     private static WorldEntity MotionFixture(RunnerSession run)
     {
@@ -1221,12 +1223,13 @@ internal static partial class Program
         foreach(float lead in new[]{0.15f,0.2f,0.25f,0.3f,0.35f,0.4f,0.45f,0.5f,0.55f}) yield return lead;
     }
 
-    private static bool ReplayPack(PackSpec pack, float speed, float playerX, float lead, float secondJumpDelay, float phaseShift=0)
+    private static bool ReplayPack(PackSpec pack, float speed, float playerX, float lead, float secondJumpDelay, float phaseShift=0, bool facingLeft=false)
     {
         RunnerSession run = New(991); run.StartRun(); World(run).Clear();
         SetProperty(run, "Elapsed", (speed-RunnerSession.InitialSpeed)/RunnerSession.SpeedAcceleration);
         SetProperty(run, "Speed", speed); SetProperty(run, "PlayerX", playerX);
         StopSpawns(run);
+        SetProperty(run,"FacingLeft",facingLeft);
         var obstacles = new List<WorldEntity>();
         foreach (WorldEntity e in pack.Entities)
         {
@@ -1299,7 +1302,9 @@ internal static partial class Program
     {
         bool moving=pack.Entities.Any(e=>e.MotionAmplitudeX>0);
         foreach(float phase in moving?new[]{0f,1.5707963f,3.1415927f,4.712389f}:new[]{0f})
-            if(!ReplayPack(pack,speed,x,lead-0.025f,delay,phase)||!ReplayPack(pack,speed,x,lead+0.025f,delay,phase)) return false;
+        foreach(bool facing in new[]{false,true})
+            if(!ReplayPack(pack,speed,x,lead-0.025f,delay,phase,facing)||!ReplayPack(pack,speed,x,lead,delay,phase,facing)||
+                !ReplayPack(pack,speed,x,lead+0.025f,delay,phase,facing)) return false;
         return true;
     }
 
@@ -1355,21 +1360,23 @@ internal static partial class Program
                         if (!overhead && jumped && !second && doubleDelay>=0 && run.Elapsed-jumpTime>=doubleDelay)
                             second=run.Jump();
                     }
+                    RunMissileBotV13(run);
                     foreach(WorldEntity item in run.Entities)
                         if(item.Kind==EntityKind.Shield||item.Kind==EntityKind.Magnet||item.Kind==EntityKind.DoubleScore) item.Removed=true;
                     run.SetHorizontal((x-run.PlayerX)*8f/RunnerSession.HorizontalSpeed-run.WindPush/RunnerSession.HorizontalSpeed);
                     int before=run.Lives;
+                    string beforeState=string.Join(";",run.Entities.Where(e=>Hazard(e)&&e.X<run.PlayerX+300&&e.X+e.Width>run.PlayerX-100).Select(e=>e.Kind+"@"+e.X+","+e.Y+" h="+e.Height+" active="+e.HazardActive+" age="+e.HazardAge+" plume="+e.HazardHeight))+" missiles="+string.Join(";",run.RunMissiles.Select(m=>m.X+","+m.Y))+" player="+run.PlayerX+","+run.PlayerY+" vy="+run.VelocityY;
                     run.Update(1f/120);
                     auditedSupplyFrames+=AssertSupplyLanes(run,"seed="+seed+" age="+run.Elapsed);
                     Check(run.State==RunState.Playing && run.Lives>=before,
                         "Sequence bot hit a hazard for seed "+seed+" X="+x+" at "+
                         run.Elapsed.ToString("0.00")+"s pack="+current+" Y="+run.PlayerY+" VY="+run.VelocityY+
                         " jumped="+jumped+" double="+second+" lead="+jumpLead+" plan="+description+" since="+(run.Elapsed-jumpTime)+
-                        " warmth="+run.Warmth+" water="+run.Water+" hazards="+string.Join(";",run.Entities.Where(e=>Hazard(e)&&e.X<run.PlayerX+180&&e.X+e.Width>run.PlayerX-100)
+                        " lives="+before+"→"+run.Lives+" pre="+beforeState+" warmth="+run.Warmth+" water="+run.Water+" hazards="+string.Join(";",run.Entities.Where(e=>Hazard(e)&&e.X<run.PlayerX+180&&e.X+e.Width>run.PlayerX-100)
                             .Select(e=>e.PatternId+":"+e.Kind+"@"+e.X+","+e.Y+" size="+e.Width+","+e.Height))+" reason="+run.EndReason);
                 }
-                Check(solved>=70 && run.Score>4000 && run.Speed>800f,
-                    "Sequential run did not cover enough authored packs and accelerating play");
+                Check(solved>=40 && run.Score>4000 && run.Speed>800f,
+                    "Sequential run did not cover enough ordinary packs between reserved missile volleys and accelerating play");
             }
         Check(auditedSupplyFrames>10000,"Sequential traversal omitted live supply overlap coverage");
         Console.WriteLine("  Real traversal checked "+auditedSupplyFrames+" visible supply frames against live ground hazards.");
@@ -1864,6 +1871,9 @@ internal static partial class Program
         for(int seed=0;seed<12;seed++)
         {
             RunnerSession run=New(seed); run.SetStartingDistrict(district); run.StartRun();
+            // This cadence fixture isolates biome pickup travel/drain from all
+            // attack families; real running+missile traversal is separate.
+            SetField(run,"nextRunMissileAt",double.MaxValue);
             var seen=new HashSet<int>(); float minimum=100;
             for(int i=0;i<120*34;i++)
             {
@@ -1934,6 +1944,8 @@ internal static partial class Program
         for(int seed=0;seed<12;seed++)
         {
             RunnerSession run=New(seed); run.SetStartingDistrict(District.Skyway); run.StartRun();
+            // Generator density measurement excludes the separate missile corridor.
+            SetField(run,"nextRunMissileAt",double.MaxValue);
             SetProperty(run,"Elapsed",age); SetProperty(run,"Speed",RunnerSession.InitialSpeed+age*RunnerSession.SpeedAcceleration);
             var seen=new HashSet<int>();
             for(int i=0;i<120*34;i++)

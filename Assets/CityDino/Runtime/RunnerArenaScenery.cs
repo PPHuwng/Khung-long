@@ -8,6 +8,11 @@ namespace CityDino
     {
         private void DrawArenaBackdrop(BossKind kind, float clock, bool showExitGate = true)
         {
+            if (kind == BossKind.Submarine)
+            {
+                DrawUnderwaterArenaBackdrop(clock);
+                return;
+            }
             if (kind == BossKind.Gunship)
             {
                 DrawAerialArenaBackdrop(clock);

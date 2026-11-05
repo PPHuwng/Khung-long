@@ -10,7 +10,7 @@ namespace CityDino
             if (IsBossCharge(kind))
             {
                 float height = kind == BossAttackKind.TankRam ? 68f : kind == BossAttackKind.RobotDash ? 110f : 70f;
-                float y = kind == BossAttackKind.GunshipDive ? Math.Max(35f, Math.Min(280f, PlayerY + 12f)) : 0f;
+                float y = (kind == BossAttackKind.GunshipDive || kind == BossAttackKind.SubmarineRam) ? Math.Max(35f, Math.Min(280f, PlayerY + 12f)) : 0f;
                 float cueTime = Math.Max(1.25f * BossPracticeWarningScale, warning), delay = 0f, end = 0f;
                 int casts = BossRepeatCount;
                 for (int i = 0; i < casts; i++)
@@ -43,7 +43,7 @@ namespace CityDino
                     float gapHeight = BossAirGapHeight;
                     float low = Math.Max(8f, gapY * .5f - 12f);
                     float high = Math.Min(330f, gapY + gapHeight + (360f - gapY - gapHeight) * .5f - 12f);
-                    int waves = BossTier == 1 ? (bossPatternRage >= 2 ? 2 : 1) : Math.Min(5, BossRepeatCount + (bossPatternRage >= 2 ? 1 : 0));
+                    int waves = BossTier == 1 ? (bossPatternRage >= 2 ? 2 : 1) : Math.Min(7, BossRepeatCount + (bossPatternRage >= 2 ? 1 : 0));
                     for (int wave = 0; wave < waves; wave++)
                     {
                         last = BossTier == 1 ? wave * .55f : BossCastSpacing(wave * .7f);
@@ -76,7 +76,7 @@ namespace CityDino
                 float centre = Math.Max(220f, Math.Min(620f, PlayerX + side * 140f));
                 float gapWidth = Math.Max(210f, 240f - BossExtraWaves * 10f), gapX = centre - gapWidth * .5f;
                 float cueTime = Math.Max(1.45f * BossPracticeWarningScale, warning), last = 0f;
-                int waves = Math.Min(4, (bossPatternRage >= 3 ? 2 : 1) + BossExtraWaves);
+                int waves = Math.Min(6, (bossPatternRage >= 3 ? 2 : 1) + BossExtraWaves);
                 for (int wave = 0; wave < waves; wave++)
                 {
                     for (int lane = 0; lane < 6; lane++)
@@ -99,7 +99,7 @@ namespace CityDino
             }
             else if (kind == BossAttackKind.ElectricOrb)
             {
-                int count = Math.Min(6, (bossPatternRage >= 3 ? 3 : 2) + BossExtraWaves);
+                int count = Math.Min(8, (bossPatternRage >= 3 ? 3 : 2) + BossExtraWaves);
                 float last = 0f;
                 for (int i = 0; i < count; i++)
                 {
@@ -143,7 +143,7 @@ namespace CityDino
 
         private bool SpawnSpecialBossAttack(BossTelegraph source, float pace)
         {
-            if (source.Kind == BossAttackKind.TankRam || source.Kind == BossAttackKind.RobotDash || source.Kind == BossAttackKind.GunshipDive)
+            if (source.Kind == BossAttackKind.TankRam || source.Kind == BossAttackKind.RobotDash || source.Kind == BossAttackKind.GunshipDive || source.Kind == BossAttackKind.SubmarineRam)
                 BeginBossCharge(source);
             else if (source.Kind == BossAttackKind.CrossMissile || source.Kind == BossAttackKind.MissileRain || source.Kind == BossAttackKind.ElectricOrb)
             {

@@ -33,7 +33,7 @@ internal static class Program
         Test("five running poses use their atlas frames and physical layout at every canvas scale",RunningSprites);
         Test("running art stays consistent in menu, pause, death and legacy fallback",RunningLifecycle);
         Test("boss arenas replace the scrolling world and all district weather",ArenaIsolation);
-        Test("all three bosses stay at their shared physical bounds under canvas transforms",BossSprites);
+        Test("all four bosses stay at their shared physical bounds under canvas transforms",BossSprites);
         Test("boss projectiles and attack telegraphs use their exact live damage geometry",BossAttackGeometry);
         Test("boss weak point clearly changes between protected and vulnerable states",BossWeakPoint);
         Test("boss arena effects and dead encounter remain frozen with gameplay",ArenaLifecycle);
@@ -65,6 +65,12 @@ internal static class Program
         Test("partial and full-left sweeps reveal distinct locked stop and screen-edge signals",SweepWarningsV12);
         Test("practice tier controls and combat HUD distinguish danger level from health phase",TierHudV12);
         Test("victory moves through the exit behind the boss while arena and street scroll forward",ForwardExitRenderingV12);
+        Test("submarine journey equips a helmet before the jump and reveals a separate submerged arena",UnderwaterJourneyV13);
+        Test("diving helmet glass exposes every character face in both directions and stays on its logical head",DivingHelmetV13);
+        Test("naval attacks draw distinct fish torpedoes mines and fully active sonar geometry",NavalOrdnanceV13);
+        Test("submarine victory surfaces before the far exit and keeps the destination street moving forward",UnderwaterExitV13);
+        Test("normal running rocket waves show harmless cues then distinct physical missiles and freeze on pause",RunMissileRenderingV13);
+        Test("underwater controls and four-boss preparation remain clear and isolated",UnderwaterHudV13);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
         Console.WriteLine("Recorded production draw calls with affine API stubs; no Unity rasterization or Editor execution.");
         return failed==0?0:1;
@@ -558,15 +564,15 @@ internal static class Program
         RunnerSession run=BeginArena(kind,character,district);
         for(int i=0;i<600&&run.ArenaPhase!=BossPhase.Fighting;i++)run.Update(1f/120);
         Check(run.ArenaPhase==BossPhase.Fighting&&run.CurrentBoss!=null,"Arena fixture did not reach fighting");
-        BossEncounter boss=run.CurrentBoss;boss.X=970;boss.Y=kind==BossKind.Gunship?180:0;
-        boss.Width=kind==BossKind.Sentinel?158:238;boss.Height=kind==BossKind.Sentinel?216:128;
+        BossEncounter boss=run.CurrentBoss;boss.X=970;boss.Y=kind==BossKind.Gunship?180:kind==BossKind.Submarine?135:0;
+        boss.Width=kind==BossKind.Sentinel?158:kind==BossKind.Submarine?290:238;boss.Height=kind==BossKind.Sentinel?216:kind==BossKind.Submarine?140:128;
         boss.Vulnerable=true;return run;
     }
     private static RunnerSession BeginArena(BossKind kind,CharacterKind character=CharacterKind.Classic,District district=District.Day)
     {
         RunnerSession run=NewCharacter(character,district);
         Field(run,"distanceToPattern",float.MaxValue);Field(run,"nextHeartAt",float.MaxValue);
-        int ordinal=kind==BossKind.Tank?0:kind==BossKind.Gunship?1:2;
+        int ordinal=kind==BossKind.Tank?0:kind==BossKind.Gunship?1:kind==BossKind.Submarine?2:3;
         int milestone=(ordinal+1)*RunnerSession.BossScoreInterval;
         Field(run,"<BossNumber>k__BackingField",ordinal);
         Field(run,"<NextBossScore>k__BackingField",milestone);
@@ -596,7 +602,7 @@ internal static class Program
         var distinct=new HashSet<string>();
         foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
         {
-            Rect uv=art.GetBossUV(kind);distinct.Add(uv.x+":"+uv.y);
+            Rect uv=kind==BossKind.Submarine?art.GetSubmarineUV(0):art.GetBossUV(kind);distinct.Add(kind+":"+uv.x+":"+uv.y);
             Check(uv.width>0&&uv.height>0&&uv.x>=0&&uv.y>=0&&uv.xMax<=1.000001f&&uv.yMax<=1.000001f,"Boss UV is outside atlas");
             foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
             {
@@ -609,15 +615,15 @@ internal static class Program
                 Point(draw.Centre,canvas.MultiplyPoint3x4(new Vector3(boss.X+boss.Width/2,RunnerSession.GroundY-boss.Y-boss.Height/2,0)),"Boss centre drifts under canvas scale");
             }
         }
-        Check(distinct.Count==3,"Three bosses reuse the same source image");
+        Check(distinct.Count==4,"Four bosses reuse the same source image");
     }
     private static bool BossBodyArt(RecordedDraw draw,RunnerArt art)
     {
-        return draw.Kind=="UV" && (draw.Texture==art.BossAtlas || draw.Texture!=null&&draw.Texture.name=="BossActionAtlas");
+        return draw.Kind=="UV" && (draw.Texture==art.BossAtlas || draw.Texture!=null&&(draw.Texture.name=="BossActionAtlas"||draw.Texture.name=="SubmarineAtlas"));
     }
     private static Rect ExpectedBossBodyUV(RunnerArt art,BossEncounter boss)
     {
-        return art.BossActionAtlas!=null ? art.GetBossActionUV(boss.Kind,(int)boss.Action) : art.GetBossUV(boss.Kind);
+        return boss.Kind==BossKind.Submarine?art.GetSubmarineUV((int)boss.Action):art.BossActionAtlas!=null ? art.GetBossActionUV(boss.Kind,(int)boss.Action) : art.GetBossUV(boss.Kind);
     }
     private static bool SameRect(Rect a,Rect b)
     {return Math.Abs(a.x-b.x)<.025f&&Math.Abs(a.y-b.y)<.025f&&Math.Abs(a.width-b.width)<.025f&&Math.Abs(a.height-b.height)<.025f;}
@@ -898,8 +904,16 @@ internal static class Program
     // Full-health one-heart boss solutions are covered by the core suite.
     private static RunnerSession DynamicArenaFixture(BossKind kind)
     {
-        RunnerSession run=BeginArena(kind);
+        // This legacy family choreography audit deliberately uses the selected
+        // C1 practice pattern order. New normal C3/submarine fights and tier
+        // growth have their own real-input core checks.
+        RunnerSession run=new RunnerSession(new RunnerSave(),1);
+        run.StartBossPractice(kind,CharacterKind.Classic,false,1);
         Set(run,"InvincibleRemaining",1000f);return run;
+    }
+    private static RunnerSession FamilyArena(BossKind kind=BossKind.Tank)
+    {
+        RunnerSession run=DynamicArenaFixture(kind);run.SkipPracticeIntro();run.Update(1f/120);return run;
     }
     private static void AssertBossBody(RunnerWorldView view,RunnerArt art,RunnerSession run,Matrix4x4 canvas)
     {
@@ -910,7 +924,7 @@ internal static class Program
         Matrix4x4 scene=canvas;
         // Ground journey translates the entire arena layer as the old street
         // exits. This camera movement is shared by body, floor and entrance gate.
-        if(boss.Kind!=BossKind.Gunship&&(run.ArenaPhase==BossPhase.Intro||run.ArenaPhase==BossPhase.Victory))
+        if(boss.Kind!=BossKind.Gunship&&boss.Kind!=BossKind.Submarine&&run.ArenaPhase==BossPhase.Intro)
             scene=canvas*Matrix4x4.TRS(new Vector3(1280*(1-run.TransitionSceneBlend),0,0),Quaternion.identity,Vector3.one);
         Point(image.Matrix.MultiplyPoint3x4(new Vector3(expected.x,expected.y,0)),
             scene.MultiplyPoint3x4(new Vector3(expected.x,expected.y,0)),"Boss top-left differs from the shared arena camera");
@@ -920,7 +934,7 @@ internal static class Program
     private static void DynamicBossBodies()
     {
         var art=new RunnerArt();
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in new[]{BossKind.Tank,BossKind.Sentinel,BossKind.Gunship})
         using(var view=new RunnerWorldView(art))
         {
             RunnerSession run=DynamicArenaFixture(kind);float firstX=run.CurrentBoss.X;
@@ -973,7 +987,7 @@ internal static class Program
     private static void BossMechanicalAnimation()
     {
         var art=new RunnerArt();
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in new[]{BossKind.Tank,BossKind.Sentinel,BossKind.Gunship})
         using(var view=new RunnerWorldView(art))
         {
             RunnerSession run=ArenaFixture(kind);BossEncounter boss=run.CurrentBoss;
@@ -1008,7 +1022,7 @@ internal static class Program
             Check(boss.ShotFlashRemaining>0,"Real enemy release never triggered muzzle feedback: "+kind);
             float shot=boss.ShotFlashRemaining;DrawBossBodyOnly(view,run,run.BossElapsed);int firingCount=GUI.DrawCalls.Count;
             boss.ShotFlashRemaining=0;DrawBossBodyOnly(view,run,run.BossElapsed);
-            Check(firingCount>=GUI.DrawCalls.Count+5,"Boss fire has no muzzle flash/smoke");boss.ShotFlashRemaining=shot;
+            Check(firingCount>=GUI.DrawCalls.Count+(kind==BossKind.Submarine?1:5),"Boss fire has no muzzle flash/smoke: "+kind);boss.ShotFlashRemaining=shot;
             if(kind==BossKind.Sentinel)
             {
                 for(int i=0;i<3600&&boss.LandingFlashRemaining<=0;i++)run.Update(1f/120);
@@ -1173,14 +1187,14 @@ internal static class Program
             RunnerSession run=ArenaFixture(kind);Draw(view,run,Canvas(1));themes.Add(DrawSignature());
             Check(!GUI.DrawCalls.Any(d=>StreetTexture(d,art)),"Old city appeared in the active themed arena");
             var floor=GUI.DrawCalls.Where(d=>d.Texture==Texture2D.whiteTexture&&d.Position.x==0&&d.Position.width==1280&&d.Position.y==RunnerSession.GroundY&&d.Position.height>7).ToList();
-            if(kind==BossKind.Gunship)
+            if(kind==BossKind.Gunship||kind==BossKind.Submarine)
             {
                 Check(floor.Count==0,"Air combat still paints a ground/helipad below the flying dinosaur");
                 Check(!GUI.DrawCalls.Any(d=>SameRect(d.Position,new Rect(557,RunnerSession.GroundY+31,59,6))),"Old helipad H remains visible");
             }
             else Check(floor.Count>0,"Ground boss lacks a continuous combat floor");
         }
-        Check(themes.Count==3,"The three bosses share a single arena theme");
+        Check(themes.Count==4,"The four bosses share a single arena theme");
     }
     private static void JourneyPauseRendering()
     {
@@ -1255,12 +1269,12 @@ internal static class Program
         {
             var controller=Ui(run,art,view);typeof(CityRunnerController).GetMethod("OpenPractice",Private).Invoke(controller,null);DrawUi(controller);
             var previews=GUI.DrawCalls.Where(d=>BossBodyArt(d,art)).ToList();
-            Check(previews.Count==3&&previews.Select(d=>d.UV.x+":"+d.UV.y).Distinct().Count()==3,"Preparation does not preview all three distinct bosses");
+            Check(previews.Count==4&&previews.Select(d=>d.Texture.name+":"+d.UV.x+":"+d.UV.y).Distinct().Count()==4,"Preparation does not preview all four distinct bosses");
             foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
                 Check(GUI.DrawCalls.Any(d=>d.Texture==art.GetCharacterTexture(kind,0)),"Practice omits a trial character preview: "+kind);
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("LÀM QUEN")),"Learning selector is missing");
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("CHUẨN")),"Standard selector is missing");
-            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 12")),"Version footer is stale");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 13")),"Version footer is stale");
             Check(GUI.DrawCalls.Where(d=>d.Kind=="Button"&&d.Text!=null&&d.Text.StartsWith("BẮT ĐẦU")).All(d=>!d.Enabled),"Practice preparation leaves normal start active");
             Check(!run.Save.OwnsTriceratops&&!run.Save.OwnsRaptor&&run.State==RunState.Menu,"Previewing practice changed character ownership or began a run");
         }
@@ -1286,11 +1300,12 @@ internal static class Program
     {
         var art=new RunnerArt();
         Check(art.BossActionAtlas!=null,"Action pose atlas is missing");
-        Texture2D texture=art.BossActionAtlas;
-        PngAlpha png=ReadPngAlpha(Path.Combine(assetDirectory,texture.name+".png"));
         foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
         using(var view=new RunnerWorldView(art))
         {
+            Texture2D texture=kind==BossKind.Submarine?art.SubmarineAtlas:art.BossActionAtlas;
+            Check(texture!=null,"Boss action art missing: "+kind);
+            PngAlpha png=ReadPngAlpha(Path.Combine(assetDirectory,texture.name+".png"));
             RunnerSession run=ArenaFixture(kind);BossEncounter boss=run.CurrentBoss;
             var poses=new HashSet<string>();var sourceMasks=new Dictionary<BossAction,bool[]>();
             foreach(BossAction action in Enum.GetValues(typeof(BossAction)))
@@ -1333,7 +1348,7 @@ internal static class Program
         foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
         using(var view=new RunnerWorldView(art))
         {
-            RunnerSession run=ArenaFixture(kind);Set(run,"InvincibleRemaining",1000);
+            RunnerSession run=FamilyArena(kind);
             // Preserve attacks and motion while protecting this draw-contract
             // fixture; this is not a claim that the stationary player survives.
             bool warning=false,strike=false,recovery=false;float minX=run.CurrentBoss.X,maxX=minX;
@@ -1341,7 +1356,7 @@ internal static class Program
             {
                 BossEncounter boss=run.CurrentBoss;
                 foreach(BossTelegraph mark in run.BossTelegraphs)
-                    if(mark.Visible&&(mark.Kind==BossAttackKind.TankRam||mark.Kind==BossAttackKind.RobotDash||mark.Kind==BossAttackKind.GunshipDive))
+                    if(mark.Visible&&(mark.Kind==BossAttackKind.TankRam||mark.Kind==BossAttackKind.RobotDash||mark.Kind==BossAttackKind.GunshipDive||mark.Kind==BossAttackKind.SubmarineRam))
                     {
                         Draw(view,run,Canvas(.68f,119,28));Rect danger=new Rect(mark.X,RunnerSession.GroundY-mark.Y-mark.Height,mark.Width,mark.Height);
                         Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,danger)&&d.Color.a<.3f),"Lunge lacks its harmless lane warning");warning=true;
@@ -1424,7 +1439,7 @@ internal static class Program
     {
         var art=new RunnerArt();using(var view=new RunnerWorldView(art))
         {
-            RunnerSession run=ArenaFixture();Set(run,"InvincibleRemaining",1000);run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
+            RunnerSession run=FamilyArena();run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
             for(int i=0;i<120*65&&!run.BossTelegraphs.Any(t=>t.Kind==BossAttackKind.MissileRain&&t.Visible);i++)run.Update(1f/120);
             var rain=run.BossTelegraphs.Where(t=>t.Kind==BossAttackKind.MissileRain&&t.Visible).ToList();Check(rain.Count>=3,"Real missile-rain pattern did not expose multiple warning strips");
             foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
@@ -1562,7 +1577,7 @@ internal static class Program
             {total++;if(RenderedAlpha(gatePng,new Rect(0,0,270,330),uv,false,x+.5f,y+.5f)<128)transparentPassage++;}
             Check(transparentPassage>total*.6f,"Generated gate has no real transparent passage behind its opening shutter");
         }
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in new[]{BossKind.Tank,BossKind.Sentinel,BossKind.Gunship})
         foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
         using(var view=new RunnerWorldView(art))
         {
@@ -1610,6 +1625,152 @@ internal static class Program
                 Advance(run,.23f);
             }
             Check(gateShown&&streetShown&&crossed,"Journey failed to pass the far-side exit before returning to the run");
+        }
+    }
+
+    private static void UnderwaterJourneyV13()
+    {
+        var art=new RunnerArt();Check(art.UnderwaterBackdrop!=null&&art.SubmarineAtlas!=null&&art.DivingKitAtlas!=null,"Underwater generated art missing");
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=BeginArena(BossKind.Submarine);bool equippedBeforeWater=false,jumped=false,deep=false;int score=run.Score;float elapsed=run.Elapsed;
+            for(int i=0;i<120*5&&run.ArenaPhase==BossPhase.Intro;i++)
+            {
+                if(run.DivingHelmetEquipped&&run.WaterDepth<.01f)equippedBeforeWater=true;
+                if(run.DivingHelmetEquipped&&run.WaterDepth<.2f&&run.PlayerY>20)jumped=true;
+                if(i%12==0)
+                {
+                    Draw(view,run,Canvas(1));
+                    if(run.DivingHelmetEquipped)Check(GUI.DrawCalls.Any(d=>d.Texture==art.DivingKitAtlas&&SameRect(d.UV,art.GetDivingKitUV(0))),"Equipped helmet missing from actual dive scene");
+                    if(run.WaterDepth>.9f)deep=true;
+                }
+                Check(run.Score==score&&run.Elapsed==elapsed,"Dive scene advanced scored running time");run.Update(1f/120);
+            }
+            Check(equippedBeforeWater&&jumped&&deep&&run.SwimControlsEnabled,"Dive omitted equipment jump or actual submersion");
+            Draw(view,run,Canvas(1));Check(GUI.DrawCalls.Any(d=>d.Texture==art.UnderwaterBackdrop),"Submerged encounter does not draw its ocean backdrop");
+            Check(!GUI.DrawCalls.Any(d=>StreetTexture(d,art)||d.Texture==art.Hoverboard),"Submerged arena still shows street or flight board");
+            string signature=DrawSignature();run.TogglePause();run.Update(3);GUI.DrawCalls.Clear();view.Draw(run,9999);
+            Check(DrawSignature()==signature,"Paused underwater scene animates from wall time");
+        }
+    }
+    private static void DivingHelmetV13()
+    {
+        var art=new RunnerArt();var helmetPng=ReadPngAlpha(Path.Combine(assetDirectory,"DivingKitAtlas.png"));
+        var layout=typeof(RunnerWorldView).GetMethod("DivingHelmetRect",BindingFlags.Static|BindingFlags.NonPublic);
+        Check(layout!=null,"Shared helmet placement missing");
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        foreach(bool left in new[]{false,true})
+        foreach(float velocity in new[]{150f,0f,-150f})
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=ArenaFixture(BossKind.Submarine,kind);Set(run,"PlayerY",140f);Set(run,"AnimationVelocityY",velocity);Field(run,"<FacingLeft>k__BackingField",left);
+            int frame=RunnerGeometry.GetPlayerFrame(run);Check(frame>=8,"Swimming still uses ground running/crouching poses");
+            float width=RunnerGeometry.PlayerStandingWidth,height=RunnerGeometry.PlayerStandingHeight;
+            Rect logical=new Rect(run.PlayerX-width*.5f,RunnerSession.GroundY-run.PlayerY-height,width,height);
+            Rect helmet=(Rect)layout.Invoke(null,new object[]{run,logical});
+            float faceX=helmet.x+helmet.width*(left?.34f:.66f),faceY=helmet.y+helmet.height*.49f;
+            Check(faceX>logical.x-5&&faceX<logical.xMax+5&&faceY>logical.y-8&&faceY<logical.yMax+8,"Helmet has drifted away from the character head/body");
+            int clear=0,total=0;
+            for(float dy=-4;dy<=4;dy+=2)for(float dx=-4;dx<=4;dx+=2)
+            {total++;if(RenderedAlpha(helmetPng,helmet,art.GetDivingKitUV(0),left,faceX+dx,faceY+dy)<128)clear++;}
+            Check(clear>total*.65f,"Helmet glass covers the character's face with an opaque sprite");
+            foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+            {
+                Draw(view,run,canvas);RecordedDraw glass=GUI.DrawCalls.Single(d=>d.Texture==art.DivingKitAtlas&&Math.Abs(Math.Abs(d.UV.width)-art.GetDivingKitUV(0).width)<.00001f);
+                Check(SameRect(glass.Position,helmet),"Helmet drawing and head layout diverge");Point(glass.Centre,canvas.MultiplyPoint3x4(helmet.center),"Helmet acquired an extra canvas transform");
+                Near(glass.UV.width,left?-art.GetDivingKitUV(0).width:art.GetDivingKitUV(0).width,"Helmet did not mirror with facing");
+                var hero=GUI.DrawCalls.Single(d=>d.Texture==art.GetCharacterTexture(kind,frame));
+                Check(GUI.DrawCalls.IndexOf(glass)>GUI.DrawCalls.IndexOf(hero),"Helmet is hidden behind dinosaur");
+                Check(!GUI.DrawCalls.Any(d=>d.Texture==art.Hoverboard),"Swimmer retained the aerial hoverboard");
+            }
+        }
+    }
+    private static void NavalOrdnanceV13()
+    {
+        var art=new RunnerArt();var run=ArenaFixture(BossKind.Submarine);var shots=(IList<BossProjectile>)run.BossProjectiles;var marks=(IList<BossTelegraph>)run.BossTelegraphs;var obstacles=(IList<BossObstacle>)run.BossObstacles;
+        shots.Clear();marks.Clear();obstacles.Clear();
+        using(var view=new RunnerWorldView(art))
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        {
+            foreach(var pair in new[]{Tuple.Create(BossAttackKind.Torpedo,2),Tuple.Create(BossAttackKind.FishShoal,1),Tuple.Create(BossAttackKind.DepthCharge,3)})
+            {
+                foreach(float direction in new[]{-1f,1f})
+                {
+                    shots.Clear();var shot=new BossProjectile{Id=99001,Kind=pair.Item1,X=542,Y=155,Width=pair.Item2==2?48:28,Height=pair.Item2==2?20:28,Radius=pair.Item2==2?10:13,VelocityX=pair.Item2==3?0:300*direction,VelocityY=pair.Item2==3?-200:0,Lifetime=4};shots.Add(shot);
+                    Draw(view,run,canvas);Rect uv=art.GetDivingKitUV(pair.Item2);var sprite=GUI.DrawCalls.Single(d=>d.Texture==art.DivingKitAtlas&&SameRect(d.UV,uv));
+                    Vector3 centre=canvas.MultiplyPoint3x4(new Vector3(shot.X+shot.Width*.5f,RunnerSession.GroundY-shot.Y-shot.Height*.5f,0));Point(sprite.Centre,centre,"Naval sprite left its true round contact centre");
+                    Check(GUI.DrawCalls.Any(d=>d.Texture?.name=="CityDino disc"&&Math.Abs(d.Centre.x-centre.x)<.03f&&Math.Abs(d.Centre.y-centre.y)<.03f),"Naval round contact has no visible central body");
+                }
+            }
+            shots.Clear();var mine=new BossObstacle{Id=99009,Kind=BossAttackKind.SeaMine,X=604,Y=180,Width=38,Height=38,Radius=19,Active=true,Health=24,MaxHealth=24,Remaining=5};obstacles.Add(mine);
+            Draw(view,run,canvas);RecordedDraw body=GUI.DrawCalls.Single(d=>d.Texture==art.DivingKitAtlas&&SameRect(d.UV,art.GetDivingKitUV(3)));
+            Point(body.Centre,canvas.MultiplyPoint3x4(new Vector3(623,RunnerSession.GroundY-199,0)),"Sea mine rotates away from its circular body");obstacles.Clear();
+            var burst=new BossObstacle{Id=99010,Kind=BossAttackKind.DepthCharge,X=565,Y=100,Width=64,Height=64,Radius=32,Active=true,Remaining=.32f};obstacles.Add(burst);
+            Draw(view,run,canvas);Rect circle=new Rect(565,RunnerSession.GroundY-164,64,64);
+            Check(GUI.DrawCalls.Any(d=>d.Texture?.name=="CityDino disc"&&SameRect(d.Position,circle)&&d.Color.a>=.45f),"Depth-charge impact omits its actual circular damage area");
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,circle)&&d.Color.a>=.3f),"Underwater depth burst regressed to a plastic rectangular blast");obstacles.Clear();
+            var warning=new BossTelegraph{Id=99011,Kind=BossAttackKind.SonarBeam,X=75,Y=175,Width=760,Height=14,Duration=1.2f,Remaining=.8f};marks.Add(warning);
+            Draw(view,run,canvas);Rect beam=new Rect(75,RunnerSession.GroundY-189,760,14);
+            Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,beam)&&d.Color.a<.3f),"Sonar warning does not preview its exact harmless lane");
+            warning.Active=true;Draw(view,run,canvas);Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,beam)&&d.Color.a>=.6f),"Live sonar is still painted as a harmless warning");marks.Clear();
+        }
+    }
+    private static void UnderwaterExitV13()
+    {
+        var art=new RunnerArt();
+        foreach(float start in new[]{100f,720f})
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=ArenaFixture(BossKind.Submarine);Set(run,"PlayerX",start);Set(run,"PlayerY",230f);
+            typeof(RunnerSession).GetMethod("BeginBossVictory",Private).Invoke(run,null);bool surfaced=false,crossed=false;float previous=run.DepartureWorldX;
+            for(int i=0;i<120*5&&run.ArenaPhase==BossPhase.Victory;i++)
+            {
+                if(i%18==0)
+                {
+                    Draw(view,run,Canvas(.68f,119,28));Check(run.DepartureWorldX>=previous-.01f,"Swimmer turned back toward entrance");previous=run.DepartureWorldX;
+                    if(run.WaterDepth<.001f){surfaced=true;Check(!run.DivingHelmetEquipped&&run.PlayerY<.1f,"Swimmer reached air but retained equipment or floating feet");}
+                    if(run.DepartureWorldX>=RunnerSession.BossExitGateX)
+                    {
+                        crossed=true;Check(surfaced,"Diver crossed exit gate while still underwater");
+                        Check(GUI.DrawCalls.Any(d=>d.Texture==art.ArenaGateAtlas)&&GUI.DrawCalls.Any(d=>d.Texture==art.Road),"Surface exit omits gate or onward running street");
+                    }
+                }
+                run.Update(1f/120);
+            }
+            Check(surfaced&&crossed&&!run.IsBossArena&&run.PlayerY==0,"Submarine exit failed to surface and resume the forward street");
+        }
+    }
+    private static void RunMissileRenderingV13()
+    {
+        var art=new RunnerArt();
+        foreach(int count in new[]{1,2,3,4})
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=New();Field(run,"distanceToPattern",float.MaxValue);var warnings=(IList<RunMissileWarning>)run.RunMissileWarnings;var shots=(IList<RunMissile>)run.RunMissiles;
+            warnings.Clear();shots.Clear();var warning=new RunMissileWarning{Id=99100,VolleyId=910,Count=count,X=90,Y=14,Width=1190,Height=22,Duration=1.2f,Remaining=.8f};warnings.Add(warning);
+            foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+            {
+                Draw(view,run,canvas);Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,new Rect(92,524,1134,22))&&d.Color.a<.1f),"Normal rocket warning is absent or looks immediately damaging");
+            }
+            warnings.Clear();typeof(RunnerSession).GetMethod("LaunchRunMissileVolley",Private).Invoke(run,new object[]{warning});Check(shots.Count==count,"Live render fixture lost simultaneously spawned rocket count");
+            for(int i=0;i<count;i++)shots[i].X=630+i*100;
+            Draw(view,run,Canvas(.68f,119,28));
+            foreach(RunMissile shot in shots)
+            {
+                Vector3 centre=Canvas(.68f,119,28).MultiplyPoint3x4(new Vector3(shot.X+20,RunnerSession.GroundY-shot.Y-11,0));
+                Check(GUI.DrawCalls.Any(d=>d.Texture?.name=="CityDino disc"&&Math.Abs(d.Centre.x-centre.x)<.03f&&Math.Abs(d.Centre.y-centre.y)<.03f),"Running missile has no metal body at its damaging circle");
+            }
+            string drawn=DrawSignature();run.TogglePause();run.Update(3);GUI.DrawCalls.Clear();GUI.matrix=Canvas(.68f,119,28);view.Draw(run,9999);Check(DrawSignature()==drawn,"Paused normal rockets keep moving/drawing wall-time flames");
+        }
+    }
+    private static void UnderwaterHudV13()
+    {
+        var art=new RunnerArt();using(var view=new RunnerWorldView(art))
+        {
+            var run=ArenaFixture(BossKind.Submarine);var controller=Ui(run,art,view);DrawUi(controller);
+            foreach(string caption in new[]{"BƠI","LẶN","BẮN"})Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.StartsWith(caption)),"Underwater HUD lacks "+caption);
+            Check(!GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.StartsWith("BAY")),"Underwater HUD still calls swimming flying");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("CẤP 3")),"Normal submarine lacks the requested initial C3 tier");
         }
     }
 

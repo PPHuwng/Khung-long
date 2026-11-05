@@ -20,6 +20,9 @@ internal static class Program
         Test("footsteps only play on real ground and aircraft approach", Footsteps);
         Test("generated effects contain bounded non-silent samples and distinct defeat bursts", Samples);
         Test("higher-tier repeated sweeps each emit one charge sound without replay on silent resume", RepeatedChargeIdentity);
+        Test("running missile volleys sound once and never replay after silence or boss entry",RunMissileAudio);
+        Test("underwater entry naval attacks defeat and surfacing have distinct bounded cues",UnderwaterCues);
+        Test("submarine and breathing loops stop on pause mute and a completed swim exit",UnderwaterLoops);
         Console.WriteLine(passed + " passed; " + failed + " failed. Stub sound commands and samples only; no audio device or Unity mixer.");
         if (failed != 0) Environment.Exit(1);
     }
@@ -191,6 +194,57 @@ internal static class Program
         run.CurrentBoss.ChargeSourceTelegraphId=900002;
         Check(SoundCount(tracker.Observe(run,false),BossSoundKind.Charge)==1&&
             SoundCount(tracker.Observe(run,false),BossSoundKind.Charge)==0,"A fresh source did not re-arm exactly once");
+    }
+
+    private static void RunMissileAudio()
+    {
+        var run=new RunnerSession(null,81);run.SetStartingDistrict(District.Day);run.StartRun();
+        var warnings=(IList<RunMissileWarning>)run.RunMissileWarnings;var missiles=(IList<RunMissile>)run.RunMissiles;
+        warnings.Clear();missiles.Clear();var tracker=new RunMissileSoundTracker();
+        warnings.Add(new RunMissileWarning{Id=99001,VolleyId=71,Count=4,Remaining=1.2f,Duration=1.2f});
+        Check(SoundCount(tracker.Observe(run,false),BossSoundKind.Windup)==1&&tracker.Observe(run,false).Count==0,"Normal volley warning replayed or was silent");
+        warnings.Clear();for(int i=0;i<4;i++)missiles.Add(new RunMissile{Id=99002+i,VolleyId=71,VelocityX=-500});
+        Check(SoundCount(tracker.Observe(run,false),BossSoundKind.Missile)==1&&tracker.Observe(run,false).Count==0,"Four simultaneous rockets stacked or replayed launch sounds");
+        missiles.Clear();tracker.Observe(run,false);Check(tracker.TrackedCount==0,"Expired normal missile IDs accumulate");
+        warnings.Add(new RunMissileWarning{Id=99009,VolleyId=72,Count=2});
+        Check(tracker.Observe(run,true).Count==0&&tracker.Observe(run,false).Count==0,"Unmuting replayed a consumed normal warning");
+        warnings.Clear();missiles.Add(new RunMissile{Id=99010,VolleyId=72,VelocityX=-500});run.TogglePause();
+        Check(tracker.Observe(run,false).Count==0,"Paused normal volley made launch sound");run.TogglePause();
+        Check(tracker.Observe(run,false).Count==0,"Resuming replayed an already observed launch");
+        run.ReturnToMenu();run.StartBossPractice(BossKind.Submarine,CharacterKind.Classic,false);tracker.Observe(run,false);
+        Check(tracker.TrackedCount==0,"Normal missile sounds leaked into boss transition");
+    }
+    private static void UnderwaterCues()
+    {
+        var run=Practice(BossKind.Submarine,false);var tracker=new BossSoundTracker();int splash=0,defeat=0;
+        for(int i=0;i<120*5&&run.ArenaPhase==BossPhase.Intro;i++)
+        {splash+=SoundCount(tracker.Observe(run,false),BossSoundKind.Splash);run.Update(1f/120);}
+        Check(run.SwimControlsEnabled&&splash==1,"Dive did not play precisely one entry splash");
+        Property(run,"InvincibleRemaining",1000f);Marks(run).Clear();Shots(run).Clear();Obstacles(run).Clear();tracker.Observe(run,false);
+        Marks(run).Add(new BossTelegraph{Id=90001,Kind=BossAttackKind.SonarBeam,Active=true});
+        Shots(run).Add(new BossProjectile{Id=90002,Kind=BossAttackKind.Torpedo,VelocityX=-300});
+        for(int i=0;i<6;i++)Shots(run).Add(new BossProjectile{Id=90003+i,Kind=BossAttackKind.FishShoal,VelocityX=-300});
+        Obstacles(run).Add(new BossObstacle{Id=90009,Kind=BossAttackKind.SeaMine,Active=true});
+        var cues=tracker.Observe(run,false);
+        Check(SoundCount(cues,BossSoundKind.Sonar)==1&&SoundCount(cues,BossSoundKind.Torpedo)==1&&SoundCount(cues,BossSoundKind.Swarm)==1&&SoundCount(cues,BossSoundKind.Splash)==1,"Naval attacks lack distinct sonar torpedo fish and mine cues");
+        Check(tracker.Observe(run,false).Count==0,"Live naval objects repeated their audio");
+        run.CurrentBoss.Health=0;run.Update(.01f);
+        for(int i=0;i<120*5&&run.State==RunState.Playing;i++)
+        {cues=tracker.Observe(run,false);defeat+=SoundCount(cues,BossSoundKind.UnderwaterDefeat);splash+=SoundCount(cues,BossSoundKind.Splash);run.Update(1f/120);}
+        Check(defeat==1&&splash==2,"Underwater victory or surfacing sounded repeatedly or was missing");
+        Check(tracker.TrackedCount<100,"Underwater audio identities are unbounded");
+    }
+    private static void UnderwaterLoops()
+    {
+        var run=Practice(BossKind.Submarine);var controller=Controller(run);Call(controller,"UpdateBossAudio");
+        Check(Source(controller,"bossMovement").clip.name.Contains("Submarine")&&Source(controller,"bossMovement").isPlaying,"Submarine uses the wrong engine loop");
+        Check(Source(controller,"boardMovement").clip==(AudioClip)Get(controller,"breathingLoop")&&Source(controller,"boardMovement").isPlaying,"Equipped diver has no breathing loop");
+        run.TogglePause();Call(controller,"UpdateBossAudio");Check(!Source(controller,"bossMovement").isPlaying&&!Source(controller,"boardMovement").isPlaying,"Pause retained underwater loops");
+        run.TogglePause();Call(controller,"UpdateBossAudio");Call(controller,"ToggleSound");Check(!Source(controller,"bossMovement").isPlaying&&!Source(controller,"boardMovement").isPlaying,"Mute retained breathing or submarine engine");
+        Call(controller,"ToggleSound");run.CurrentBoss.Health=0;run.Update(.01f);Call(controller,"UpdateBossAudio");
+        for(int i=0;i<120*5&&run.State==RunState.Playing;i++){run.Update(1f/120);Call(controller,"UpdateBossAudio");}
+        Check(!Source(controller,"bossMovement").isPlaying&&!Source(controller,"boardMovement").isPlaying,"Completed dive retained an underwater loop on the street/results");
+        Call(controller,"DisposeBossAudio");
     }
 
 }

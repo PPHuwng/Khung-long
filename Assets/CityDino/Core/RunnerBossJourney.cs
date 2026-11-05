@@ -2,7 +2,7 @@ using System;
 
 namespace CityDino
 {
-    public enum BossTransitionStage { None, Approach, Collect, Takeoff, Arrive, Depart, Land }
+    public enum BossTransitionStage { None, Approach, Collect, Takeoff, Arrive, Depart, Land, Diving, Surfacing }
 
     /// <summary>Practice isolation, staged arena journeys and the gunship flight device.</summary>
     public sealed partial class RunnerSession
@@ -88,12 +88,14 @@ namespace CityDino
                 if (ArenaPhase == BossPhase.Intro)
                 {
                     if (entranceClock < 1.2f) return BossTransitionStage.Approach;
-                    if (entranceClock < 1.6f) return IsFlyingBoss ? BossTransitionStage.Collect : BossTransitionStage.Approach;
-                    if (entranceClock < 3.8f) return IsFlyingBoss ? BossTransitionStage.Takeoff : BossTransitionStage.Approach;
+                    if (entranceClock < 1.6f) return IsFreeMovementBoss ? BossTransitionStage.Collect : BossTransitionStage.Approach;
+                    if (entranceClock < 3.8f) return IsUnderwaterBoss ? BossTransitionStage.Diving
+                        : IsFlyingBoss ? BossTransitionStage.Takeoff : BossTransitionStage.Approach;
                     return BossTransitionStage.Arrive;
                 }
                 if (ArenaPhase == BossPhase.Victory && departureClock > BossExplosionDuration)
-                    return IsFlyingBoss ? BossTransitionStage.Land : BossTransitionStage.Depart;
+                    return IsUnderwaterBoss ? BossTransitionStage.Surfacing
+                        : IsFlyingBoss ? BossTransitionStage.Land : BossTransitionStage.Depart;
                 return BossTransitionStage.None;
             }
         }
@@ -116,6 +118,7 @@ namespace CityDino
             departurePlayerY = 0f;
             FlightDeviceCollected = false;
             practiceBossTier = 1;
+            ResetUnderwaterState();
         }
 
         public bool StartBossPractice(BossKind kind, CharacterKind character, bool learning = true, int tier = 1)
@@ -154,7 +157,7 @@ namespace CityDino
             bonusScoreDistance = 0d;
             Water = Warmth = 100f;
             ResetSurvivalForDistrict();
-            BossNumber = kind == BossKind.Tank ? 1 : kind == BossKind.Gunship ? 2 : 3;
+            BossNumber = kind == BossKind.Tank ? 1 : kind == BossKind.Gunship ? 2 : kind == BossKind.Submarine ? 3 : 4;
             CreateBossArena(kind);
             return true;
         }
@@ -201,6 +204,7 @@ namespace CityDino
             PreBossPlayerY = PlayerY;
             entranceClock = departureClock = 0f;
             FlightDeviceCollected = false;
+            ResetUnderwaterState();
             flightLiftHeld = false;
             flapCooldown = 0f;
             HorizontalVelocity = horizontalAxis = 0f;
@@ -216,6 +220,21 @@ namespace CityDino
                 PlayerX = Blend(PreBossPlayerX, 440f, approach);
                 PlayerY = Blend(PreBossPlayerY, 0f, approach);
             }
+            else if (IsUnderwaterBoss)
+            {
+                if (entranceClock <= 1.9f)
+                {
+                    float jump = SmoothClamp((entranceClock - 1.4f) / .5f, false);
+                    PlayerX = Blend(440f, 520f, BossMotionEase(jump));
+                    PlayerY = (float)Math.Sin(jump * Math.PI) * 88f;
+                }
+                else
+                {
+                    float descent = SmoothClamp((entranceClock - 1.9f) / 1.9f, true);
+                    PlayerX = Blend(520f, 260f, descent);
+                    PlayerY = Blend(0f, 145f, descent);
+                }
+            }
             else
             {
                 float arrival = SmoothClamp((entranceClock - 1.4f) / 2.4f, true);
@@ -223,9 +242,10 @@ namespace CityDino
                 PlayerY = IsFlyingBoss ? Blend(0f, 145f, arrival) : 0f;
             }
             FlightDeviceCollected = IsFlyingBoss && entranceClock >= 1.4f;
+            DivingHelmetEquipped = IsUnderwaterBoss && entranceClock >= 1.4f;
             VelocityY = dt > 0f ? (PlayerY - beforeY) / dt : 0f;
             AnimationVelocityY = VelocityY;
-            grounded = !IsFlyingBoss && PlayerY <= .001f;
+            grounded = !IsFreeMovementBoss && PlayerY <= .001f;
             IsDucking = duckRequested = false;
         }
 
@@ -236,9 +256,10 @@ namespace CityDino
             attackClock = 0d;
             horizontalAxis = HorizontalVelocity = 0f;
             VelocityY = AnimationVelocityY = 0f;
-            grounded = !IsFlyingBoss;
+            grounded = !IsFreeMovementBoss;
+            ClearSwimIntent();
             FacingLeft = false;
-            jumpsUsed = 0; coyoteRemaining = IsFlyingBoss ? 0f : .1f;
+            jumpsUsed = 0; coyoteRemaining = IsFreeMovementBoss ? 0f : .1f;
             BeginBossAttack();
         }
 
@@ -248,6 +269,7 @@ namespace CityDino
             departurePlayerX = PlayerX;
             departurePlayerY = PlayerY;
             flightLiftHeld = false;
+            ClearSwimIntent();
             horizontalAxis = HorizontalVelocity = 0f;
             FacingLeft = false;
             IsDucking = duckRequested = false;
@@ -262,13 +284,14 @@ namespace CityDino
             // screen coordinate settles at the normal running lane only
             // because scenery advances to the left; world travel never reverses.
             PlayerX = DepartureWorldX - BossExitCameraX;
-            PlayerY = IsFlyingBoss ? Blend(departurePlayerY, 0f, ExitLandingProgress)
+            PlayerY = IsFreeMovementBoss ? Blend(departurePlayerY, 0f, ExitLandingProgress)
                 : Blend(departurePlayerY, 0f, SmoothClamp((departureClock - BossExplosionDuration) / .9f, true));
             VelocityY = dt > 0f ? (PlayerY - beforeY) / dt : 0f;
             AnimationVelocityY = VelocityY;
             FacingLeft = false;
             IsDucking = duckRequested = false;
             if (IsFlyingBoss && ExitLandingProgress >= 1f) FlightDeviceCollected = false;
+            if (IsUnderwaterBoss && ExitLandingProgress >= 1f) DivingHelmetEquipped = false;
             grounded = PlayerY <= .001f;
         }
 
@@ -280,6 +303,7 @@ namespace CityDino
             EndReason = reason;
             VelocityY = HorizontalVelocity = horizontalAxis = 0f;
             shootingHeld = flightLiftHeld = false;
+            ClearSwimIntent();
         }
     }
 }

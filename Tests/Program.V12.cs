@@ -32,23 +32,23 @@ internal static partial class Program
         foreach(int number in new[]{1,2,3,4,6,7,12,24,60})
         {
             RunnerSession run=EnterBossFixture(number);
-            int tier=1+(number-1)/3;
+            int tier=3+(number-1)/4;
             Check(run.BossTier==tier&&run.CurrentBoss.Tier==tier,"Milestone did not capture the actual round tier");
-            float basic=run.CurrentBoss.Kind==BossKind.Tank?750:run.CurrentBoss.Kind==BossKind.Sentinel?840:800;
+            float basic=BossBaseHpV13(run.CurrentBoss.Kind);
             Near(run.CurrentBoss.MaxHealth/basic,run.BossHealthScale,.002f,"Actual normal boss HP ignored its tier");
         }
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in LegacyBossKindsV13)
         {
             float previousHp=0,previousPace=0;
             foreach(int tier in new[]{1,2,4,8,32,128})
             {
                 RunnerSession run=TierPracticeV12(kind,tier);
                 Check(run.CurrentBoss.MaxHealth>previousHp&&run.BossTierPace>=previousPace,"Boss tier stopped increasing health or reduced projectile pace");
-                Check(run.BossRepeatCount>=1&&run.BossRepeatCount<=4,"A tier allocated unbounded simultaneous repeat waves");
+                Check(run.BossRepeatCount>=1&&run.BossRepeatCount<=6,"A tier allocated unbounded simultaneous repeat waves");
                 previousHp=run.CurrentBoss.MaxHealth;previousPace=run.BossTierPace;
                 if(tier>=8)
                 {
-                    float baseHp=kind==BossKind.Tank?750:kind==BossKind.Sentinel?840:800;
+                    float baseHp=BossBaseHpV13(kind);
                     Check(run.CurrentBoss.MaxHealth>baseHp*1.6f,"Later tiers still hit the old 60% HP ceiling");
                 }
             }
@@ -97,7 +97,7 @@ internal static partial class Program
     }
     private static void BossTierPressureV12()
     {
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in LegacyBossKindsV13)
         {
             TierOutputV12 first=MeasureTierV12(kind,1),second=MeasureTierV12(kind,2),fourth=MeasureTierV12(kind,4),eighth=MeasureTierV12(kind,8);
             Check(second.Dangers>first.Dangers&&fourth.Dangers>second.Dangers&&eighth.Dangers>=fourth.Dangers,
@@ -145,7 +145,7 @@ internal static partial class Program
     }
     private static void BossSweepVariantsV12()
     {
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in LegacyBossKindsV13)
         {
             int full,partial,againFull,againPartial,otherFull,otherPartial;
             string trace=SweepTraceV12(kind,617,out full,out partial);
@@ -158,7 +158,7 @@ internal static partial class Program
 
     private static void BossRepeatChargesV12()
     {
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in LegacyBossKindsV13)
         {
             RunnerSession run=TierPracticeV12(kind,8,317,true,.2f);
             var cues=new Dictionary<int,Tuple<float,BossTelegraph>>();var struck=new HashSet<int>();
@@ -195,21 +195,28 @@ internal static partial class Program
             Check(run.SkipPracticeIntro(),"Practice tier intro could not be skipped");run.ReturnToMenu();
             Check(SaveSnapshotV10(run.Save)==saved&&writes==0,"Practice tier spent stocks or recorded normal progression");
         }
-        run.StartRun();Check(run.BossTier==1&&!run.IsPractice,"Practice tier leaked into the next normal run");
+        run.StartRun();Check(run.BossTier==3&&!run.IsPractice,"Practice tier leaked into the next normal run");
         Check(run.Lives==4&&run.ShieldReady&&run.WaterReserveReady&&run.WarmReserveReady,"Practice tiers consumed next-run purchases");
     }
 
     private static void LateTierPathsV12()
     {
         foreach(int tier in new[]{2,4,8})
-        foreach(BossKind kind in Enum.GetValues(typeof(BossKind)))
+        foreach(BossKind kind in LegacyBossKindsV13)
         {
             // Standard practice uses the same production attack rules. Reducing
             // lives to one makes this path test stricter; health staging holds
             // phase 3 so all late combinations are exercised without victory.
-            RunnerSession run=TierPracticeV12(kind,tier,617,false,.2f);SetProperty(run,"Lives",1);
+            var run=new RunnerSession(null,617);
+            Check(run.StartBossPractice(kind,CharacterKind.Classic,false,tier),"Late path practice rejected");
+            // Stage health before combat starts so even the opening plan is
+            // the intended final phase rather than a leftover full-health volley.
+            run.CurrentBoss.Health=run.CurrentBoss.MaxHealth*.2f;
+            Check(run.SkipPracticeIntro(),"Late path intro skip rejected");
+            SetProperty(run,"Lives",1);
             float health=run.CurrentBoss.Health;int casts=0;var sourceIds=new HashSet<int>();
-            for(int i=0;i<120*50;i++)
+            int seconds=tier>=6?110:50;
+            for(int i=0;i<120*seconds;i++)
             {
                 CombatBotInput(run,run.BossObstacles.Any(o=>o.Destructible&&o.X>run.PlayerX&&o.X<run.PlayerX+500),true);
                 if(run.CurrentBoss.ContactActive&&sourceIds.Add(run.CurrentBoss.ChargeSourceTelegraphId))casts++;
@@ -217,13 +224,13 @@ internal static partial class Program
                 Check(run.State==RunState.Playing&&run.Lives==1,"Late tier route took damage "+kind+" tier="+tier+" t="+run.BossElapsed+" "+ArenaDescription(run));
             }
             Check(casts>0,"Late route missed charge attacks "+kind+" tier="+tier);
-            Console.WriteLine("  V12 real one-heart path "+kind+" tier "+tier+":50s, "+casts+" actual charge strikes; no damage, invulnerability or skill.");
+            Console.WriteLine("  V12 real one-heart path "+kind+" tier "+tier+":"+seconds+"s, "+casts+" actual charge strikes; no damage, invulnerability or skill.");
         }
     }
 
     private static void ForwardDepartureV12()
     {
-        foreach(int number in new[]{1,2,3})
+        foreach(int number in new[]{1,2,3,4})
         {
             // Victory bookkeeping fixture: the full-health combat tests above
             // supply separate win evidence. This fixture isolates the journey.

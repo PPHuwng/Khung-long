@@ -34,6 +34,9 @@ namespace CityDino
         public readonly Texture2D OrdnanceAtlas;
         public readonly Texture2D ArenaBackdropAtlas;
         public readonly Texture2D ArenaGateAtlas;
+        public readonly Texture2D SubmarineAtlas;
+        public readonly Texture2D DivingKitAtlas;
+        public readonly Texture2D UnderwaterBackdrop;
         public readonly Rect HoverboardUV = new Rect(46f / 2172f, 161f / 724f, 2080f / 2172f, 378f / 724f);
         // The earlier pack crop remains available for old resource consumers;
         // the current cinematic and ride use the hoverboard above.
@@ -185,6 +188,9 @@ namespace CityDino
             OrdnanceAtlas = Resources.Load<Texture2D>("CityDino/OrdnanceAtlas");
             ArenaBackdropAtlas = Resources.Load<Texture2D>("CityDino/ArenaBackdropAtlas");
             ArenaGateAtlas = Resources.Load<Texture2D>("CityDino/ArenaGateAtlas");
+            SubmarineAtlas = Resources.Load<Texture2D>("CityDino/SubmarineAtlas");
+            DivingKitAtlas = Resources.Load<Texture2D>("CityDino/DivingKitAtlas");
+            UnderwaterBackdrop = Resources.Load<Texture2D>("CityDino/UnderwaterBackdrop");
             DinoFrames = new Texture2D[5];
             for (int i = 0; i < DinoFrames.Length; i++)
                 DinoFrames[i] = Load("Dino" + (i + 1));
@@ -328,6 +334,33 @@ namespace CityDino
         public Rect GetArenaBackdropUV(BossKind kind)
         {
             return new Rect(0f, kind == BossKind.Tank ? .5f : 0f, 1f, .5f);
+        }
+
+        // Tight alpha sampling bounds from unchanged naval artwork.
+        private static readonly Rect[] SubmarineUvs =
+        {
+            new Rect(16f/2172f, 231f/724f, 511f/2172f, 297f/724f),
+            new Rect(554f/2172f, 231f/724f, 515f/2172f, 316f/724f),
+            new Rect(1101f/2172f, 168f/724f, 512f/2172f, 341f/724f),
+            new Rect(1647f/2172f, 231f/724f, 511f/2172f, 294f/724f),
+        };
+
+        public Rect GetSubmarineUV(int cell)
+        {
+            return SubmarineUvs[System.Math.Max(0, System.Math.Min(3, cell))];
+        }
+
+        private static readonly Rect[] DivingKitUvs =
+        {
+            new Rect(15f/1262f, 681f/1246f, 549f/1262f, 520f/1246f),
+            new Rect(653f/1262f, 732f/1246f, 592f/1262f, 388f/1246f),
+            new Rect(22f/1262f, 180f/1246f, 575f/1262f, 273f/1246f),
+            new Rect(653f/1262f, 47f/1246f, 583f/1262f, 585f/1246f),
+        };
+
+        public Rect GetDivingKitUV(int cell)
+        {
+            return DivingKitUvs[System.Math.Max(0, System.Math.Min(3, cell))];
         }
 
         public Rect GetBossUV(BossKind kind)

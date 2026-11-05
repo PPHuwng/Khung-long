@@ -81,13 +81,13 @@ internal static partial class Program
     }
     private static void BossJourneyV10()
     {
-        foreach(int number in new[]{1,2,3})
+        foreach(int number in new[]{1,2,4})
         {
             RunnerSession run=CharacterRun(CharacterKind.Classic,District.Storm);
             SetProperty(run,"PlayerX",690f);run.Jump();run.Update(.2f);
             float beforeX=run.PlayerX,beforeY=run.PlayerY;
             SetProperty(run,"BossNumber",number-1);SetProperty(run,"NextBossScore",number*10000);SetProperty(run,"Distance",number*200000f-1);SetProperty(run,"Score",number*10000-1);run.Update(1f/120);
-            Check(run.CurrentBoss.Kind==(number==1?BossKind.Tank:number==2?BossKind.Gunship:BossKind.Sentinel),"Wrong themed milestone order");
+            Check(run.CurrentBoss.Kind==(NormalBossKindV13(number)),"Wrong themed milestone order");
             Near(run.PlayerX,beforeX,2,"Milestone teleported X");Near(run.PlayerY,beforeY,8,"Milestone teleported Y");
             int score=run.Score;float elapsed=run.Elapsed,stage=run.DistrictElapsed,dist=run.Distance,water=run.Water,warmth=run.Warmth;
             bool collect=false,takeoff=false,arrive=false;float previousX=run.PlayerX,previousY=run.PlayerY,blend=0;
