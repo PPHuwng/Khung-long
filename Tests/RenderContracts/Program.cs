@@ -20,6 +20,10 @@ internal static class Program
         Test("every hazard is drawn and no floating action labels remain",VisibleHazards);
         Test("peak blackout ends the world pass with fully opaque pure black",FullBlackout);
         Test("storm lightning rendering follows the shared strike clock",LightningDraw);
+        Test("map blends keep skyline geometry and road tile grids fixed",DistrictTransitionComfortV14);
+        Test("map palette blends freeze on pause and reset on a fresh run",PaletteLifecycleV14);
+        Test("late decorative motion stays bounded without moving live terrain openings",DecorativeMotionV14);
+        Test("storm pulses stay restrained and fade with the map atmosphere",StormComfortV14);
         Test("storm rain remains visible above both darkness and lightning",StormRainOrder);
         Test("snow has a visible icy surface and falling flakes",SnowSurface);
         Test("snow road cuts match open gaps and collapsed floors",SnowGapCuts);
@@ -53,22 +57,24 @@ internal static class Program
         Test("airborne combat has no road or helipad and all arenas have distinct themes",ThemedArenaRendering);
         Test("scripted transitions and landing freeze their world layers when paused",JourneyPauseRendering);
         Test("boss obstacles show exact active physical bodies and harmless visible warnings",BossObstacleRendering);
-        Test("aerial gate warning displays both collision bars and its real safe gap",AirGateRendering);
+        Test("aerial gate preparation shows local emitters without outlining its safe gap",AirGateRendering);
         Test("practice preparation previews all bosses and trial characters without underlying actions",PracticeMenuRendering);
         Test("practice results expose retry preparation and menu without ordinary run rewards",PracticeResultsRendering);
         Test("boss actions select independently drawn poses without moving their physical image bounds",BossActionPoseRendering);
         Test("real charge strikes animate the body and highlight the exact live contact shape",BossChargeRendering);
         Test("robot electricity is a true circular energy sphere with a harmless soft halo",ElectricOrbRendering);
         Test("front rear and falling missiles point their metal nose along the actual velocity",DirectionalMissileRendering);
-        Test("missile rain warns its physical strips while keeping the real escape corridor clear",MissileRainRendering);
+        Test("missile rain warns only its overhead sources and draws physical impacts when active",MissileRainRendering);
         Test("ordnance uses separate source art and shared round damage cores instead of flying boxes",OrdnanceRenderingV12);
-        Test("partial and full-left sweeps reveal distinct locked stop and screen-edge signals",SweepWarningsV12);
+        Test("partial and full-left sweeps use distinct compact source signals",SweepWarningsV12);
+        Test("boss projectile cues stay local while fast lasers keep a faint aiming filament",LocalBossWarningsV14);
         Test("practice tier controls and combat HUD distinguish danger level from health phase",TierHudV12);
         Test("victory moves through the exit behind the boss while arena and street scroll forward",ForwardExitRenderingV12);
         Test("submarine journey equips a helmet before the jump and reveals a separate submerged arena",UnderwaterJourneyV13);
         Test("diving helmet glass exposes every character face in both directions and stays on its logical head",DivingHelmetV13);
         Test("naval attacks draw distinct fish torpedoes mines and fully active sonar geometry",NavalOrdnanceV13);
         Test("submarine victory surfaces before the far exit and keeps the destination street moving forward",UnderwaterExitV13);
+        Test("every diver departure places its visible feet on the transformed shore ramp",UnderwaterBankContactV14);
         Test("normal running rocket waves show harmless cues then distinct physical missiles and freeze on pause",RunMissileRenderingV13);
         Test("underwater controls and four-boss preparation remain clear and isolated",UnderwaterHudV13);
         Console.WriteLine("Render coordinate contracts: "+passed+" passed, "+failed+" failed.");
@@ -198,7 +204,102 @@ internal static class Program
             var flashes=GUI.DrawCalls.Where(d=>FullCanvas(d)&&d.Color.r>0.5f&&d.Color.b>d.Color.r&&d.Color.a>0).ToList();
             Check(flashes.Count==(district==District.Storm?1:0),"Lightning appeared on the wrong map or pulse duplicated");
             if(district==District.Storm)
-                Near(flashes[0].Color.a,RunnerWeather.GetLightning(district,peak).Amount*0.55f,"Flash uses a different clock from thunder");
+                Near(flashes[0].Color.a,RunnerWeather.GetLightning(district,peak).Amount*0.14f,"Flash uses a different clock from thunder");
+        }
+    }
+    private static List<RecordedDraw> SkylinePaintV14(RunnerArt art)
+    { return GUI.DrawCalls.Where(d=>d.Texture==art.SkylineFar||d.Texture==art.SkylineNear).ToList(); }
+    private static void DistrictTransitionComfortV14()
+    {
+        var art=new RunnerArt();var run=New();Set(run,"Elapsed",10);Set(run,"Distance",5000);
+        using(var view=new RunnerWorldView(art))
+        {
+            Draw(view,run,Canvas(1));var initial=SkylinePaintV14(art);
+            Check(initial.Count>0,"Skyline comfort proof has no source art");
+            Field(run,"<CurrentDistrict>k__BackingField",District.Skyway);
+            List<Rect> roadGrid=null,platformGrid=null;
+            foreach(float elapsed in new[]{10f,10.4f,11f,11.5f,12.4f,13f,14f})
+            {
+                Set(run,"Elapsed",elapsed);Draw(view,run,Canvas(1));var skyline=SkylinePaintV14(art);
+                Check(skyline.Count==initial.Count,"Map blend changed skyline tiling count");
+                for(int i=0;i<skyline.Count;i++)
+                    Check(skyline[i].Texture==initial[i].Texture&&SameRect(skyline[i].Position,initial[i].Position),
+                        "Map blend slides or resizes the skyline instead of fading it at "+elapsed);
+                foreach(Texture2D texture in new[]{art.Road,art.PlatformLong})
+                {
+                    var grid=GUI.DrawCalls.Where(d=>d.Texture==texture).Select(d=>d.Position).ToList();
+                    if(grid.Count==0)continue;
+                    List<Rect> previous=texture==art.Road?roadGrid:platformGrid;
+                    if(previous!=null)
+                    {
+                        Check(grid.Count==previous.Count,"A fixed road grid changed tile count midway through map blend");
+                        for(int i=0;i<grid.Count;i++)Check(SameRect(grid[i],previous[i]),"A road tile jumped sideways as the cloud map faded in");
+                    }
+                    if(texture==art.Road)roadGrid=grid;else platformGrid=grid;
+                }
+            }
+            Check(roadGrid!=null&&platformGrid!=null,"Map fade omitted the road/platform crossfade");
+            var last=SkylinePaintV14(art);
+            Check(last[0].Color.a<initial[0].Color.a*.4f,"Cloud map never fades the fixed city into the distance");
+        }
+    }
+    private static void PaletteLifecycleV14()
+    {
+        var art=new RunnerArt();var run=New();Set(run,"Elapsed",20);
+        using(var view=new RunnerWorldView(art))
+        {
+            Draw(view,run,Canvas(1));Field(run,"<CurrentDistrict>k__BackingField",District.Night);Draw(view,run,Canvas(1));
+            Set(run,"Elapsed",21);Draw(view,run,Canvas(1));run.TogglePause();Draw(view,run,Canvas(1));string before=DrawSignature();
+            run.Update(30);GUI.DrawCalls.Clear();view.Draw(run,9999);
+            Check(DrawSignature()==before,"Paused map palette or scenery keeps blending with ambient time");
+            run.ReturnToMenu();run.SetStartingDistrict(District.Day);run.StartRun();World(run).Clear();Draw(view,run,Canvas(1));
+            string reset=DrawSignature();
+            using(var fresh=new RunnerWorldView(art))Draw(fresh,run,Canvas(1));
+            Check(DrawSignature()==reset,"New run inherits the prior run's half-finished night palette");
+        }
+    }
+    private static void DecorativeMotionV14()
+    {
+        var art=new RunnerArt();
+        foreach(float time in new[]{60f,600f,3600f})
+        {
+            var run=New();float distance=RunnerSession.InitialSpeed*time+.5f*RunnerSession.SpeedAcceleration*time*time;
+            Set(run,"Elapsed",time);Set(run,"Distance",distance);
+            var gap=new WorldEntity{Kind=EntityKind.Gap,X=350,Width=160,Height=160};World(run).Add(gap);
+            using(var view=new RunnerWorldView(art))
+            {
+                Draw(view,run,Canvas(1));var before=SkylinePaintV14(art);
+                Set(run,"Elapsed",time+.01f);
+                Set(run,"Distance",distance+(RunnerSession.InitialSpeed+RunnerSession.SpeedAcceleration*time)*.01f);
+                Draw(view,run,Canvas(1));var after=SkylinePaintV14(art);
+                foreach(RecordedDraw tile in before)
+                {
+                    float shift=after.Where(d=>d.Texture==tile.Texture).Min(d=>Math.Abs(d.Position.x-tile.Position.x));
+                    Check(shift>0f&&shift<1.2f,"Late decorative skyline movement becomes a high-speed sweep or freezes at "+time);
+                }
+                var cuts=(IList<Vector2>)typeof(RunnerWorldView).GetField("gaps",Private).GetValue(view);
+                Check(cuts.Count==1,"Decorative cap hid a physical gap");
+                Near(cuts[0].x,350,"Decorative cap moved the physical gap's left edge");
+                Near(cuts[0].y,510,"Decorative cap moved the physical gap's right edge");
+            }
+        }
+    }
+    private static void StormComfortV14()
+    {
+        var art=new RunnerArt();var run=New(District.Storm);
+        using(var view=new RunnerWorldView(art))
+        {
+            for(int i=0;i<60;i++)
+            {
+                float time=1f+i*.03f;Set(run,"Elapsed",time);Set(run,"DistrictElapsed",time);Draw(view,run,Canvas(1));
+                var dark=GUI.DrawCalls.Where(d=>FullCanvas(d)&&d.Color.r<.1f&&d.Color.a>0).ToList();
+                Check(dark.Count==1&&dark[0].Color.a>=.139f&&dark[0].Color.a<=.361f,"Storm darkness returns to a high-contrast whole-screen pulse");
+                Check(!GUI.DrawCalls.Any(d=>FullCanvas(d)&&d.Color.r>.5f&&d.Color.a>.141f),"Storm flash exceeds the restrained brightness envelope");
+            }
+            Field(run,"<CurrentDistrict>k__BackingField",District.Day);Set(run,"Elapsed",4);Draw(view,run,Canvas(1));
+            Check(GUI.DrawCalls.Any(d=>FullCanvas(d)&&d.Color.r<.1f&&d.Color.a>0),"Storm veil disappears abruptly at the map boundary");
+            Set(run,"Elapsed",7.1f);Draw(view,run,Canvas(1));
+            Check(!GUI.DrawCalls.Any(d=>FullCanvas(d)&&d.Color.r<.1f&&d.Color.a>0),"Storm veil remains after the three-second atmosphere fade");
         }
     }
     private static void StormRainOrder()
@@ -651,8 +752,8 @@ internal static class Program
             }
             Check(!GUI.DrawCalls.Any(d=>SameRect(d.Position,new Rect(removed.X,RunnerSession.GroundY-removed.Y-removed.Height,removed.Width,removed.Height))),"Removed projectile is still visible");
             Rect warning=new Rect(signal.X,RunnerSession.GroundY-signal.Y-signal.Height,signal.Width,signal.Height);
-            RecordedDraw fill=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,warning));
-            Check(fill.Color.a<.3f,"Harmless attack warning looks like a fully active hitbox");
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,warning)),"Harmless preparation paints its complete future damage area");
+            Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8),"Local attack warning lacks its exclamation sign");
             signal.Active=true;using(var view=new RunnerWorldView(art))Draw(view,run,canvas);
             RecordedDraw active=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,warning));
             Check(active.Color.a>=.6f&&active.Color.r>active.Color.b,"Active attack does not paint its whole physical area");
@@ -1049,8 +1150,8 @@ internal static class Program
             Check(!warning.Visible&&DrawSignature()==baseline,"Queued future attack appeared before its warning begins");
             warning.DelayRemaining=0;Draw(view,run,Canvas(1));
             Rect physical=new Rect(warning.X,RunnerSession.GroundY-warning.Y-warning.Height,warning.Width,warning.Height);
-            RecordedDraw harmless=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
-            Check(harmless.Color.a<.3f,"Visible queued warning looks immediately damaging");
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical)),"Queued warning paints a complete future damage rectangle");
+            Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8),"Visible queued warning omits the local caution sign");
             warning.Active=true;Draw(view,run,Canvas(.68f,119,28));
             RecordedDraw live=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
             Check(live.Color.a>=.6f,"Activated queued attack does not show its complete damage rectangle");
@@ -1235,9 +1336,9 @@ internal static class Program
             }
             objects.Clear();var warnings=(IList<BossTelegraph>)run.BossTelegraphs;warnings.Clear();
             var warning=new BossTelegraph{Id=obstacle.Id,Kind=kind,X=obstacle.X,Y=obstacle.Y,Width=obstacle.Width,Height=obstacle.Height,Duration=1,Remaining=.8f};warnings.Add(warning);
-            Draw(view,run,canvas);RecordedDraw preview=GUI.DrawCalls.FirstOrDefault(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical));
-            Check(preview!=null&&preview.Color.a<.3f,"Obstacle's visible harmless warning omits its eventual footprint: "+kind);
-            Point(preview.Centre,canvas.MultiplyPoint3x4(physical.center),"Obstacle warning shifted away from live geometry");
+            Draw(view,run,canvas);
+            Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8),"Obstacle's preparation lacks its compact local warning: "+kind);
+            Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,physical)),"Obstacle warning still paints a whole future damage footprint: "+kind);
             warnings.Clear();objects.Add(obstacle);obstacle.Removed=true;Draw(view,run,canvas);string removed=DrawSignature();objects.Clear();Draw(view,run,canvas);
             Check(DrawSignature()==removed,"Removed boss obstacle remains visible: "+kind);
         }
@@ -1250,15 +1351,10 @@ internal static class Program
         foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
         {
             Draw(view,run,canvas);
-            Rect gap=new Rect(warning.X,RunnerSession.GroundY-warning.GapY-warning.GapHeight,warning.Width,warning.GapHeight);
-            Rect lower=new Rect(warning.X,RunnerSession.GroundY-warning.GapY,warning.Width,warning.GapY);
-            Rect upper=new Rect(warning.X,RunnerSession.GroundY-360,warning.Width,360-warning.GapY-warning.GapHeight);
-            foreach(Rect bar in new[]{lower,upper})
-            {
-                RecordedDraw fill=GUI.DrawCalls.FirstOrDefault(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,bar));
-                Check(fill!=null&&fill.Color.a<.3f,"Gate preview omitted a harmless physical bar or hid safe opening");
-                Point(fill.Centre,canvas.MultiplyPoint3x4(bar.center),"Gate bar warning left its physical position");
-            }
+            var signs=GUI.DrawCalls.Where(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8).ToList();
+            Check(signs.Count==2,"Gate should signal two source emitters rather than draw a future wall");
+            foreach(RecordedDraw sign in signs)
+                Near(sign.Centre.x,canvas.MultiplyPoint3x4(new Vector2(run.CurrentBoss.X+2,0)).x,"Gate source warning left its actual emitters");
             Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,new Rect(warning.X,RunnerSession.GroundY-360,warning.Width,360))),"Gate warning paints the safe gap as a collision wall");
         }
     }
@@ -1274,7 +1370,7 @@ internal static class Program
                 Check(GUI.DrawCalls.Any(d=>d.Texture==art.GetCharacterTexture(kind,0)),"Practice omits a trial character preview: "+kind);
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("LÀM QUEN")),"Learning selector is missing");
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("CHUẨN")),"Standard selector is missing");
-            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 13")),"Version footer is stale");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 14")),"Version footer is stale");
             Check(GUI.DrawCalls.Where(d=>d.Kind=="Button"&&d.Text!=null&&d.Text.StartsWith("BẮT ĐẦU")).All(d=>!d.Enabled),"Practice preparation leaves normal start active");
             Check(!run.Save.OwnsTriceratops&&!run.Save.OwnsRaptor&&run.State==RunState.Menu,"Previewing practice changed character ownership or began a run");
         }
@@ -1359,7 +1455,8 @@ internal static class Program
                     if(mark.Visible&&(mark.Kind==BossAttackKind.TankRam||mark.Kind==BossAttackKind.RobotDash||mark.Kind==BossAttackKind.GunshipDive||mark.Kind==BossAttackKind.SubmarineRam))
                     {
                         Draw(view,run,Canvas(.68f,119,28));Rect danger=new Rect(mark.X,RunnerSession.GroundY-mark.Y-mark.Height,mark.Width,mark.Height);
-                        Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,danger)&&d.Color.a<.3f),"Lunge lacks its harmless lane warning");warning=true;
+                        Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8),"Lunge lacks its compact source warning");
+                        Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,danger)),"Lunge still paints a map-length lane warning");warning=true;
                     }
                 if(boss.ContactActive)
                 {
@@ -1411,6 +1508,8 @@ internal static class Program
     {return draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.xMax,draw.Position.center.y,0));}
     private static bool SamePoint(Vector3 a,Vector3 b)
     {return Math.Abs(a.x-b.x)<.025f&&Math.Abs(a.y-b.y)<.025f;}
+    private static float CanvasScaleV14(Matrix4x4 canvas)
+    {return canvas.MultiplyPoint3x4(new Vector3(1,0,0)).x-canvas.MultiplyPoint3x4(new Vector3(0,0,0)).x;}
     private static void DirectionalMissileRendering()
     {
         var art=new RunnerArt();using(var view=new RunnerWorldView(art))
@@ -1430,8 +1529,9 @@ internal static class Program
                 var mark=new BossTelegraph{Id=58,Kind=BossAttackKind.CrossMissile,X=90,Y=18,Width=1000,Height=24,Duration=1,Remaining=.6f,OriginX=velocity.x>0?-30:1320,OriginY=18,VelocityX=velocity.x};
                 GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{mark,.3f,new BossEncounter()});
                 float edgeX=velocity.x>0?25:1255,edgeY=RunnerSession.GroundY-30;
-                Vector3 tip=canvas.MultiplyPoint3x4(new Vector2(edgeX+(velocity.x>0?7:-7),edgeY));
+                Vector3 tip=canvas.MultiplyPoint3x4(new Vector2(edgeX+(velocity.x>0?23:-23),edgeY));
                 Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SamePoint(LineEnd(d),tip)),"Missile warning has no correctly directed edge arrival indicator");
+                Check(!GUI.DrawCalls.Any(d=>VisibleBounds(d).width>CanvasScaleV14(canvas)*90),"Missile source warning still spreads across the arena");
             }
         }
     }
@@ -1450,12 +1550,12 @@ internal static class Program
                     Check(mark.GapWidth>=200,"Rain warning leaves too little room for its escape corridor");
                     Check(mark.X+mark.Width<=mark.GapX||mark.X>=mark.GapX+mark.GapWidth,"Rain warning paints across its own escape corridor");
                     Rect danger=new Rect(mark.X,RunnerSession.GroundY-mark.Y-mark.Height,mark.Width,mark.Height);
-                    Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,danger)&&d.Color.a<.3f),"Rain strip was not painted at its physical path");
-                    foreach(float x in new[]{mark.GapX,mark.GapX+mark.GapWidth})
-                    {
-                        Vector3 bottom=canvas.MultiplyPoint3x4(new Vector2(x,RunnerSession.GroundY));
-                        Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Color.g>d.Color.r&&SamePoint(LineEnd(d),bottom)),"Rain escape edge lacks its green safe-corridor guide");
-                    }
+                    Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,danger)),"Rain preview still paints a full-height strip");
+                    float sourceX=mark.OriginX!=0?mark.OriginX+13f:mark.X+mark.Width*.5f;
+                    sourceX=Math.Max(25,Math.Min(1255,sourceX));
+                    Vector3 expected=canvas.MultiplyPoint3x4(new Vector2(sourceX,148));
+                    Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8&&SamePoint(d.Centre,expected)),"Rain omits its compact overhead launch sign");
+                    Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Color.g>d.Color.r&&d.Color.g>.9f&&VisibleBounds(d).height>100*CanvasScaleV14(canvas)),"Rain displays a map-long green escape guide");
                 }
             }
             for(int i=0;i<120*8&&!run.BossTelegraphs.Any(t=>t.Kind==BossAttackKind.MissileRain&&t.Active);i++)run.Update(1f/120);
@@ -1531,25 +1631,77 @@ internal static class Program
         var art=new RunnerArt();using(var view=new RunnerWorldView(art))
         foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
         {
-            string partial="";
+            string partial="";int partialCount=0;
             foreach(bool full in new[]{false,true})
             {
                 var cue=new BossTelegraph{Id=8000,Kind=BossAttackKind.TankRam,X=full?-310:90,Y=0,Width=full?1400:1000,Height=68,Duration=1.25f,Remaining=.5f,FullSweep=full,SweepEndX=full?-310:350,AimX=full?-310:350};
                 GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{cue,.45f,new BossEncounter()});
                 Rect footprint=new Rect(cue.X,RunnerSession.GroundY-cue.Y-cue.Height,cue.Width,cue.Height);
-                Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,footprint)&&d.Color.a<.3f),"Sweep cue no longer paints its exact harmless locked lane");
-                float y=RunnerSession.GroundY-34;
+                Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,footprint)),"Sweep cue still paints its entire future lane");
+                Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8),"Sweep cue lacks its local caution sign");
+                Check(GUI.DrawCalls.All(d=>VisibleBounds(d).width<75*CanvasScaleV14(canvas)&&VisibleBounds(d).height<75*CanvasScaleV14(canvas)),"Sweep cue draws outside its compact source region");
                 if(full)
                 {
-                    Vector3 tip=canvas.MultiplyPoint3x4(new Vector2(14,y));
-                    Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SamePoint(LineEnd(d),tip)),"Full sweep does not show continuation through the left screen edge");
+                    Check(GUI.DrawCalls.Count==partialCount+2,"Full sweep should show the second local chevron");
                     Check(DrawSignature()!=partial,"Random full/partial variants are visually indistinguishable before striking");
                 }
                 else
                 {
-                    Vector3 stop=canvas.MultiplyPoint3x4(new Vector2(358,y));
-                    Check(GUI.DrawCalls.Any(d=>d.Texture?.name=="CityDino disc"&&SamePoint(d.Centre,stop)),"Partial sweep omits the locked stopping marker");partial=DrawSignature();
+                    partialCount=GUI.DrawCalls.Count;partial=DrawSignature();
                 }
+            }
+        }
+    }
+    private static void LocalBossWarningsV14()
+    {
+        var art=new RunnerArt();using(var view=new RunnerWorldView(art))
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+        {
+            var boss=new BossEncounter{Kind=BossKind.Tank,X=840,Y=0,Width=230,Height=120};
+            foreach(BossAttackKind kind in new[]{BossAttackKind.Cannon,BossAttackKind.AirSpread,BossAttackKind.CrossMissile,BossAttackKind.ElectricOrb,BossAttackKind.MissileRain})
+            {
+                var cue=new BossTelegraph{Id=14001,Kind=kind,X=90,Y=100,Width=1060,Height=24,Duration=.6f,Remaining=.3f,OriginX=kind==BossAttackKind.MissileRain?400:1320,OriginY=kind==BossAttackKind.MissileRain?430:100,VelocityX=-400,VelocityY=kind==BossAttackKind.MissileRain?-350:45};
+                GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{cue,.3f,boss});
+                Check(GUI.DrawCalls.Count>0,"A projectile preparation became completely invisible: "+kind);
+                Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8),"Projectile preparation has no caution sign: "+kind);
+                var bounds=GUI.DrawCalls.Select(VisibleBounds).ToList();
+                float spanX=bounds.Max(b=>b.xMax)-bounds.Min(b=>b.x),spanY=bounds.Max(b=>b.yMax)-bounds.Min(b=>b.y);
+                Check(spanX<85*CanvasScaleV14(canvas)&&spanY<85*CanvasScaleV14(canvas),"A launch cue covers the future route rather than its source: "+kind);
+                Check(!GUI.DrawCalls.Any(d=>d.Color.g>d.Color.r&&d.Color.g>.9f&&VisibleBounds(d).height>100*CanvasScaleV14(canvas)),"A missile preparation reveals a green safe-corridor guide");
+            }
+            foreach(BossAttackKind kind in new[]{BossAttackKind.LaserLow,BossAttackKind.LaserHigh,BossAttackKind.AirLaser})
+            {
+                var beam=new BossTelegraph{Id=14002,Kind=kind,X=75,Y=105,Width=760,Height=14,Duration=.6f,Remaining=.3f};
+                GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{beam,.3f,boss});
+                Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==760&&d.Position.height<=2&&d.Color.a<.35f),"Fast laser lacks its restrained aiming filament");
+                Rect damage=new Rect(75,RunnerSession.GroundY-119,760,14);
+                Check(!GUI.DrawCalls.Any(d=>SameRect(d.Position,damage)),"Inactive laser paints a complete damage banner");
+                beam.Active=true;GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{beam,.3f,boss});
+                Check(GUI.DrawCalls.Any(d=>SameRect(d.Position,damage)&&d.Color.a>=.6f),"Active beam stopped showing its real damaging width/height");
+            }
+            foreach(BossAttackKind kind in new[]{BossAttackKind.Cannon,BossAttackKind.MineDrop,
+                BossAttackKind.CrateDrop,BossAttackKind.ShieldDrone,BossAttackKind.AirMine,
+                BossAttackKind.AirSpread,BossAttackKind.Shockwave,BossAttackKind.Drone,BossAttackKind.DroneLow})
+            {
+                RunnerSession run=ArenaFixture(kind==BossAttackKind.AirMine||kind==BossAttackKind.AirSpread?BossKind.Gunship:BossKind.Tank);
+                ((IList<BossTelegraph>)run.BossTelegraphs).Clear();
+                ((IList<BossProjectile>)run.BossProjectiles).Clear();
+                ((IList<BossObstacle>)run.BossObstacles).Clear();
+                typeof(RunnerSession).GetMethod("ScheduleBossAttack",Private).Invoke(run,new object[]{kind,0f,.6f,180f});
+                BossTelegraph cue=run.BossTelegraphs.Single();
+                GUI.DrawCalls.Clear();GUI.matrix=canvas;
+                typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{cue,.3f,run.CurrentBoss});
+                RecordedDraw sign=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width==3&&d.Position.height==8);
+                // Compare the sign with the actual production-spawned object,
+                // including the boss-muzzle cases whose cue spans the arena.
+                typeof(RunnerSession).GetMethod("SpawnBossAttack",Private).Invoke(run,new object[]{cue});
+                BossProjectile shot=run.BossProjectiles.FirstOrDefault(p=>p.SourceTelegraphId==cue.Id);
+                BossObstacle obstacle=run.BossObstacles.FirstOrDefault(o=>o.SourceTelegraphId==cue.Id);
+                Check(shot!=null||obstacle!=null,"Origin fixture produced no real object: "+kind);
+                float x=shot!=null?shot.X+shot.Width*.5f:obstacle.X+obstacle.Width*.5f;
+                float y=RunnerSession.GroundY-(shot!=null?shot.Y+shot.Height*.5f:obstacle.Y+obstacle.Height*.5f);
+                Vector2 expected=new Vector2(Math.Max(25,Math.Min(1255,x)),Math.Max(150,Math.Min(RunnerSession.GroundY-18,y))-2);
+                Point(sign.Centre,canvas.MultiplyPoint3x4(expected),"Caution sign points away from its real launch source: "+kind);
             }
         }
     }
@@ -1711,7 +1863,7 @@ internal static class Program
             Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,circle)&&d.Color.a>=.3f),"Underwater depth burst regressed to a plastic rectangular blast");obstacles.Clear();
             var warning=new BossTelegraph{Id=99011,Kind=BossAttackKind.SonarBeam,X=75,Y=175,Width=760,Height=14,Duration=1.2f,Remaining=.8f};marks.Add(warning);
             Draw(view,run,canvas);Rect beam=new Rect(75,RunnerSession.GroundY-189,760,14);
-            Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,beam)&&d.Color.a<.3f),"Sonar warning does not preview its exact harmless lane");
+            Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&Math.Abs(d.Position.width-beam.width)<.01f&&d.Position.height<=2f&&Math.Abs(d.Position.center.y-beam.center.y)<.01f&&d.Color.a<.3f),"Sonar warning does not show its restrained harmless aiming filament");
             warning.Active=true;Draw(view,run,canvas);Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,beam)&&d.Color.a>=.6f),"Live sonar is still painted as a harmless warning");marks.Clear();
         }
     }
@@ -1728,7 +1880,7 @@ internal static class Program
                 if(i%18==0)
                 {
                     Draw(view,run,Canvas(.68f,119,28));Check(run.DepartureWorldX>=previous-.01f,"Swimmer turned back toward entrance");previous=run.DepartureWorldX;
-                    if(run.WaterDepth<.001f){surfaced=true;Check(!run.DivingHelmetEquipped&&run.PlayerY<.1f,"Swimmer reached air but retained equipment or floating feet");}
+                    if(run.UnderwaterOnShore){surfaced=true;Check(!run.DivingHelmetEquipped&&run.PlayerY<=.1f,"Swimmer reached the shore but retained equipment or floating feet");}
                     if(run.DepartureWorldX>=RunnerSession.BossExitGateX)
                     {
                         crossed=true;Check(surfaced,"Diver crossed exit gate while still underwater");
@@ -1740,20 +1892,70 @@ internal static class Program
             Check(surfaced&&crossed&&!run.IsBossArena&&run.PlayerY==0,"Submarine exit failed to surface and resume the forward street");
         }
     }
+    private static void UnderwaterBankContactV14()
+    {
+        var art=new RunnerArt();int routes=0;
+        foreach(CharacterKind kind in Enum.GetValues(typeof(CharacterKind)))
+        foreach(float startX in new[]{100f,260f,720f})
+        foreach(float startY in new[]{20f,145f,260f})
+        using(var view=new RunnerWorldView(art))
+        {
+            RunnerSession run=ArenaFixture(BossKind.Submarine,kind);
+            Set(run,"PlayerX",startX);Set(run,"PlayerY",startY);
+            typeof(RunnerSession).GetMethod("BeginBossVictory",Private).Invoke(run,null);
+            for(int i=0;i<120*5&&(!run.UnderwaterOnShore||run.UnderwaterRampProgress<.45f);i++)run.Update(1f/120);
+            Check(run.UnderwaterOnShore&&run.UnderwaterRampProgress<.8f,"Diver did not enter the visible bank corridor");
+            foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
+            {
+                Draw(view,run,canvas);
+                // Read the actual drawn ramp's transformed endpoints. Merely
+                // comparing two shared model properties would miss an extra
+                // renderer camera/vertical offset such as the original bug.
+                RecordedDraw slope=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&
+                    Math.Abs(d.Color.r-128f/255f)<.001f&&Math.Abs(d.Color.g-169f/255f)<.001f&&
+                    Math.Abs(d.Color.b-174f/255f)<.001f&&Math.Abs(d.Position.height-8f)<.01f);
+                Vector3 low=slope.Matrix.MultiplyPoint3x4(new Vector3(slope.Position.x,slope.Position.center.y,0));
+                Vector3 high=slope.Matrix.MultiplyPoint3x4(new Vector3(slope.Position.xMax,slope.Position.center.y,0));
+                float t=(run.DepartureWorldX-RunnerSession.UnderwaterRampStartX)/
+                    (RunnerSession.UnderwaterRampEndX-RunnerSession.UnderwaterRampStartX);
+                Vector3 contact=new Vector3(low.x+(high.x-low.x)*t,low.y+(high.y-low.y)*t,0);
+                Vector3 feet=canvas.MultiplyPoint3x4(new Vector3(run.PlayerX,RunnerSession.GroundY-run.PlayerY,0));
+                Point(feet,contact,"Visible dinosaur feet float above or below the actual painted ramp");
+                int frame=RunnerGeometry.GetPlayerFrame(run);
+                float width=RunnerGeometry.PlayerStandingWidth,height=RunnerGeometry.PlayerStandingHeight;
+                float bob=RunnerGeometry.GetPlayerBob(run.PlayerAnimationTime,run.PlayerY,false,run.State);
+                Rect body=new Rect(run.PlayerX-width*.5f,RunnerSession.GroundY-run.PlayerY-height+bob,width,height);
+                RecordedDraw hero=GUI.DrawCalls.Single(d=>d.Texture==art.GetCharacterTexture(kind,frame));
+                Check(SameRect(hero.Position,art.GetCharacterRect(kind,frame,body,false)),"Diver sprite detached from its physical shore foot anchor");
+                Point(hero.Centre,canvas.MultiplyPoint3x4(hero.Position.center),"Diver acquired the ramp's camera transform twice");
+                Check(!GUI.DrawCalls.Any(d=>d.Texture==art.DivingKitAtlas&&SameRect(d.UV,art.GetDivingKitUV(0))),"Diver still wears the helmet on the dry shore");
+            }
+            routes++;
+        }
+        Check(routes==27,"Bank rendering omitted character or depth/edge combinations");
+    }
     private static void RunMissileRenderingV13()
     {
         var art=new RunnerArt();
-        foreach(int count in new[]{1,2,3,4})
+        foreach(int count in new[]{3,4})
+        foreach(float gap in new[]{55f,85f,115f})
         using(var view=new RunnerWorldView(art))
         {
             RunnerSession run=New();Field(run,"distanceToPattern",float.MaxValue);var warnings=(IList<RunMissileWarning>)run.RunMissileWarnings;var shots=(IList<RunMissile>)run.RunMissiles;
-            warnings.Clear();shots.Clear();var warning=new RunMissileWarning{Id=99100,VolleyId=910,Count=count,X=90,Y=14,Width=1190,Height=22,Duration=1.2f,Remaining=.8f};warnings.Add(warning);
+            warnings.Clear();shots.Clear();var warning=new RunMissileWarning{Id=99100,VolleyId=910,Count=count,X=1320,Y=5,Width=40,Height=gap+246,GapY=gap,GapHeight=180,Duration=RunnerSession.RunMissileWarningDuration,Remaining=.6f};warnings.Add(warning);
             foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(.68f,119,28),Canvas(1.5f,320,0)})
             {
-                Draw(view,run,canvas);Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SameRect(d.Position,new Rect(92,524,1134,22))&&d.Color.a<.1f),"Normal rocket warning is absent or looks immediately damaging");
+                Draw(view,run,canvas);
+                Check(GUI.DrawCalls.Count(d=>d.Kind=="Label"&&d.Text=="!")==count,"Normal rocket cue does not mark each physical entry row");
+                for(int row=0;row<count;row++)
+                {
+                    Rect expected=new Rect(RunnerSession.CanvasWidth-38f,RunnerSession.GroundY-warning.MissileY(row)-24f,22f,24f);
+                    Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text=="!"&&SameRect(d.Position,expected)),"Rocket local cue is not aligned to its real column row");
+                }
+                Check(!GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&d.Position.width>100&&d.Position.height<30&&d.Color.r>.9f&&d.Color.g>.65f&&d.Color.b<.6f&&d.Color.a<.9f),"Rocket warning still paints a full lane instead of local launch markers");
             }
             warnings.Clear();typeof(RunnerSession).GetMethod("LaunchRunMissileVolley",Private).Invoke(run,new object[]{warning});Check(shots.Count==count,"Live render fixture lost simultaneously spawned rocket count");
-            for(int i=0;i<count;i++)shots[i].X=630+i*100;
+            for(int i=0;i<count;i++)shots[i].X=630;
             Draw(view,run,Canvas(.68f,119,28));
             foreach(RunMissile shot in shots)
             {

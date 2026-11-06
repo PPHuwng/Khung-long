@@ -106,6 +106,8 @@ internal static partial class Program
         RegisterV11Tests();
         RegisterV12Tests();
         RegisterV13Tests();
+        RegisterV14BossTests();
+        RegisterV14JourneyTests();
         Console.WriteLine();
         Console.WriteLine("Gameplay core: " + passed + " passed, " + failures.Count + " failed.");
         foreach (string failure in failures) Console.Error.WriteLine(failure);

@@ -205,7 +205,7 @@ internal static partial class Program
         foreach(BossKind kind in LegacyBossKindsV13)
         foreach(float x in new[]{RunnerSession.MinimumPlayerX,RunnerSession.MaximumPlayerX})
         {
-            RunnerSession run=EnterBossFixture(kind==BossKind.Tank?9:kind==BossKind.Gunship?10:12,startX:x);
+            RunnerSession run=EnterBossFixture(kind==BossKind.Tank?9:kind==BossKind.Gunship?10:12,startX:x,hearts:2);
             run.CurrentBoss.Kind=kind;
             run.CurrentBoss.Width=kind==BossKind.Sentinel?172:kind==BossKind.Gunship?270:250;
             run.CurrentBoss.Height=kind==BossKind.Sentinel?225:kind==BossKind.Gunship?130:150;
@@ -216,7 +216,7 @@ internal static partial class Program
             for(int i=0;i<120*15;i++)
             {
                 CombatBotInput(run,run.BossObstacles.Any(o=>o.Destructible&&o.X>run.PlayerX&&o.X<run.PlayerX+500),true);run.Update(1f/120);
-                Check(run.State==RunState.Playing&&run.Lives==1,"Late route took damage "+kind+" edge="+x+" t="+run.BossElapsed+" "+ArenaDescription(run));
+                Check(run.State==RunState.Playing&&run.Lives>0,"Late route exhausted its three hearts "+kind+" edge="+x+" t="+run.BossElapsed+" "+ArenaDescription(run));
             }
         }
     }

@@ -74,6 +74,10 @@ namespace CityDino
         public float AimX, AimY;
         public float OriginX, OriginY;
         public float VelocityX, VelocityY;
+        // Delayed combo attacks take one final snapshot when their local cue
+        // becomes visible. They never track the player after that snapshot.
+        public bool LockOnReveal;
+        public float AimOffsetX, AimOffsetY;
         public bool FullSweep;
         public float SweepEndX;
         public bool Visible { get { return DelayRemaining <= 0f; } }

@@ -334,7 +334,7 @@ namespace CityDino
             Box(new Rect(64, 56, 486, 602), cream);
             Text(new Rect(98, 85, 390, 24), "●  ENDLESS RUNNER", 15, soft, FontStyle.Bold);
             Text(new Rect(94, 151, 420, 88), "DINO CITY", 64, ink, FontStyle.Bold);
-            Text(new Rect(98, 250, 402, 62), "Né tên lửa, chinh phục thành phố.\nBoss đầu cấp 3 · 30k: lặn đấu tàu ngầm.", 17, soft);
+            Text(new Rect(98, 250, 402, 62), "Canh khe tên lửa, né chuỗi đòn phối hợp.\nBoss đầu cấp 3 · 30k: lặn đấu tàu ngầm.", 17, soft);
             Stat(new Rect(98, 330, 124, 64), "KỶ LỤC", session.Save.BestScore.ToString("N0"));
             Stat(new Rect(238, 330, 124, 64), "LƯỢT TRƯỚC", session.Save.LastScore.ToString("N0"));
             Stat(new Rect(378, 330, 124, 64), "VÍ SAO", session.Save.Wallet.ToString("N0"));
@@ -343,7 +343,7 @@ namespace CityDino
             if (Button(new Rect(98, 534, 130, 52), "Nhân vật", ink, cream, 16)) OpenCharacters();
             if (Button(new Rect(242, 534, 130, 52), "Cửa hàng", ink, cream, 16)) showShop = true;
             if (Button(new Rect(386, 534, 130, 52), "Thành tích", new Color32(231, 231, 215, 255), ink, 16)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 13  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 14  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), RunnerSession.CharacterName(session.Save.SelectedCharacter) + " · SẴN SÀNG ĐẤU BOSS", 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);

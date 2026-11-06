@@ -31,32 +31,21 @@ namespace CityDino
             DrawDirectionalMissile(runMissileVisual, body, clock);
         }
 
-        private void DrawRunMissileWarning(int count, float y, float height,
-            float remaining, float duration, float clock)
+        private void DrawRunMissileWarning(RunMissileWarning warning, float clock)
         {
             Color amber = Hex(0xffc875);
-            float centreY = GroundY - y - height * .5f;
-            float progress = duration > 0f ? Mathf.Clamp01(1f - remaining / duration) : 1f;
-            // A sparse low lane is only a preview. It never looks like the
-            // opaque missile body which appears after the completed warning.
-            Fill(new Rect(92f, GroundY - y - height, Width - 146f, height), WithAlpha(amber, .055f));
-            float offset = Repeat(clock * 83f, 74f);
-            for (float x = 112f + offset; x < Width - 88f; x += 74f)
-            {
-                Line(new Vector2(x + 7f, centreY - 4f), new Vector2(x, centreY), WithAlpha(amber, .42f), 1.7f);
-                Line(new Vector2(x, centreY), new Vector2(x + 7f, centreY + 4f), WithAlpha(amber, .42f), 1.7f);
-            }
-            float edgeX = Width - 37f;
-            float pulse = .19f + .07f * Mathf.Sin(clock * 9f);
-            Disc(new Rect(edgeX - 24f, centreY - 24f, 48f, 48f), WithAlpha(amber, pulse), true);
-            Line(new Vector2(edgeX + 9f, centreY - 10f), new Vector2(edgeX - 7f, centreY), amber, 3f);
-            Line(new Vector2(edgeX - 7f, centreY), new Vector2(edgeX + 9f, centreY + 10f), amber, 3f);
-            Fill(new Rect(edgeX - 22f, centreY + 20f, 44f, 3f), WithAlpha(amber, .16f));
-            Fill(new Rect(edgeX - 22f, centreY + 20f, 44f * progress, 3f), WithAlpha(amber, .85f));
-            int visibleCount = System.Math.Max(1, System.Math.Min(4, count));
-            float first = edgeX - (visibleCount - 1) * 6f;
+            int visibleCount = System.Math.Max(1, System.Math.Min(4, warning.Count));
+            float edgeX = Width - 27f;
+            float progress = warning.Duration > 0f ? Mathf.Clamp01(1f - warning.Remaining / warning.Duration) : 1f;
+            // Only the actual entry points are marked. No stripe, moving lane
+            // or safe-corridor paint covers the playfield or tells when to jump.
             for (int i = 0; i < visibleCount; i++)
-                Disc(new Rect(first + i * 12f - 3f, centreY - 28f, 6f, 6f), amber);
+            {
+                float centreY = GroundY - warning.MissileY(i) - 11f;
+                Disc(new Rect(edgeX - 14f, centreY - 14f, 28f, 28f), WithAlpha(Hex(0x172b38), .92f));
+                Sign(new Rect(edgeX - 11f, centreY - 13f, 22f, 24f), "!", amber, 19);
+                Fill(new Rect(edgeX - 11f, centreY + 12f, 22f * progress, 2f), amber);
+            }
             GUI.color = Color.white;
         }
     }

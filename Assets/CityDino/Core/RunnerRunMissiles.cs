@@ -7,7 +7,7 @@ namespace CityDino
     public sealed class RunMissile
     {
         public int Id, VolleyId;
-        public float X, Y, Width, Height, VelocityX, Radius, Lifetime;
+        public float X, Y, Width, Height, VelocityX, Radius, Lifetime, GapY, GapHeight;
         public bool Removed;
     }
 
@@ -15,13 +15,23 @@ namespace CityDino
     public sealed class RunMissileWarning
     {
         public int Id, VolleyId, Count;
-        public float X, Y, Width, Height, Remaining, Duration;
+        public float X, Y, Width, Height, Remaining, Duration, GapY, GapHeight;
+
+        // The launch marker and the damaging column share this exact geometry.
+        // An unset gap is useful for older/injected fixtures, not a second path.
+        public float MissileY(int index)
+        {
+            float bottom = GapHeight > 0f ? GapY : 85f;
+            float top = bottom + (GapHeight > 0f ? GapHeight : 180f);
+            if (index == 0) return 5f; // centre 16: the floor is never a free route
+            if (Count >= 3 && index == 1) return bottom - 22f;
+            return top + (index - (Count >= 3 ? 2 : 1)) * 44f;
+        }
     }
 
     public sealed partial class RunnerSession
     {
-        public const float RunMissileWarningDuration = 1.2f;
-        public const float RunMissileSpacingSeconds = .22f;
+        public const float RunMissileWarningDuration = .9f;
         private readonly List<RunMissile> runMissiles = new List<RunMissile>();
         private readonly List<RunMissileWarning> runMissileWarnings = new List<RunMissileWarning>();
         private Random runMissileRandom;
@@ -35,6 +45,12 @@ namespace CityDino
         private int nextRunVolleyId;
         public IReadOnlyList<RunMissile> RunMissiles { get { return runMissiles; } }
         public IReadOnlyList<RunMissileWarning> RunMissileWarnings { get { return runMissileWarnings; } }
+        // Terrain keeps accelerating without a ceiling. Rockets use a separate
+        // approach speed so even a very long run retains visible flight time.
+        public float RunMissileSpeed
+        {
+            get { return Math.Min(870f, 530f + 110f * (float)(Math.Log(1d + elapsedClock / 120d) / Math.Log(2d))); }
+        }
         public bool RunMissileCorridorReserved
         {
             get { return runMissilePending || runMissileRecoverySupplyPending || runMissiles.Count > 0 || runMissileWarnings.Count > 0 || elapsedClock < runMissileResumeAt; }
@@ -78,11 +94,10 @@ namespace CityDino
         {
             if (CurrentDistrict != District.Night) return true;
             if (BlackoutWarning || DarknessAmount > 0f) return false;
-            float speed = Math.Max(1f, Speed + 170f);
-            // All four low rockets must clear even the leftmost playable lane
-            // before the next scheduled blackout, including their .66s tail.
+            float speed = RunMissileSpeed;
+            // A column must clear the leftmost playable lane before blackout.
             float visibleTime = RunMissileWarningDuration +
-                (CanvasWidth + 140f - MinimumPlayerX) / speed + 3f * RunMissileSpacingSeconds + .75f;
+                (CanvasWidth + 140f - MinimumPlayerX) / speed + .75f;
             return NextBlackoutAt - DistrictElapsed > visibleTime;
         }
 
@@ -93,15 +108,18 @@ namespace CityDino
                 elapsedClock >= nextRunMissileAt && elapsedClock >= runMissileResumeAt)
                 runMissilePending = true;
             if (!runMissilePending || !RunMissileLaneClear() || !RunMissileSightWindowClear()) return;
-            // Later runs choose the larger wave more often, while every count
-            // stays possible. Counts are deliberately bounded to four rockets.
+            // Three or four rockets form a vertical wall, not a low train that
+            // any jump clears. The hole is locked before the launch and varies
+            // between a low timed pass and a higher pass near the jump apex.
             bool large = runMissileRandom.NextDouble() < Math.Min(.72d, .3d + elapsedClock / 600d);
-            int count = large ? runMissileRandom.Next(3, 5) : runMissileRandom.Next(1, 3);
+            int count = large ? 4 : 3;
+            float gapY = 55f + 30f * runMissileRandom.Next(3);
             int volley = ++nextRunVolleyId;
             runMissileWarnings.Add(new RunMissileWarning
             {
                 Id = ++nextRunMissileId, VolleyId = volley, Count = count,
-                X = 90f, Y = 14f, Width = CanvasWidth - 90f, Height = 22f,
+                X = CanvasWidth + 40f, Y = 5f, Width = 40f, Height = gapY + 246f,
+                GapY = gapY, GapHeight = 180f,
                 Remaining = RunMissileWarningDuration, Duration = RunMissileWarningDuration
             });
             runMissileWarningStartedAt = elapsedClock;
@@ -110,14 +128,16 @@ namespace CityDino
 
         private void LaunchRunMissileVolley(RunMissileWarning warning)
         {
-            float speed = Speed + 170f;
+            float speed = RunMissileSpeed;
             for (int i = 0; i < warning.Count; i++)
             {
-                float start = CanvasWidth + 40f + i * speed * RunMissileSpacingSeconds;
+                float start = CanvasWidth + 40f;
                 runMissiles.Add(new RunMissile
                 {
                     Id = ++nextRunMissileId, VolleyId = warning.VolleyId,
-                    X = start, Y = warning.Y, Width = 40f, Height = 22f, Radius = 11f,
+                    X = start, Y = warning.MissileY(i), Width = 40f, Height = 22f, Radius = 11f,
+                    GapY = warning.GapHeight > 0f ? warning.GapY : 85f,
+                    GapHeight = warning.GapHeight > 0f ? warning.GapHeight : 180f,
                     VelocityX = -speed, Lifetime = (start + 180f) / speed + 1f
                 });
             }
@@ -130,7 +150,7 @@ namespace CityDino
             {
                 RunMissileWarning warning = runMissileWarnings[i];
                 // A cue created by Prepare in this very substep has not been
-                // visible for any simulated time yet. Keep its complete 1.2s.
+                // visible for any simulated time yet. Keep its complete cue.
                 float warningDt = (float)Math.Max(0d, Math.Min(dt, elapsedClock - runMissileWarningStartedAt));
                 warning.Remaining -= warningDt;
                 if (warning.Remaining > 0f) continue;
@@ -150,7 +170,7 @@ namespace CityDino
                 if (!RunnerGeometry.CircleTouchesPlayer(missile.X + missile.Width * .5f,
                     missile.Y + missile.Height * .5f, missile.Radius, this)) continue;
                 missile.Removed = true;
-                if (!TryAbsorbHazard(true)) TakeHit("Trúng tên lửa trên đường chạy · Nhảy để né");
+                if (!TryAbsorbHazard(true)) TakeHit("Trúng tên lửa trên đường chạy · Canh nhảy qua khe");
             }
             // A fatal contact preserves the final visible missile positions and
             // warning state along with the death pose; no off-screen cleanup runs.

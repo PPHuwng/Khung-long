@@ -26,6 +26,9 @@ namespace CityDino
         private Palette previousPalette;
         private Palette nextPalette;
         private float transitionStarted = -10f;
+        private float paletteClock = -1f;
+        private float stormVeil = .2f;
+        private const float DistrictFadeDuration = 3f;
         private bool initialized;
 
         private struct Palette
@@ -56,13 +59,14 @@ namespace CityDino
                     DrawBossArena(session);
                     return;
                 }
-                Palette palette = CurrentPalette(session.CurrentDistrict, ambientTime);
                 bool menu = session.State == RunState.Menu;
                 float scroll = menu ? ambientTime * 75f : session.Distance;
                 float clock = menu ? ambientTime : session.Elapsed;
-                DrawSky(palette, scroll, clock);
-                DrawCity(palette, scroll, clock);
-                DrawDistrictAtmosphere(session.CurrentDistrict, palette, scroll, clock,
+                Palette palette = CurrentPalette(session.CurrentDistrict, clock);
+                float sceneryScroll = DecorativeScroll(scroll);
+                DrawSky(palette, sceneryScroll, clock);
+                DrawCity(palette, sceneryScroll, clock);
+                DrawDistrictAtmosphere(session.CurrentDistrict, palette, sceneryScroll, clock,
                     session.Speed / RunnerSession.InitialSpeed);
                 ReadGaps(session);
                 DrawRoad(palette, scroll, session.Speed / RunnerSession.InitialSpeed);
@@ -78,17 +82,19 @@ namespace CityDino
                 {
                     DrawWind(session, clock);
                     if (session.CurrentDistrict == District.Storm)
+                        stormVeil = .14f + .22f * Mathf.Clamp01(
+                            RunnerWeather.GetStormDarkness(session.DistrictElapsed) / .88f);
+                    if (palette.Rain > .001f)
                         Fill(new Rect(0f, 0f, Width, Height),
-                            new Color(0.025f, 0.04f, 0.075f, RunnerWeather.GetStormDarkness(session.DistrictElapsed)));
-                    DrawLightning(session);
+                            new Color(0.025f, 0.04f, 0.075f, stormVeil * palette.Rain));
+                    DrawLightning(session, palette.Rain);
                 }
                 // Storm rain stays in front of both the dark veil and flash.
-                DrawWeather(palette, scroll, clock);
+                DrawWeather(palette, sceneryScroll, clock);
                 if (!menu)
                 {
                     foreach (RunMissileWarning warning in session.RunMissileWarnings)
-                        DrawRunMissileWarning(warning.Count, warning.Y, warning.Height, warning.Remaining,
-                            warning.Duration, clock);
+                        DrawRunMissileWarning(warning, clock);
                     DrawDarkness(session);
                 }
             }
@@ -101,20 +107,42 @@ namespace CityDino
 
         private Palette CurrentPalette(District district, float time)
         {
-            if (!initialized)
+            // A run clock rewind means restart/menu -> play. Never blend from a
+            // previous run's late palette using a now-negative elapsed time.
+            if (!initialized || time < paletteClock)
             {
                 shownDistrict = district;
                 previousPalette = nextPalette = ForDistrict(district);
                 initialized = true;
+                transitionStarted = time - DistrictFadeDuration;
             }
+            paletteClock = time;
             if (shownDistrict != district)
             {
-                previousPalette = Lerp(previousPalette, nextPalette, Mathf.Clamp01((time - transitionStarted) / 2f));
+                previousPalette = Lerp(previousPalette, nextPalette,
+                    Mathf.SmoothStep(0f, 1f, (time - transitionStarted) / DistrictFadeDuration));
                 nextPalette = ForDistrict(district);
                 shownDistrict = district;
                 transitionStarted = time;
             }
-            return Lerp(previousPalette, nextPalette, Mathf.SmoothStep(0f, 1f, (time - transitionStarted) / 2f));
+            return Lerp(previousPalette, nextPalette,
+                Mathf.SmoothStep(0f, 1f, (time - transitionStarted) / DistrictFadeDuration));
+        }
+
+        // Only painted scenery is capped. Entity movement, terrain openings,
+        // scored distance and the runner's unbounded acceleration are unchanged.
+        // Integrating the capped speed keeps phase continuous at the cap, unlike
+        // multiplying the entire accumulated distance by a changing scale.
+        private static float DecorativeScroll(float distance)
+        {
+            const double cap = 600d;
+            double initial = RunnerSession.InitialSpeed, acceleration = RunnerSession.SpeedAcceleration;
+            double d = Math.Max(0d, distance);
+            double capTime = (cap - initial) / acceleration;
+            double capDistance = initial * capTime + .5d * acceleration * capTime * capTime;
+            if (d <= capDistance) return (float)d;
+            double time = (Math.Sqrt(initial * initial + 2d * acceleration * d) - initial) / acceleration;
+            return (float)(capDistance + (time - capTime) * cap);
         }
 
         private static Palette ForDistrict(District district)
@@ -186,7 +214,7 @@ namespace CityDino
                     Fill(new Rect(x, y, size, size), new Color(0.92f, 0.97f, 1f, alpha));
                 }
             }
-            float celestialY = Mathf.Lerp(152f, 230f, p.Sunset);
+            float celestialY = 152f;
             Color sun = Color.Lerp(Hex(0xffe8b0), Hex(0xe6f7ff), p.Night);
             sun.a = Mathf.Lerp(0.94f, 0.2f, Mathf.Max(p.Rain, p.Snow * 0.65f));
             Disc(new Rect(974f, celestialY - 55f, 225f, 225f), WithAlpha(sun, sun.a * 0.24f), true);
@@ -204,21 +232,25 @@ namespace CityDino
 
         private void DrawCity(Palette p, float scroll, float time)
         {
-            float baseY = Mathf.Lerp(552f, 700f, p.Skyway);
+            // Fixed geometry is essential here: changing skyline height also
+            // changes tile width and its modulo phase, making the entire city
+            // lurch sideways/upward while entering or leaving the cloud map.
+            const float baseY = 552f;
+            float cityVisibility = 1f - p.Skyway * .72f;
             // Sparse silhouettes stay furthest away; they never contain a painted sky or road.
             for (int i = -1; i < 21; i++)
             {
                 int variant = (i + 99) % 9;
                 float x = i * 79f - Repeat(scroll * 0.035f, 79f);
                 float height = 76f + (variant * 37 % 164);
-                Color tint = WithAlpha(p.FarCity, 0.3f);
+                Color tint = WithAlpha(p.FarCity, 0.3f * cityVisibility);
                 Fill(new Rect(x, baseY - height - 40f, 52f + variant % 3 * 11f, height), tint);
                 Fill(new Rect(x + 20f, baseY - height - 57f, 15f, 17f), tint);
             }
 
             if (art.SkylineFar != null)
-                DrawSkyline(art.SkylineFar, art.SkylineFarUV, Mathf.Lerp(335f, 295f, p.Skyway), baseY - 8f,
-                    scroll * 0.075f, WithAlpha(Color.Lerp(Color.white, p.Backdrop, 0.45f), 0.65f));
+                DrawSkyline(art.SkylineFar, art.SkylineFarUV, 335f, baseY - 8f,
+                    scroll * 0.075f, WithAlpha(Color.Lerp(Color.white, p.Backdrop, 0.45f), 0.65f * cityVisibility));
             else
                 DrawProceduralSkyline(p, scroll, baseY, false);
 
@@ -227,18 +259,18 @@ namespace CityDino
                 Fill(new Rect(0f, baseY - 152f + i * 19f, Width, 20f), WithAlpha(p.Horizon, (i / 7f) * 0.1f));
 
             if (art.SkylineNear != null)
-                DrawSkyline(art.SkylineNear, art.SkylineNearUV, Mathf.Lerp(285f, 240f, p.Skyway), baseY,
-                    scroll * 0.17f, WithAlpha(Color.Lerp(Color.white, p.Backdrop, 0.28f), 0.72f));
+                DrawSkyline(art.SkylineNear, art.SkylineNearUV, 285f, baseY,
+                    scroll * 0.17f, WithAlpha(Color.Lerp(Color.white, p.Backdrop, 0.28f), 0.72f * cityVisibility));
             else
                 DrawProceduralSkyline(p, scroll, baseY, true);
 
             // Tiny passing light strips reinforce movement without resembling hazards.
-            float viaductY = Mathf.Lerp(512f, 667f, p.Skyway);
-            Fill(new Rect(0f, viaductY, Width, 3f), WithAlpha(p.FarCity, 0.25f));
+            const float viaductY = 512f;
+            Fill(new Rect(0f, viaductY, Width, 3f), WithAlpha(p.FarCity, 0.25f * cityVisibility));
             for (int i = 0; i < 11; i++)
             {
                 float x = Repeat(i * 153f - scroll * 0.32f, Width + 170f) - 100f;
-                Fill(new Rect(x, viaductY - 3f, 42f, 2f), WithAlpha(p.Accent, 0.3f + p.Night * 0.18f));
+                Fill(new Rect(x, viaductY - 3f, 42f, 2f), WithAlpha(p.Accent, (0.2f + p.Night * 0.1f) * cityVisibility));
             }
             if (p.Skyway > 0.1f)
             {
@@ -248,15 +280,16 @@ namespace CityDino
                     Cloud(x, 615f + i % 2 * 46f, 1.4f, new Color(0.96f, 0.98f, 1f, p.Skyway * 0.65f));
                 }
             }
-            if (p.Skyway < 0.5f)
+            if (p.Skyway < 0.98f)
             {
                 float x = 1050f - Repeat(scroll * 0.3f, 1660f);
                 if (x > -140f)
                 {
-                    Fill(new Rect(x + 10f, 502f, 4f, 58f), WithAlpha(Hex(0x344c60), 0.48f));
-                    Fill(new Rect(x, 479f, 107f, 28f), WithAlpha(Hex(0x203648), 0.75f));
-                    Fill(new Rect(x + 3f, 482f, 101f, 22f), WithAlpha(p.Accent, 0.9f));
-                    Sign(new Rect(x + 4f, 483f, 99f, 20f), "DINO / CITY", Hex(0x203648), 12);
+                    float signAlpha = 1f - p.Skyway;
+                    Fill(new Rect(x + 10f, 502f, 4f, 58f), WithAlpha(Hex(0x344c60), 0.48f * signAlpha));
+                    Fill(new Rect(x, 479f, 107f, 28f), WithAlpha(Hex(0x203648), 0.75f * signAlpha));
+                    Fill(new Rect(x + 3f, 482f, 101f, 22f), WithAlpha(p.Accent, 0.9f * signAlpha));
+                    Sign(new Rect(x + 4f, 483f, 99f, 20f), "DINO / CITY", WithAlpha(Hex(0x203648), signAlpha), 12);
                 }
             }
         }
@@ -287,7 +320,7 @@ namespace CityDino
                 float x = i * spacing - Repeat(scroll * parallax, spacing);
                 float height = 78f + index * (near ? 39 : 31) % (near ? 170 : 210);
                 Color tint = Color.Lerp(p.FarCity, p.Foundation, near ? 0.28f : 0.04f);
-                tint.a = near ? 0.58f : 0.4f;
+                tint.a = (near ? 0.58f : 0.4f) * (1f - p.Skyway * .72f);
                 float width = spacing - 16f - index % 3 * 9f;
                 Fill(new Rect(x, bottom - height, width, height), tint);
                 Fill(new Rect(x + width * 0.3f, bottom - height - 10f, width * 0.4f, 10f), tint);
@@ -336,26 +369,17 @@ namespace CityDino
             GUI.BeginGroup(new Rect(left, GroundY, width, Height - GroundY));
             try
             {
-                bool flying = p.Skyway > 0.5f || gaps.Count > 0;
-                Texture2D texture = flying ? art.PlatformLong : art.Road;
-                if (texture == null) texture = art.PlatformLong;
-                float tileWidth = flying ? 360f : 680f;
-                float slabHeight = flying ? 105f : 114f;
-                Fill(new Rect(0f, 0f, width, flying ? 39f : Height - GroundY), p.Foundation);
-                float firstTile = Mathf.Floor((left + scroll) / tileWidth) * tileWidth - scroll - left;
-                for (float x = firstTile; x < width; x += tileWidth)
-                {
-                    if (texture != null)
-                    {
-                        GUI.color = p.Road;
-                        GUI.DrawTexture(new Rect(x, 0f, tileWidth + 1f, slabHeight), texture, ScaleMode.StretchToFill, true);
-                    }
-                    else
-                    {
-                        Fill(new Rect(x, 3f, tileWidth + 1f, 62f), Hex(0x40516c));
-                        Fill(new Rect(x + 30f, 32f, 70f, 4f), p.Accent);
-                    }
-                }
+                float platformBlend = gaps.Count > 0 ? 1f : Mathf.Clamp01(p.Skyway);
+                bool flying = platformBlend >= .99f;
+                float decorationScroll = DecorativeScroll(scroll);
+                Fill(new Rect(0f, 0f, width, Height - GroundY), WithAlpha(p.Foundation, 1f - platformBlend));
+                Fill(new Rect(0f, 0f, width, 39f), p.Foundation);
+                // Two fixed tile grids fade in place. Switching tile width at
+                // half of the map blend used to jump the whole road sideways.
+                DrawRoadTiles(art.Road ?? art.PlatformLong, left, width, 680f, 114f,
+                    decorationScroll, WithAlpha(p.Road, 1f - platformBlend));
+                DrawRoadTiles(art.PlatformLong ?? art.Road, left, width, 360f, 105f,
+                    decorationScroll, WithAlpha(p.Road, platformBlend));
                 Fill(new Rect(0f, 0f, width, 3f), Color.Lerp(Hex(0xc7e9e1), p.Accent, p.Night * 0.5f));
                 Fill(new Rect(0f, 4f, width, 3f), WithAlpha(Hex(0x172c42), 0.6f));
                 if (p.Snow > 0.05f)
@@ -366,7 +390,7 @@ namespace CityDino
                     Fill(new Rect(0f, 7f, width, 30f), WithAlpha(Hex(0x9ed8f1), p.Snow * 0.58f));
                     for (int i = 0; i < 10; i++)
                     {
-                        float x = Repeat(i * 161f - scroll, 1650f) - left;
+                        float x = Repeat(i * 161f - decorationScroll, 1650f) - left;
                         Disc(new Rect(x, -3f, 51f + i % 3 * 17f, 12f), WithAlpha(Hex(0xf5fcff), p.Snow * 0.82f));
                         Line(new Vector2(x + 7f, 19f), new Vector2(x + 51f, 12f), WithAlpha(Hex(0xeafaff), p.Snow * 0.65f), 1.5f);
                         Line(new Vector2(x + 35f, 35f), new Vector2(x + 68f, 29f), WithAlpha(Hex(0x6eb7da), p.Snow * 0.38f), 1f);
@@ -375,29 +399,49 @@ namespace CityDino
                 // Road reflections move faster than the skyline, making acceleration visible.
                 for (int i = 0; i < 12; i++)
                 {
-                    float x = Repeat(i * 129f - scroll * 1.12f, 1500f) - left;
+                    float x = Repeat(i * 129f - decorationScroll * 1.12f, 1500f) - left;
                     float y = 16f + i % 3 * 16f;
                     float streak = Mathf.Lerp(25f, 68f, Mathf.Clamp01(speedRatio - 1f));
-                    Fill(new Rect(x, y, streak, i % 3 == 0 ? 2f : 1f), WithAlpha(p.Accent, 0.2f + 0.12f * p.Night + 0.1f * p.Rain));
+                    Fill(new Rect(x, y, streak, i % 3 == 0 ? 2f : 1f), WithAlpha(p.Accent, 0.1f + 0.07f * p.Night + 0.05f * p.Rain));
                 }
                 if (!flying)
                 {
                     for (int i = 0; i < 8; i++)
                     {
-                        float x = Repeat(i * 191f - scroll * 1.35f, 1480f) - left;
-                        Fill(new Rect(x, 112f + i % 2 * 17f, 44f + speedRatio * 12f, 2f), WithAlpha(p.Accent, 0.13f));
+                        float x = Repeat(i * 191f - decorationScroll * 1.35f, 1480f) - left;
+                        Fill(new Rect(x, 112f + i % 2 * 17f, 44f + Mathf.Min(speedRatio, 2f) * 12f, 2f), WithAlpha(p.Accent, 0.08f));
                     }
                     if (p.Rain > 0.1f)
                     {
                         for (int i = 0; i < 7; i++)
                         {
-                            float x = Repeat(i * 223f - scroll, 1530f) - left;
+                            float x = Repeat(i * 223f - decorationScroll, 1530f) - left;
                             Disc(new Rect(x, 9f + i % 3 * 10f, 80f + i % 3 * 18f, 7f), WithAlpha(p.Accent, p.Rain * 0.2f));
                         }
                     }
                 }
             }
             finally { GUI.EndGroup(); }
+        }
+
+        private static void DrawRoadTiles(Texture2D texture, float left, float width,
+            float tileWidth, float slabHeight, float scroll, Color tint)
+        {
+            if (tint.a <= .001f) return;
+            float firstTile = Mathf.Floor((left + scroll) / tileWidth) * tileWidth - scroll - left;
+            for (float x = firstTile; x < width; x += tileWidth)
+            {
+                if (texture != null)
+                {
+                    GUI.color = tint;
+                    GUI.DrawTexture(new Rect(x, 0f, tileWidth + 1f, slabHeight), texture, ScaleMode.StretchToFill, true);
+                }
+                else
+                {
+                    Fill(new Rect(x, 3f, tileWidth + 1f, 62f), WithAlpha(Hex(0x40516c), tint.a));
+                    Fill(new Rect(x + 30f, 32f, 70f, 4f), WithAlpha(Hex(0xc7e9e1), tint.a));
+                }
+            }
         }
 
         private static void DrawWarningEdge(float x, Color color)
@@ -783,13 +827,16 @@ namespace CityDino
             float x = session.PlayerX;
             float y = session.PlayerY;
             float shadowScale = Mathf.Clamp(1f - y / 450f, 0.5f, 1f);
+            bool diverOnShore = session.IsUnderwaterBoss && session.ArenaPhase == BossPhase.Victory && session.UnderwaterOnShore;
+            float groundFootY = GroundY - (diverOnShore ? y : 0f);
             bool hasGround = session.IsUnderwaterBoss
-                ? session.ArenaPhase != BossPhase.Fighting && session.WaterDepth < .02f
+                ? diverOnShore || (session.ArenaPhase == BossPhase.Intro && session.WaterDepth < .02f)
                 : !session.IsFlyingBoss || (session.ArenaPhase != BossPhase.Fighting && session.TransitionElevation < .12f);
             bool overGap = false;
             for (int i = 0; i < gaps.Count; i++) if (x >= gaps[i].x && x <= gaps[i].y) overGap = true;
-            if (hasGround && !overGap && y > -30f)
-                Disc(new Rect(x - 39f * shadowScale, GroundY - 6f, 78f * shadowScale, 13f * shadowScale), new Color(0.03f, 0.09f, 0.16f, 0.24f), true);
+            if (hasGround && !overGap && (diverOnShore || y > -30f))
+                Disc(new Rect(x - 39f * shadowScale, groundFootY - 6f,
+                    78f * shadowScale, 13f * shadowScale), new Color(0.03f, 0.09f, 0.16f, 0.24f), true);
             bool running = session.State == RunState.Playing;
             bool facingLeft = session.FacingLeft;
             float bob = RunnerGeometry.GetPlayerBob(time, y, session.IsDucking, session.State);
@@ -841,7 +888,7 @@ namespace CityDino
                 {
                     float phase = Repeat(time * 4f + i * 0.25f, 1f);
                     float particleX = facingLeft ? x + 42f + phase * 58f : x - 42f - phase * 58f;
-                    Fill(new Rect(particleX, GroundY - 2f - phase * 9f, 5f - phase * 3f, 3f), new Color(0.89f, 0.94f, 0.91f, (1f - phase) * 0.55f));
+                    Fill(new Rect(particleX, groundFootY - 2f - phase * 9f, 5f - phase * 3f, 3f), new Color(0.89f, 0.94f, 0.91f, (1f - phase) * 0.55f));
                 }
             }
             GUI.color = Color.white;
@@ -867,11 +914,11 @@ namespace CityDino
         {
             // These effects sit behind the road/player/hazards. Stronger late-run
             // wind reinforces speed without shifting any collision geometry.
-            float rush = 1f + Mathf.Sqrt(Mathf.Max(0f, speedRatio - 1f)) * 0.45f;
+            float rush = Mathf.Min(1.45f, 1f + Mathf.Sqrt(Mathf.Max(0f, speedRatio - 1f)) * 0.2f);
             switch (district)
             {
                 case District.Day:
-                    for (int i = 0; i < 14; i++)
+                    for (int i = 0; i < 9; i++)
                     {
                         float x = Repeat(i * 137.3f - scroll * 0.35f - time * 54f * rush, Width + 90f) - 45f;
                         float y = 275f + Repeat(i * 49.7f, 240f) + Mathf.Sin(time * 1.7f + i) * 11f;
@@ -887,8 +934,8 @@ namespace CityDino
                     for (int i = 0; i < 7; i++)
                     {
                         float y = 431f + i * 14f;
-                        float offset = Mathf.Sin(time * 1.2f + i * 0.8f) * 24f;
-                        Fill(new Rect(offset - 30f, y, Width + 60f, 2f), WithAlpha(Hex(0xffd7aa), 0.045f + i * 0.006f));
+                        float offset = Mathf.Sin(time * .7f + i * 0.8f) * 8f;
+                        Fill(new Rect(offset - 30f, y, Width + 60f, 2f), WithAlpha(Hex(0xffd7aa), 0.025f + i * 0.003f));
                     }
                     for (int i = 0; i < 18; i++)
                     {
@@ -911,19 +958,19 @@ namespace CityDino
                     }
                     break;
                 case District.Skyway:
-                    for (int i = 0; i < 11; i++)
+                    for (int i = 0; i < 7; i++)
                     {
-                        float x = Repeat(i * 181.3f - time * 150f * rush - scroll * 0.08f, Width + 300f) - 150f;
+                        float x = Repeat(i * 181.3f - time * 95f * rush - scroll * 0.05f, Width + 300f) - 150f;
                         float y = 163f + Repeat(i * 57f, 315f);
-                        float span = (70f + i % 3 * 24f) * Mathf.Min(rush, 2.5f);
-                        Line(new Vector2(x, y), new Vector2(x + span, y - 5f), WithAlpha(Hex(0xf4fcff), 0.22f), 2f);
+                        float span = (48f + i % 3 * 16f) * rush;
+                        Line(new Vector2(x, y), new Vector2(x + span, y - 5f), WithAlpha(Hex(0xf4fcff), 0.14f), 2f);
                         Line(new Vector2(x + 15f, y + 9f), new Vector2(x + span * 0.65f, y + 5f), WithAlpha(p.Horizon, 0.14f), 1f);
                     }
                     break;
                 case District.Storm:
-                    for (int i = 0; i < 10; i++)
+                    for (int i = 0; i < 6; i++)
                     {
-                        float x = Repeat(i * 173f - time * 190f * rush, Width + 180f) - 90f;
+                        float x = Repeat(i * 173f - time * 105f * rush, Width + 180f) - 90f;
                         float y = 180f + Repeat(i * 43f, 290f);
                         Line(new Vector2(x, y), new Vector2(x + 64f, y - 14f), WithAlpha(p.Horizon, 0.13f), 2f);
                     }
@@ -935,12 +982,12 @@ namespace CityDino
         {
             if (session.CurrentDistrict != District.Skyway) return;
             float strength = Mathf.Clamp01(session.WindStrength);
-            for (int i = 0; i < 12; i++)
+            for (int i = 0; i < 7; i++)
             {
-                float x = Repeat(i * 147f - time * (170f + strength * 330f), Width + 260f) - 130f;
+                float x = Repeat(i * 147f - time * (105f + strength * 165f), Width + 260f) - 130f;
                 float y = 235f + (i * 49 % 280);
-                float span = 48f + strength * 94f + i % 3 * 13f;
-                Color tint = new Color(0.9f, 0.98f, 1f, 0.12f + strength * 0.27f);
+                float span = 36f + strength * 60f + i % 3 * 9f;
+                Color tint = new Color(0.9f, 0.98f, 1f, 0.1f + strength * 0.16f);
                 Line(new Vector2(x + span, y), new Vector2(x, y), tint, 1.5f);
                 if (strength > 0.35f && i % 3 == 0)
                 {
@@ -954,13 +1001,13 @@ namespace CityDino
         {
             if (p.Snow > 0.05f)
             {
-                for (int i = 0; i < 82; i++)
+                for (int i = 0; i < 58; i++)
                 {
                     float x = Repeat(i * 83.7f - time * (45f + i % 5 * 8f)
                         + Mathf.Sin(time * 0.8f + i) * 14f, Width + 30f) - 15f;
                     float y = Repeat(i * 47.3f + time * (75f + i % 7 * 10f), Height + 40f) - 20f;
                     float size = 2f + i % 3;
-                    Color flake = new Color(0.94f, 0.98f, 1f, p.Snow * (0.65f + i % 3 * 0.12f));
+                    Color flake = new Color(0.94f, 0.98f, 1f, p.Snow * (0.5f + i % 3 * 0.1f));
                     Fill(new Rect(x, y, size, size), flake);
                     if (i % 6 == 0)
                     {
@@ -977,9 +1024,9 @@ namespace CityDino
                 for (int i = 0; i < count; i++)
                 {
                     float x = Repeat(i * 87.7f - time * 110f, Width + 80f) - 40f;
-                    float y = Repeat(i * 63.3f + time * (440f + i % 4 * 23f), 600f) - 30f;
+                    float y = Repeat(i * 63.3f + time * (300f + i % 4 * 18f), 600f) - 30f;
                     float length = 14f + i % 4 * 5f;
-                    Line(new Vector2(x, y), new Vector2(x - 6f, y + length), new Color(0.83f, 0.94f, 1f, 0.23f + i % 3 * 0.05f), i % 4 == 0 ? 2f : 1f);
+                    Line(new Vector2(x, y), new Vector2(x - 6f, y + length), new Color(0.83f, 0.94f, 1f, 0.17f + i % 3 * 0.04f), i % 4 == 0 ? 2f : 1f);
                 }
                 for (int i = 0; i < 12; i++)
                 {
@@ -998,23 +1045,23 @@ namespace CityDino
             }
             if (p.Skyway > 0.1f)
             {
-                for (int i = 0; i < 8; i++)
+                for (int i = 0; i < 5; i++)
                 {
-                    float x = Repeat(i * 191f - time * 155f, Width + 220f) - 110f;
+                    float x = Repeat(i * 191f - time * 95f, Width + 220f) - 110f;
                     float y = 205f + i % 3 * 53f;
                     Line(new Vector2(x, y), new Vector2(x + 64f, y - 7f), WithAlpha(p.Horizon, p.Skyway * 0.24f), 2f);
                 }
             }
         }
 
-        private static void DrawLightning(RunnerSession session)
+        private static void DrawLightning(RunnerSession session, float rainBlend)
         {
             var lightning = RunnerWeather.GetLightning(session.CurrentDistrict, session.DistrictElapsed);
-            float strength = Mathf.Clamp01(lightning.Amount);
+            float strength = Mathf.Clamp01(lightning.Amount) * Mathf.Clamp01(rainBlend);
             if (strength <= 0f) return;
             // A single soft pulse per strike: the foreground remains readable,
             // and the later blackout pass can still cover this completely.
-            Fill(new Rect(0f, 0f, Width, Height), new Color(0.75f, 0.87f, 1f, strength * 0.55f));
+            Fill(new Rect(0f, 0f, Width, Height), new Color(0.75f, 0.87f, 1f, strength * 0.14f));
             float boltX = Mathf.Clamp(lightning.BoltX, 100f, Width - 100f);
             Vector2 from = new Vector2(boltX, 124f);
             Color halo = new Color(0.56f, 0.77f, 1f, strength * 0.35f);

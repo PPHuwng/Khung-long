@@ -192,104 +192,34 @@ namespace CityDino
             Line(new Vector2(rect.xMax - 1, rect.y), new Vector2(rect.xMax - 1, rect.yMax), WithAlpha(cyan, .48f * alpha), 1f);
         }
 
-        private bool DrawBossSpecialWarning(BossTelegraph mark, float clock, Color color)
+        private bool DrawBossSpecialWarning(BossTelegraph mark, float clock, Color color, BossEncounter boss)
         {
             if (mark.Active) return false;
-            Rect rect = new Rect(mark.X, GroundY - mark.Y - mark.Height, mark.Width, mark.Height);
             if (mark.Kind == BossAttackKind.TankRam || mark.Kind == BossAttackKind.RobotDash || mark.Kind == BossAttackKind.GunshipDive)
             {
+                // The body windup and one/two local chevrons communicate a
+                // partial/full lunge; there is no map-length carpet to follow.
                 if (mark.FullSweep) color = Hex(0xff9879);
-                DrawBossWarningRect(rect, color, mark);
-                float offset = Repeat(clock * 155f, 74f);
-                for (float x = rect.x + 12f + offset; x < rect.xMax - 22f; x += 74f)
-                {
-                    float y = rect.center.y;
-                    Line(new Vector2(x + 12f, y - 9f), new Vector2(x, y), WithAlpha(color, .8f), 3f);
-                    Line(new Vector2(x, y), new Vector2(x + 12f, y + 9f), WithAlpha(color, .8f), 3f);
-                    if (mark.FullSweep)
-                    {
-                        Line(new Vector2(x + 23f, y - 9f), new Vector2(x + 11f, y), WithAlpha(color, .65f), 2f);
-                        Line(new Vector2(x + 11f, y), new Vector2(x + 23f, y + 9f), WithAlpha(color, .65f), 2f);
-                    }
-                }
-                // A stop bracket means a partial lunge. A double arrow at the
-                // screen edge means the body will cross the entire left side;
-                // the random destination is already locked in this cue.
-                float stopX = Mathf.Clamp(mark.SweepEndX + 8f, 24f, Width - 24f);
-                float centreY = rect.center.y;
-                if (mark.FullSweep)
-                {
-                    Line(new Vector2(58f, centreY), new Vector2(14f, centreY), color, 4f);
-                    for (int i = 0; i < 2; i++)
-                    {
-                        float x = 14f + i * 14f;
-                        Line(new Vector2(x + 10f, centreY - 12f), new Vector2(x, centreY), color, 3f);
-                        Line(new Vector2(x, centreY), new Vector2(x + 10f, centreY + 12f), color, 3f);
-                    }
-                }
-                else
-                {
-                    float half = Mathf.Min(19f, rect.height * .36f);
-                    Line(new Vector2(stopX, centreY - half), new Vector2(stopX, centreY + half), color, 3f);
-                    Line(new Vector2(stopX, centreY - half), new Vector2(stopX + 11f, centreY - half), color, 3f);
-                    Line(new Vector2(stopX, centreY + half), new Vector2(stopX + 11f, centreY + half), color, 3f);
-                    Disc(new Rect(stopX - 4f, centreY - 4f, 8f, 8f), WithAlpha(color, .65f));
-                }
+                float sourceX = mark.OriginX != 0f ? mark.OriginX : boss != null ? boss.X + 12f : mark.X + mark.Width - 45f;
+                DrawBossLocalWarning(new Vector2(sourceX, GroundY - mark.Y - mark.Height * .5f),
+                    new Vector2(-1f, 0f), color, mark, mark.FullSweep);
                 return true;
             }
-            if (mark.Kind == BossAttackKind.CrossMissile)
+            if (mark.Kind == BossAttackKind.CrossMissile || mark.Kind == BossAttackKind.ElectricOrb)
             {
-                DrawBossWarningRect(rect, color, mark);
-                float sign = mark.VelocityX < 0f ? -1f : 1f;
-                float offset = Repeat(clock * 115f, 80f);
-                for (float x = rect.x + 24f + offset; x < rect.xMax - 24f; x += 80f)
-                {
-                    Vector2 tip = new Vector2(x + sign * 10f, rect.center.y);
-                    Line(new Vector2(x - sign * 7f, tip.y - 6f), tip, WithAlpha(color, .88f), 2f);
-                    Line(new Vector2(x - sign * 7f, tip.y + 6f), tip, WithAlpha(color, .88f), 2f);
-                }
-                float edgeX = Mathf.Clamp(mark.OriginX, 25f, Width - 25f);
-                float edgeY = GroundY - mark.OriginY - mark.Height * .5f;
-                Disc(new Rect(edgeX - 15f, edgeY - 15f, 30f, 30f), WithAlpha(color, .35f), true);
-                Line(new Vector2(edgeX - sign * 8f, edgeY - 9f), new Vector2(edgeX + sign * 7f, edgeY), color, 3f);
-                Line(new Vector2(edgeX - sign * 8f, edgeY + 9f), new Vector2(edgeX + sign * 7f, edgeY), color, 3f);
+                Vector2 direction = new Vector2(mark.VelocityX, -mark.VelocityY);
+                if (direction.x == 0f && direction.y == 0f) direction = new Vector2(-1f, 0f);
+                bool orb = mark.Kind == BossAttackKind.ElectricOrb;
+                float x = mark.OriginX != 0f ? mark.OriginX + (orb ? 18f : 20f) : mark.X + mark.Width;
+                float y = GroundY - mark.OriginY - (orb ? 18f : 12f);
+                DrawBossLocalWarning(new Vector2(x, y), direction,
+                    mark.Kind == BossAttackKind.ElectricOrb ? Hex(0x92eaff) : color, mark);
                 return true;
             }
             if (mark.Kind == BossAttackKind.MissileRain)
             {
-                DrawBossWarningRect(rect, color, mark);
-                float progress = mark.Duration <= 0f ? 0f : Mathf.Clamp01(1f - mark.Remaining / mark.Duration);
-                // Each missile owns this actual vertical strip. The common
-                // green corridor is marked only along its edges, never filled
-                // with a danger colour or covered by an invisible hitbox.
-                if (mark.GapWidth > 0f)
-                {
-                    float top = Mathf.Max(211f, rect.y);
-                    Color safe = new Color(.55f, 1f, .81f, .5f);
-                    Line(new Vector2(mark.GapX, top), new Vector2(mark.GapX, GroundY), safe, 1.5f);
-                    Line(new Vector2(mark.GapX + mark.GapWidth, top), new Vector2(mark.GapX + mark.GapWidth, GroundY), safe, 1.5f);
-                }
-                float offset = Repeat(clock * 85f, 76f);
-                for (float y = rect.y + 19f + offset; y < rect.yMax - 18f; y += 76f)
-                {
-                    float x = rect.center.x;
-                    Line(new Vector2(x - 8f, y), new Vector2(x, y + 10f), WithAlpha(color, .63f + progress * .3f), 2f);
-                    Line(new Vector2(x + 8f, y), new Vector2(x, y + 10f), WithAlpha(color, .63f + progress * .3f), 2f);
-                }
-                return true;
-            }
-            if (mark.Kind == BossAttackKind.ElectricOrb)
-            {
-                Color electric = Hex(0x92eaff);
-                DrawBossWarningRect(rect, electric, mark);
-                for (float x = rect.x + 16f; x < rect.xMax - 21f; x += 83f)
-                {
-                    Vector2 a = new Vector2(x + 11f, rect.center.y - 9f);
-                    Vector2 b = new Vector2(x + 3f, rect.center.y + 1f);
-                    Vector2 c = new Vector2(x + 13f, rect.center.y - 1f);
-                    Vector2 d = new Vector2(x + 5f, rect.center.y + 9f);
-                    Line(a, b, electric, 2f); Line(b, c, electric, 2f); Line(c, d, electric, 2f);
-                }
+                float x = mark.OriginX != 0f ? mark.OriginX + 13f : mark.X + mark.Width * .5f;
+                DrawBossLocalWarning(new Vector2(x, 150f), new Vector2(0f, 1f), color, mark);
                 return true;
             }
             return false;

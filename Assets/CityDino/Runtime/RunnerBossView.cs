@@ -352,56 +352,124 @@ namespace CityDino
             if (DrawUnderwaterTelegraph(telegraph, clock)) return;
             Rect rect = new Rect(telegraph.X, GroundY - telegraph.Y - telegraph.Height,
                 telegraph.Width, telegraph.Height);
-            bool active = telegraph.Active;
             bool highLaser = telegraph.Kind == BossAttackKind.LaserHigh;
-            Color color = active ? (highLaser ? Hex(0xd480ff) : Hex(0xff765b))
+            Color color = telegraph.Active ? (highLaser ? Hex(0xd480ff) : Hex(0xff765b))
                 : highLaser ? Hex(0xd3a2ff) : Hex(0xffce73);
-            if (DrawBossSpecialWarning(telegraph, clock, color)) return;
-            if (!active && telegraph.Kind == BossAttackKind.AirGate)
+            if (DrawBossSpecialWarning(telegraph, clock, color, boss)) return;
+            if (telegraph.Active)
             {
-                // Preview the two travelling bars, leaving the physical safe
-                // opening entirely clear rather than painting one solid wall.
-                float lower = Mathf.Clamp(telegraph.GapY, telegraph.Y, telegraph.Y + telegraph.Height);
-                float upper = Mathf.Clamp(telegraph.GapY + telegraph.GapHeight, lower, telegraph.Y + telegraph.Height);
-                DrawBossWarningRect(new Rect(telegraph.X, GroundY - lower, telegraph.Width, lower - telegraph.Y), color, telegraph);
-                DrawBossWarningRect(new Rect(telegraph.X, GroundY - telegraph.Y - telegraph.Height,
-                    telegraph.Width, telegraph.Y + telegraph.Height - upper), color, telegraph);
-                return;
-            }
-            if (!active && telegraph.Kind == BossAttackKind.AirSpread && boss != null)
-            {
-                Vector2 start = new Vector2(boss.X - 20f, boss.Y + boss.Height * .45f);
-                float dx = Mathf.Min(-100f, telegraph.X - start.x), dy = telegraph.GapY - start.y;
-                float length = Mathf.Sqrt(dx * dx + dy * dy);
-                float vx = dx / Mathf.Max(1f, length) * 325f;
-                float vy = dy / Mathf.Max(1f, length) * 325f;
-                float travel = (90f - start.x) / vx;
-                for (int i = -1; i <= 1; i++)
-                {
-                    // Projectiles are 18 by 12 with a bottom-left origin;
-                    // trace their centres rather than offsetting the warning.
-                    Vector2 origin = new Vector2(start.x + 9f, GroundY - start.y - 6f);
-                    Vector2 end = new Vector2(99f, GroundY - start.y - 6f - (vy + i * telegraph.GapHeight) * travel);
-                    Line(origin, end, WithAlpha(color, .12f), 12f);
-                    Line(origin, end, WithAlpha(color, .48f), 2f);
-                }
-                return;
-            }
-            if (active)
-            {
-                // The complete live rectangle is drawn, including beam edges.
-                Fill(rect, WithAlpha(color, 0.7f));
+                // Active beams/blasts retain their complete real damage geometry.
+                // A short launch icon must never replace a live hitbox's artwork.
+                Fill(rect, WithAlpha(color, .7f));
                 if (rect.height <= 35f)
                     Fill(new Rect(rect.x, rect.y + rect.height * .37f, rect.width, Mathf.Max(2, rect.height * .26f)), Hex(0xfff2d1));
                 else
                     Fill(new Rect(rect.x + rect.width * .38f, rect.y, Mathf.Max(2, rect.width * .24f), rect.height), Hex(0xfff2d1));
                 return;
             }
-            float progress = telegraph.Duration <= 0 ? 0 : Mathf.Clamp01(1 - telegraph.Remaining / telegraph.Duration);
-            DrawBossWarningRect(rect, color, telegraph);
-            DrawBossWarningGlyphs(telegraph.Kind, rect, color, progress, clock);
+            if (telegraph.Kind == BossAttackKind.LaserLow || telegraph.Kind == BossAttackKind.LaserHigh ||
+                telegraph.Kind == BossAttackKind.AirLaser)
+            {
+                DrawBossLaserWarning(rect, color, telegraph);
+                return;
+            }
+            if (telegraph.Kind == BossAttackKind.AirGate)
+            {
+                // Small source lamps identify the two emitters without drawing
+                // their complete future route or outlining the safe opening.
+                float lower = Mathf.Clamp(telegraph.GapY, telegraph.Y, telegraph.Y + telegraph.Height);
+                float upper = Mathf.Clamp(telegraph.GapY + telegraph.GapHeight, lower, telegraph.Y + telegraph.Height);
+                float sourceX = boss != null ? boss.X + 2f : rect.center.x;
+                if (lower > telegraph.Y)
+                    DrawBossLocalWarning(new Vector2(sourceX, GroundY - (telegraph.Y + lower) * .5f),
+                        new Vector2(-1f, 0f), color, telegraph);
+                if (upper < telegraph.Y + telegraph.Height)
+                    DrawBossLocalWarning(new Vector2(sourceX, GroundY - (upper + telegraph.Y + telegraph.Height) * .5f),
+                        new Vector2(-1f, 0f), color, telegraph);
+                return;
+            }
+            Vector2 origin;
+            Vector2 direction = new Vector2(-1f, 0f);
+            if (telegraph.OriginX != 0f || telegraph.OriginY != 0f)
+            {
+                float halfWidth = telegraph.Kind == BossAttackKind.Cannon ? 15f : 9f;
+                float halfHeight = telegraph.Kind == BossAttackKind.Cannon ? 11f : 6f;
+                origin = new Vector2(telegraph.OriginX + halfWidth, GroundY - telegraph.OriginY - halfHeight);
+                direction = new Vector2(telegraph.VelocityX, -telegraph.VelocityY);
+            }
+            else if (telegraph.Kind == BossAttackKind.Artillery || telegraph.Kind == BossAttackKind.Missile)
+            {
+                origin = new Vector2(rect.center.x, 150f);
+                direction = new Vector2(0f, 1f);
+            }
+            else if (telegraph.Kind == BossAttackKind.ElectricPillar)
+            {
+                // Locally created hazards need a marker at their actual spawn,
+                // rather than a misleading lamp on the distant boss body.
+                origin = new Vector2(rect.center.x, rect.yMax - Mathf.Min(18f, rect.height * .5f));
+                direction = new Vector2(0f, 1f);
+            }
+            else if (boss != null && (telegraph.Kind == BossAttackKind.MineDrop ||
+                telegraph.Kind == BossAttackKind.CrateDrop || telegraph.Kind == BossAttackKind.ShieldDrone ||
+                telegraph.Kind == BossAttackKind.AirMine))
+            {
+                float centreX = telegraph.Kind == BossAttackKind.MineDrop ? boss.X - 10f
+                    : telegraph.Kind == BossAttackKind.CrateDrop ? boss.X
+                    : telegraph.Kind == BossAttackKind.ShieldDrone ? boss.X + 5f : boss.X - 5f;
+                origin = new Vector2(centreX, rect.center.y);
+            }
+            else if (boss != null && telegraph.Kind == BossAttackKind.Cannon)
+                origin = new Vector2(boss.X - 15f, GroundY - 25f);
+            else if (boss != null && telegraph.Kind == BossAttackKind.AirSpread)
+                origin = new Vector2(boss.X - 11f, GroundY - boss.Y - boss.Height * .45f - 6f);
+            else if (boss != null && telegraph.Kind == BossAttackKind.Shockwave)
+                origin = new Vector2(boss.X + 1f, GroundY - 12.5f);
+            else if (boss != null && (telegraph.Kind == BossAttackKind.Drone || telegraph.Kind == BossAttackKind.DroneLow))
+                origin = new Vector2(boss.X - 5f, GroundY - (telegraph.Kind == BossAttackKind.Drone ? 72f : 21f));
+            else if (boss != null)
+                origin = new Vector2(boss.X + 7f, GroundY - boss.Y - boss.Height * .48f);
+            else origin = new Vector2(rect.xMax - 18f, rect.center.y);
+            DrawBossLocalWarning(origin, direction, color, telegraph);
         }
 
+        private void DrawBossLaserWarning(Rect rect, Color color, BossTelegraph telegraph)
+        {
+            // A laser is instant when fired: keep a restrained aiming filament,
+            // not a filled banner. It stops moving as soon as the shot locks.
+            Fill(new Rect(rect.x, rect.center.y - .75f, rect.width, 1.5f), WithAlpha(color, .28f));
+            DrawBossLocalWarning(new Vector2(rect.xMax - 18f, rect.center.y), new Vector2(-1f, 0f), color, telegraph);
+        }
+
+        private void DrawBossLocalWarning(Vector2 origin, Vector2 direction, Color color,
+            BossTelegraph telegraph, bool doubleArrow = false)
+        {
+            origin.x = Mathf.Clamp(origin.x, 25f, Width - 25f);
+            origin.y = Mathf.Clamp(origin.y, 150f, GroundY - 18f);
+            float progress = telegraph.Duration <= 0f ? 0f : Mathf.Clamp01(1f - telegraph.Remaining / telegraph.Duration);
+            Color ink = WithAlpha(color, .78f + progress * .18f);
+            // A fixed compact caution sign is easier on the eyes than blinking
+            // full-lane arrows. The exclamation point stays inside its source.
+            Vector2 top = new Vector2(origin.x, origin.y - 14f);
+            Vector2 left = new Vector2(origin.x - 13f, origin.y + 10f);
+            Vector2 right = new Vector2(origin.x + 13f, origin.y + 10f);
+            Line(top, left, ink, 2f); Line(left, right, ink, 2f); Line(right, top, ink, 2f);
+            Fill(new Rect(origin.x - 1.5f, origin.y - 6f, 3f, 8f), ink);
+            Fill(new Rect(origin.x - 1.5f, origin.y + 5f, 3f, 3f), ink);
+            float magnitude = Mathf.Sqrt(direction.x * direction.x + direction.y * direction.y);
+            if (magnitude < .01f) return;
+            direction = direction * (1f / magnitude);
+            Vector2 across = new Vector2(-direction.y, direction.x);
+            int count = doubleArrow ? 2 : 1;
+            for (int i = 0; i < count; i++)
+            {
+                Vector2 tip = origin + direction * (23f + i * 9f);
+                Vector2 back = tip - direction * 7f;
+                Line(back + across * 5f, tip, ink, 2f);
+                Line(back - across * 5f, tip, ink, 2f);
+            }
+        }
+
+        // Kept for compact, stationary hazard previews that use a real footprint.
         private static void DrawBossWarningRect(Rect rect, Color color, BossTelegraph telegraph)
         {
             if (rect.width <= 0f || rect.height <= 0f) return;
@@ -412,68 +480,6 @@ namespace CityDino
             Fill(new Rect(rect.x, rect.yMax - edge, rect.width, edge), WithAlpha(color, .78f));
             Fill(new Rect(rect.x, rect.y, edge, rect.height), WithAlpha(color, .78f));
             Fill(new Rect(rect.xMax - edge, rect.y, edge, rect.height), WithAlpha(color, .78f));
-        }
-
-        private void DrawBossWarningGlyphs(BossAttackKind kind, Rect rect, Color color, float progress, float clock)
-        {
-            if (kind == BossAttackKind.Artillery)
-            {
-                float half = Mathf.Min(10f, rect.width * .2f);
-                Line(new Vector2(rect.center.x - half, rect.yMax - 9), new Vector2(rect.center.x + half, rect.yMax - 9), color, 2);
-                Line(new Vector2(rect.center.x, rect.yMax - 9 - half), new Vector2(rect.center.x, rect.yMax - 9 + half), color, 2);
-                Disc(new Rect(rect.center.x - half * 1.6f, rect.yMax - 14f, half * 3.2f, 9f),
-                    WithAlpha(color, .15f + progress * .17f));
-            }
-            else if (kind == BossAttackKind.Missile)
-            {
-                float y = rect.y - 21f - (1f - progress) * 7f;
-                float x = rect.center.x;
-                Line(new Vector2(x - 8f, y), new Vector2(x, y + 11f), color, 2.5f);
-                Line(new Vector2(x + 8f, y), new Vector2(x, y + 11f), color, 2.5f);
-                Line(new Vector2(x, y - 7f), new Vector2(x, y + 8f), color, 2f);
-                Fill(new Rect(rect.x + 5f, rect.yMax - 7f, Mathf.Max(1f, (rect.width - 10f) * progress), 2f), color);
-            }
-            else if (kind == BossAttackKind.LaserLow || kind == BossAttackKind.LaserHigh)
-            {
-                float offset = Repeat(clock * 65f, 37f);
-                for (float x = rect.x + 7f + offset; x < rect.xMax - 20f; x += 37f)
-                {
-                    Fill(new Rect(x, rect.center.y - 1f, 14f, 2f), WithAlpha(color, .5f + progress * .3f));
-                    Line(new Vector2(x + 6f, rect.y + 2f), new Vector2(x + 11f, rect.yMax - 2f),
-                        WithAlpha(color, .6f), 1.5f);
-                }
-            }
-            else if (kind == BossAttackKind.Shockwave)
-            {
-                for (float x = rect.x + 6f; x < rect.xMax - 24f; x += 30f)
-                {
-                    float amplitude = Mathf.Min(10f, rect.height * .4f) * (.45f + progress * .55f);
-                    Line(new Vector2(x, rect.yMax - 3f), new Vector2(x + 8f, rect.yMax - 3f - amplitude), color, 1.5f);
-                    Line(new Vector2(x + 8f, rect.yMax - 3f - amplitude), new Vector2(x + 16f, rect.yMax - 3f), color, 1.5f);
-                }
-            }
-            else if (kind == BossAttackKind.Drone || kind == BossAttackKind.DroneLow)
-            {
-                float offset = Repeat(clock * 49f, 91f);
-                for (float x = rect.x + 12f + offset; x < rect.xMax - 32f; x += 91f)
-                {
-                    float y = rect.center.y;
-                    Fill(new Rect(x, y - 5f, 20f, 10f), WithAlpha(color, .26f + progress * .25f));
-                    Fill(new Rect(x + 5f, y - 2f, 8f, 4f), WithAlpha(color, .8f));
-                    Line(new Vector2(x - 3f, y - 8f), new Vector2(x + 23f, y - 8f), color, 1.5f);
-                }
-            }
-            else
-            {
-                // Low shell lanes show a leftward stream before the first shot.
-                float offset = Repeat(clock * 82f, 46f);
-                for (float x = rect.x + 9f + offset; x < rect.xMax - 21f; x += 46f)
-                {
-                    float y = rect.center.y;
-                    Line(new Vector2(x + 9f, y - 5f), new Vector2(x, y), color, 2f);
-                    Line(new Vector2(x, y), new Vector2(x + 9f, y + 5f), color, 2f);
-                }
-            }
         }
 
         private void DrawBossProjectile(BossProjectile projectile, float clock)

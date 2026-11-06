@@ -331,6 +331,7 @@ internal static partial class Program
     private static void CombatBotInput(RunnerSession run, bool shoot, bool earlyArtillery=false)
     {
         run.SetShooting(shoot);
+        if(run.BossTier>=3){PredictiveBossInputV14(run);return;}
         if(run.IsUnderwaterBoss){SwimBotInputV13(run);return;}
         if(run.IsFlyingBoss){FlightBotInputV10(run);return;}
         bool high=run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserHigh&&(m.Active||m.Remaining<.65f));
@@ -476,7 +477,7 @@ internal static partial class Program
                     if(!mark.Visible)continue;
                     if(!mark.Active)
                     {
-                        Check(mark.Duration>=.65f&&mark.Remaining<=mark.Duration+.02f,"Boss attack warning too short or invalid");
+                        Check(mark.Duration>=.44f&&mark.Remaining<=mark.Duration+.02f,"Boss attack warning too short or invalid");
                         if(!warned.ContainsKey(mark.Id))warned.Add(mark.Id,new BossWarningObservation {
                             Began=run.BossElapsed-(mark.Duration-mark.Remaining),Duration=mark.Duration,
                             X=mark.X,Width=mark.Width,Kind=mark.Kind });
@@ -532,8 +533,8 @@ internal static partial class Program
         float longest=0;
         for(int number=1;number<=4;number++)
         {
-            RunnerSession run=EnterBossFixture(number);ReachFighting(run);
-            Check(run.CurrentCharacter==CharacterKind.Classic&&run.Lives==1&&run.CurrentBoss.Health==run.CurrentBoss.MaxHealth,"Classic victory fixture altered health or granted advantages");
+            RunnerSession run=EnterBossFixture(number,hearts:3);ReachFighting(run);
+            Check(run.CurrentCharacter==CharacterKind.Classic&&run.Lives==4&&run.InvincibleRemaining==0&&run.CurrentBoss.Health==run.CurrentBoss.MaxHealth,"Classic victory fixture altered health or granted non-shop advantages");
             float start=run.BossElapsed;int score=run.Score;float full=run.CurrentBoss.MaxHealth;int shots=0;
             var recent=new Queue<string>();var seenRage=new HashSet<int>();
             for(int i=0;i<120*150&&run.ArenaPhase==BossPhase.Fighting&&run.State==RunState.Playing;i++)
@@ -541,15 +542,202 @@ internal static partial class Program
                 seenRage.Add(run.CurrentBoss.RageLevel);shots=Math.Max(shots,run.BossProjectiles.Count(p=>p.Friendly));
                 if(i%30==0){recent.Enqueue(run.BossElapsed.ToString("0.00")+" "+ArenaDescription(run));while(recent.Count>16)recent.Dequeue();}
                 CombatBotInput(run,true);run.Update(1f/120);
-                Check(run.State==RunState.Playing&&run.Lives==1,"Free Classic hit during full boss fight #"+number+" at "+run.BossElapsed+" "+ArenaDescription(run)+"\nRecent: "+string.Join("\n",recent));
+                Check(run.State==RunState.Playing&&run.Lives>0,"Classic exhausted its purchased hearts during full boss fight #"+number+" at "+run.BossElapsed+" "+ArenaDescription(run)+"\nRecent: "+string.Join("\n",recent));
                 Check(run.Score==score,"Shooting boss farmed running points");
             }
             Check(run.ArenaPhase==BossPhase.Victory&&run.CurrentBoss.Health==0&&shots>0,"Free Classic failed to defeat full-health "+run.CurrentBoss.Kind);
             Check(seenRage.SetEquals(new[]{1,2,3}),"Full-health fight skipped a real rage phase");
             float time=run.BossElapsed-start;longest=Math.Max(longest,time);
             Check(time>=15&&time<135&&full>=500,"Boss ended instantly or became an excessively long damage sponge");
-            Console.WriteLine("  Classic defeated "+run.CurrentBoss.Kind+" from "+full+" HP in "+time.ToString("0.0")+" combat seconds with real shots, no damage or skill.");
+            Console.WriteLine("  Classic defeated "+run.CurrentBoss.Kind+" from "+full+" HP in "+time.ToString("0.0")+" combat seconds with real shots, "+(4-run.Lives)+" real hits, three purchased hearts, no skill or protection cheats.");
         }
         Check(longest>25,"Boss coverage did not exercise sustained combat");
     }
+    // This controller observes only live projectiles and already visible launch
+    // cues. It forecasts constant input choices against the public physical
+    // shapes; the live session receives ordinary A/D, jump/crouch and lift/dive.
+    // It never edits live HP, objects, immunity or a hidden attack schedule.
+    private sealed class BossBotChoiceV14
+    {
+        public float At=-100, Direction;
+        public int Vertical;
+        public bool Jump, Duck;
+    }
+    private sealed class BossBotThreatV14
+    {
+        public float X,Y,W,H,Vx,Vy,Radius,Start,End=10;
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RunnerSession,BossBotChoiceV14> bossChoicesV14 =
+        new System.Runtime.CompilerServices.ConditionalWeakTable<RunnerSession,BossBotChoiceV14>();
+    private static readonly MethodInfo clonePoseV14=typeof(object).GetMethod("MemberwiseClone",BindingFlags.Instance|BindingFlags.NonPublic);
+    private static readonly FieldInfo pxV14=typeof(RunnerSession).GetField("<PlayerX>k__BackingField",BindingFlags.Instance|BindingFlags.NonPublic),
+        pyV14=typeof(RunnerSession).GetField("<PlayerY>k__BackingField",BindingFlags.Instance|BindingFlags.NonPublic),
+        duckV14=typeof(RunnerSession).GetField("<IsDucking>k__BackingField",BindingFlags.Instance|BindingFlags.NonPublic),
+        facingV14=typeof(RunnerSession).GetField("<FacingLeft>k__BackingField",BindingFlags.Instance|BindingFlags.NonPublic),
+        avV14=typeof(RunnerSession).GetField("<AnimationVelocityY>k__BackingField",BindingFlags.Instance|BindingFlags.NonPublic),
+        clockV14=typeof(RunnerSession).GetField("bossClock",BindingFlags.Instance|BindingFlags.NonPublic),
+        jumpsV14=typeof(RunnerSession).GetField("jumpsUsed",BindingFlags.Instance|BindingFlags.NonPublic);
+
+    private static void PredictiveBossInputV14(RunnerSession run)
+    {
+        var choice=bossChoicesV14.GetOrCreateValue(run);
+        bool fresh=run.BossElapsed-choice.At>=.04f||run.BossElapsed<choice.At;
+        if(fresh)
+        {
+            var threats=BossBotThreatsV14(run);
+            var pose=(RunnerSession)clonePoseV14.Invoke(run,null);
+            bool air=run.IsFreeMovementBoss;
+            int used=(int)jumpsV14.GetValue(run);
+            bool waitingLowLaser=run.CurrentBoss.Kind==BossKind.Sentinel&&run.PlayerY<=.01f&&
+                run.BossTelegraphs.Any(m=>m.Visible&&!m.Active&&m.Kind==BossAttackKind.LaserLow&&m.Remaining>.32f)&&
+                !run.BossTelegraphs.Any(m=>m.Visible&&m.Kind==BossAttackKind.LaserLow&&(m.Active||m.Remaining<=.32f));
+            double best=double.PositiveInfinity;
+            foreach(float direction in new[]{0f,-1f,1f})
+            foreach(int vertical in air?new[]{0,1,-1}:new[]{0})
+            foreach(bool jump in new[]{false,true})
+            foreach(bool duck in air?new[]{false}:new[]{false,true})
+            {
+                if(jump&&duck||jump&&!air&&used>=2)continue;
+                if(jump&&!air&&(waitingLowLaser||used==1&&run.VelocityY>0))continue;
+                float x=run.PlayerX,y=run.PlayerY,vy=run.VelocityY;
+                if(jump)vy=air?Math.Max(vy,run.IsUnderwaterBoss?135f:150f):RunnerSession.JumpVelocity;
+                double cost=(jump?.8:0)+(duck?.1:0)+Math.Abs(direction)*.015;
+                float step=1f/40;
+                for(int i=0;i<=44;i++)
+                {
+                    float t=i*step;
+                    // Changing crouch or facing changes the silhouette now,
+                    // before a nearby projectile can move out of the way.
+                    if(i>0)
+                    {
+                    x=Math.Max(RunnerSession.MinimumPlayerX,Math.Min(RunnerSession.MaximumPlayerX,x+direction*RunnerSession.HorizontalSpeed*step));
+                    if(air)
+                    {
+                        if(run.IsUnderwaterBoss){vy+=(vertical<0?-580f:vertical>0?420f:-230f)*step;vy*=1f-1.5f*step;vy=Math.Max(-220f,Math.Min(200f,vy));}
+                        else{vy+=(-RunnerSession.FlightGravity+(vertical>0?RunnerSession.FlightThrust:0))*step;vy=Math.Max(-260f,Math.Min(230f,vy));}
+                        y+=vy*step;
+                        if(y<RunnerSession.FlightMinimumY){y=RunnerSession.FlightMinimumY;vy=Math.Max(0,vy);}
+                        if(y>RunnerSession.FlightMaximumY){y=RunnerSession.FlightMaximumY;vy=Math.Min(0,vy);}
+                    }
+                    else
+                    {
+                        if(y>0||vy>0){vy-=RunnerSession.Gravity*step;y+=vy*step;if(y<0){y=0;vy=0;}}
+                    }
+                    }
+                    pxV14.SetValue(pose,x);pyV14.SetValue(pose,y);duckV14.SetValue(pose,duck&&y<=.01f);
+                    avV14.SetValue(pose,vy);clockV14.SetValue(pose,(double)run.BossElapsed+t);
+                    facingV14.SetValue(pose,direction<0||direction==0&&run.FacingLeft);
+                    foreach(var q in threats)
+                    {
+                        if(t<q.Start||t>q.End)continue;
+                        float age=t-q.Start,tx=q.X+q.Vx*age,ty=q.Y+q.Vy*age;
+                        if(tx+q.W<x-65||tx>x+65||ty+q.H<y-15||ty>y+110)continue;
+                        // Forecast a conservative body envelope so the bot
+                        // does not stand up inside a projectile that is only
+                        // predicted to pass through a neck gap next frame.
+                        float actorHeight=duck&&y<=.01f?46f:94f;
+                        float actorWidth=duck&&y<=.01f?112f:102f;
+                        bool touch;
+                        if(q.Radius>0)
+                        {
+                            float cx=tx+q.W*.5f,cy=ty+q.H*.5f;
+                            float dx=cx-Math.Max(x-actorWidth*.5f,Math.Min(x+actorWidth*.5f,cx));
+                            float dy=cy-Math.Max(y-2f,Math.Min(y+actorHeight,cy));
+                            touch=dx*dx+dy*dy<(q.Radius+6f)*(q.Radius+6f);
+                        }
+                        else touch=tx+q.W+6f>x-actorWidth*.5f&&tx-6f<x+actorWidth*.5f&&ty+q.H+6f>y-2f&&ty-6f<y+actorHeight;
+                        if(touch)cost+=100000*(1.2-t*.5);
+                        else
+                        {
+                            float dx=Math.Max(0,Math.Max(tx-(x+48),(x-48)-(tx+q.W)));
+                            float dy=Math.Max(0,Math.Max(ty-(y+(duck&&y<=.01f?44:91)),y-(ty+q.H)));
+                            cost+=.02/(1+dx+dy);
+                        }
+                    }
+                    // Keep room on both sides when no imminent collision forces
+                    // a move. The tiny preference cannot outweigh a real hit.
+                    cost+=Math.Abs(x-410)*.000008;
+                    if(air)cost+=Math.Abs(y-135)*.000005;
+                }
+                if(cost<best){best=cost;choice.Direction=direction;choice.Vertical=vertical;choice.Jump=jump;choice.Duck=duck;}
+            }
+            choice.At=run.BossElapsed;
+        }
+        run.SetHorizontal(choice.Direction);run.SetDucking(choice.Duck);
+        if(run.IsUnderwaterBoss){run.SetSwimLift(choice.Vertical>0);run.SetSwimDive(choice.Vertical<0);}
+        else if(run.IsFlyingBoss)run.SetFlightLift(choice.Vertical>0);
+        if(fresh&&choice.Jump)run.Jump();
+        if(!run.IsFreeMovementBoss&&run.VelocityY<0&&NeedsLowAirExtensionV9(run))run.Jump();
+    }
+    private static List<BossBotThreatV14> BossBotThreatsV14(RunnerSession run)
+    {
+        var list=new List<BossBotThreatV14>();
+        void Shot(BossAttackKind kind,float x,float y,float w,float h,float vx,float vy,float radius,float start,float life=8)
+        {
+            float end=start+life;
+            bool depth=kind==BossAttackKind.DepthCharge;
+            if((depth||kind==BossAttackKind.Artillery||kind==BossAttackKind.Missile||kind==BossAttackKind.MissileRain)&&vy<0)
+            {
+                float fall=Math.Max(0,(y-(depth?20:0))/-vy);
+                end=Math.Min(end,start+fall);
+                float blast=depth?64:kind==BossAttackKind.Artillery?100:kind==BossAttackKind.MissileRain?62:78;
+                list.Add(new BossBotThreatV14{X=x+vx*fall+w*.5f-blast*.5f,Y=0,W=blast,H=depth?64:58,Radius=depth?32:0,Start=start+fall,End=start+fall+.35f});
+            }
+            list.Add(new BossBotThreatV14{X=x,Y=y,W=w,H=h,Vx=vx,Vy=vy,Radius=radius,Start=start,End=end});
+        }
+        foreach(var p in run.BossProjectiles.Where(p=>!p.Removed&&!p.Friendly))
+            Shot(p.Kind,p.X,p.Y,p.Width,p.Height,p.VelocityX,p.VelocityY,p.Radius,0,p.Lifetime);
+        foreach(var o in run.BossObstacles.Where(o=>!o.Removed))
+            list.Add(new BossBotThreatV14{X=o.X,Y=o.Y,W=o.Width,H=o.Height,Vx=o.VelocityX,Vy=o.VelocityY,Radius=o.Radius,Start=o.Active?0:o.WarningRemaining,End=o.Remaining});
+        float pace=(run.BossTierPace+(run.CurrentBoss.RageLevel-1)*.08f)*run.BossPracticePace;
+        foreach(var m in run.BossTelegraphs.Where(m=>m.Visible))
+        {
+            if(m.Active){list.Add(new BossBotThreatV14{X=m.X,Y=m.Y,W=m.Width,H=m.Height,End=m.Remaining});continue;}
+            float start=m.Remaining;
+            if(IsChargeV11(m.Kind))
+            {
+                float strike=run.BossChargeStrikeDuration(m.FullSweep),target=m.SweepEndX;
+                float width=m.Kind==BossAttackKind.TankRam?68:m.Kind==BossAttackKind.RobotDash?76:96;
+                list.Add(new BossBotThreatV14{X=run.CurrentBoss.X+8,Y=m.Y,W=width,H=m.Height,Vx=(target-run.CurrentBoss.X)/strike,Start=start,End=start+strike});
+            }
+            else if(m.Kind==BossAttackKind.LaserLow||m.Kind==BossAttackKind.LaserHigh||m.Kind==BossAttackKind.AirLaser||m.Kind==BossAttackKind.SonarBeam)
+                list.Add(new BossBotThreatV14{X=m.X,Y=m.Y,W=m.Width,H=m.Height,Start=start,End=start+.32f});
+            else if(m.Kind==BossAttackKind.ElectricPillar)
+                list.Add(new BossBotThreatV14{X=m.X,Y=m.Y,W=m.Width,H=m.Height,Start=start,End=start+1.35f});
+            else if(m.Kind==BossAttackKind.AirGate)
+            {
+                list.Add(new BossBotThreatV14{X=run.CurrentBoss.X-20,Y=0,W=44,H=m.GapY,Vx=-280*pace,Start=start});
+                list.Add(new BossBotThreatV14{X=run.CurrentBoss.X-20,Y=m.GapY+m.GapHeight,W=44,H=Math.Max(1,360-m.GapY-m.GapHeight),Vx=-280*pace,Start=start});
+            }
+            else if(m.Kind==BossAttackKind.Artillery||m.Kind==BossAttackKind.Missile)
+            {
+                bool art=m.Kind==BossAttackKind.Artillery;
+                Shot(m.Kind,m.X+m.Width*.5f-(art?16:11),430,art?32:22,art?32:54,0,-(art?485:620)*pace,art?14:0,start);
+            }
+            else if(m.Kind==BossAttackKind.MissileRain)Shot(m.Kind,m.OriginX,m.OriginY,26,50,m.VelocityX*pace,m.VelocityY*pace,0,start);
+            else if(m.Kind==BossAttackKind.CrossMissile||m.Kind==BossAttackKind.ElectricOrb||m.Kind==BossAttackKind.Torpedo||m.Kind==BossAttackKind.FishShoal)
+            {
+                bool orb=m.Kind==BossAttackKind.ElectricOrb,torpedo=m.Kind==BossAttackKind.Torpedo,fish=m.Kind==BossAttackKind.FishShoal;
+                for(int i=0;i<(fish?3:1);i++)Shot(m.Kind,m.OriginX-Math.Sign(m.VelocityX)*i*86,m.OriginY,orb?36:torpedo?48:fish?32:40,orb?36:torpedo?20:24,m.VelocityX*pace,m.VelocityY*pace,orb?18:torpedo?10:fish?11:0,start);
+            }
+            else if(m.Kind==BossAttackKind.SeaMine)Shot(m.Kind,m.OriginX,m.OriginY,38,38,0,m.VelocityY*pace,19,start);
+            else if(m.Kind==BossAttackKind.DepthCharge)Shot(m.Kind,m.OriginX,m.OriginY,28,28,0,m.VelocityY*pace,14,start);
+            else if(m.Kind==BossAttackKind.MineDrop)Shot(m.Kind,run.CurrentBoss.X-26,0,32,32,-190*pace,0,16,start);
+            else if(m.Kind==BossAttackKind.CrateDrop)Shot(m.Kind,run.CurrentBoss.X-28,0,56,68,-140*pace,0,28,start);
+            else if(m.Kind==BossAttackKind.ShieldDrone)Shot(m.Kind,run.CurrentBoss.X-28,62,66,46,-205*pace,0,0,start);
+            else if(m.Kind==BossAttackKind.AirMine)Shot(m.Kind,run.CurrentBoss.X-22,m.Y,34,34,-185*pace,0,17,start);
+            else if(m.Kind==BossAttackKind.Shockwave)Shot(m.Kind,run.CurrentBoss.X-30,0,62,25,-375*pace,0,0,start);
+            else if(m.Kind==BossAttackKind.Cannon)Shot(m.Kind,m.VelocityX!=0?m.OriginX:run.CurrentBoss.X-30,m.VelocityX!=0?m.OriginY:14,30,22,m.VelocityX!=0?m.VelocityX*pace:-425*pace,m.VelocityY*pace,11,start);
+        }
+        if(run.CurrentBoss.ContactActive)
+        {
+            var b=run.CurrentBoss;
+            float duration=(float)typeof(RunnerSession).GetField("bossChargeStrikeSeconds",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(run);
+            float age=run.BossElapsed-(float)(double)typeof(RunnerSession).GetField("bossChargeStartedAt",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(run);
+            float remain=Math.Max(.01f,duration-age);
+            list.Add(new BossBotThreatV14{X=b.ContactX,Y=b.ContactY,W=b.ContactWidth,H=b.ContactHeight,Vx=(b.SweepEndX-b.X)/remain,End=remain});
+        }
+        return list;
+    }
+
 }

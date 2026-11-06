@@ -79,7 +79,7 @@ namespace CityDino
         public const float PlayerWidth = 60f;
         public const float StandingHeight = 88f;
         public const float DuckHeight = 44f;
-        public const float InitialSpeed = 360f;
+        public const float InitialSpeed = 480f;
         public const float SpeedAcceleration = 2.2f;
         public const float Gravity = 1800f;
         public const float JumpVelocity = 780f;
@@ -639,6 +639,10 @@ namespace CityDino
         private void SpawnSurvivalSupply(bool cold)
         {
             float x = CanvasWidth + 50f;
+            // A fixed 100px gap becomes a fraction of a jump at higher pace.
+            // Leave real approach/landing time around the pack, so the drink
+            // is not technically clear while only passing during a forced jump.
+            float pickupClearance = Math.Max(100f, Speed * .7f);
             // Find a visible approach lane ahead of the player, before any
             // ground hazard's full moving envelope. Supplies are never placed
             // in a hole or inside a house, saw, spike or barrier.
@@ -649,8 +653,8 @@ namespace CityDino
                 {
                     WorldEntity e = entities[i];
                     if (e.Removed || !BlocksGroundSupply(e)) continue;
-                    float left = e.X - e.MotionAmplitudeX * 2f - 100f;
-                    float right = e.X + e.Width + e.MotionAmplitudeX * 2f + 100f;
+                    float left = e.X - e.MotionAmplitudeX * 2f - pickupClearance;
+                    float right = e.X + e.Width + e.MotionAmplitudeX * 2f + pickupClearance;
                     if (x + 32f <= left || x >= right) continue;
                     x = left - 34f;
                     changed = true;
@@ -666,7 +670,7 @@ namespace CityDino
                 {
                     WorldEntity e = entities[i];
                     if (e.Removed || !BlocksGroundSupply(e)) continue;
-                    x = Math.Max(x, e.X + e.Width + e.MotionAmplitudeX * 2f + 120f);
+                    x = Math.Max(x, e.X + e.Width + e.MotionAmplitudeX * 2f + pickupClearance + 20f);
                 }
             }
             Add(cold ? EntityKind.HotDrink : EntityKind.Water, x, 10f, 32f, 36f);

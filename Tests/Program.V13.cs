@@ -12,11 +12,11 @@ internal static partial class Program
     private static void RegisterV13Tests()
     {
         Test("normal milestones start at C3 and four-boss rounds scale while practice remains exact",NormalDifficultyV13);
-        Test("run missile volleys keep completed warnings, one simultaneous launch and all one-to-four sizes",RunMissileSignalsV13);
+        Test("run missile columns launch simultaneously with variable locked vertical gaps",RunMissileSignalsV13);
         Test("run missile collisions use real circles and respect shield guard dash and fatal recording",RunMissileContactsV13);
         Test("run missile state freezes on pause and death and clears for arenas with return grace",RunMissileLifecycleV13);
         Test("run missile corridors drain terrain while preserving natural supplies and avoid night blackout",RunMissileCorridorsV13);
-        Test("one-to-four running missiles have real one-heart jump paths at low and late speed",RunMissilePathsV13);
+        Test("vertical missile gaps have real timed jump paths for all characters at low and late speed",RunMissilePathsV13);
         Test("submarine entry equips a helmet then jumps and dives without running clocks",UnderwaterJourneyV13);
         Test("swimming uses held rise dive and stroke while pause and death freeze the physical pose",SwimControlV13);
         Test("submarine attacks have completed signals, round mines and finite lifecycle",UnderwaterSignalsV13);
@@ -38,11 +38,19 @@ internal static partial class Program
             Check(run.BossRepeatCount==(tier<=4?tier:tier==6?5:6),"Later tier repeat budget stopped growing beyond C4");
         }
     }
-    private static void RunMissileBotV13(RunnerSession run)
+    private static void RunMissileBotV13(RunnerSession run,float timingOffset=0f)
     {
         if(run.IsBossArena)return;
         var near=run.RunMissiles.Where(m=>!m.Removed&&m.X+m.Width>run.PlayerX-60).OrderBy(m=>m.X).FirstOrDefault();
         if(near==null)return;
+        if(near.GapHeight>0)
+        {
+            float untilCentre=(near.X+near.Width*.5f-run.PlayerX)/Math.Max(1,-near.VelocityX+run.HorizontalVelocity);
+            float lead=(near.GapY<70?.18f:near.GapY<100?.27f:.35f)+timingOffset;
+            run.SetDucking(false);
+            if(untilCentre<lead&&run.PlayerY<=.01f)run.Jump();
+            return;
+        }
         float until=(near.X-run.PlayerX-48)/Math.Max(1,-near.VelocityX+run.HorizontalVelocity);
         if(until<.26f&&run.PlayerY<=.01f){run.SetDucking(false);run.Jump();}
         else if(run.VelocityY<0&&run.PlayerY<70&&until<.22f){run.SetDucking(false);run.Jump();}
@@ -111,7 +119,7 @@ internal static partial class Program
     }
     private static void RunMissileSignalsV13()
     {
-        var counts=new HashSet<int>();var trace=new List<string>();
+        var counts=new HashSet<int>();var gaps=new HashSet<float>();var trace=new List<string>();
         for(int seed=0;seed<12;seed++)
         {
             var run=new RunnerSession(null,seed);run.SetStartingDistrict(District.Day);run.StartRun();
@@ -124,7 +132,8 @@ internal static partial class Program
             {
                 foreach(var mark in run.RunMissileWarnings)
                 {
-                    Check(mark.Count>=1&&mark.Count<=4&&mark.Duration>=1.2f,"Invalid missile count or cue duration");
+                    Check(mark.Count>=3&&mark.Count<=4&&mark.Duration==RunnerSession.RunMissileWarningDuration,"Invalid missile count or cue duration");
+                    Check(mark.GapHeight==180&&mark.GapY>=55&&mark.GapY<=115,"Vertical column omitted a reachable locked opening");gaps.Add(mark.GapY);
                     if(!warned.ContainsKey(mark.VolleyId))warned.Add(mark.VolleyId,Tuple.Create(run.Elapsed-(mark.Duration-mark.Remaining),mark.Count));
                     Check(run.RunMissiles.All(m=>m.VolleyId!=mark.VolleyId),"Warning and damage overlapped before expiry");
                 }
@@ -132,18 +141,23 @@ internal static partial class Program
                 {
                     if(!appeared.Add(missile.VolleyId))continue;
                     Check(warned.ContainsKey(missile.VolleyId),"Missile volley lacked a visible warning");var mark=warned[missile.VolleyId];
-                    Check(run.Elapsed-mark.Item1>=1.2f-.025f,"Missile fired before warning duration completed");
-                    var wave=run.RunMissiles.Where(m=>m.VolleyId==missile.VolleyId).OrderBy(m=>m.X).ToList();
+                    Check(run.Elapsed-mark.Item1>=RunnerSession.RunMissileWarningDuration-.025f,"Missile fired before warning duration completed");
+                    var wave=run.RunMissiles.Where(m=>m.VolleyId==missile.VolleyId).OrderBy(m=>m.Y).ToList();
                     Check(wave.Count==mark.Item2,"Volley did not launch its entire selected count simultaneously");counts.Add(wave.Count);
                     for(int n=0;n<wave.Count;n++)
-                    {Check(wave[n].Y==14&&wave[n].Radius==11&&wave[n].VelocityX<0&&wave[n].Lifetime>0,"Missile live geometry invalid");if(n>0)Near(wave[n].X-wave[n-1].X,-wave[n].VelocityX*.22f,.1f,"Distinct missiles overlap instead of timed spacing");}
+                    {
+                        Check(wave[n].Radius==11&&wave[n].VelocityX<0&&wave[n].Lifetime>0,"Missile live geometry invalid");
+                        Near(wave[n].X,wave[0].X,.01f,"Volley is still a horizontal train instead of a simultaneous column");
+                        Check(wave[n].Y+22<=wave[n].GapY||wave[n].Y>=wave[n].GapY+wave[n].GapHeight,"Missile occupied its locked escape gap");
+                        if(n>0)Check(wave[n].Y>wave[n-1].Y,"Vertical rocket rows overlapped");
+                    }
                     trace.Add(seed+":"+run.Elapsed.ToString("0.0")+":"+wave.Count);
                 }
                 Check(run.RunMissiles.Count<=4&&run.RunMissileWarnings.Count<=1,"Running missiles accumulated without bounds");run.Update(1f/120);
             }
         }
-        Check(counts.SetEquals(new[]{1,2,3,4}),"Natural seeded waves missed one-to-four variation");
-        Console.WriteLine("  Run missile output audit: "+trace.Count+" real volleys covered all 1/2/3/4 sizes.");
+        Check(counts.SetEquals(new[]{3,4})&&gaps.SetEquals(new[]{55f,85f,115f}),"Natural seeded columns missed count/gap variation");
+        Console.WriteLine("  Run missile output audit: "+trace.Count+" real vertical columns covered 3/4 rockets and all three locked gap heights.");
     }
     private static IList<RunMissile> MissilesV13(RunnerSession run){return (IList<RunMissile>)run.RunMissiles;}
     private static void AddMissileContactV13(RunnerSession run)
@@ -205,15 +219,18 @@ internal static partial class Program
     private static void RunMissilePathsV13()
     {
         int cases=0;
-        foreach(int count in new[]{1,2,3,4})foreach(float age in new[]{0f,600f,3600f})foreach(float x in new[]{100f,720f})
+        foreach(var character in new[]{CharacterKind.Classic,CharacterKind.Triceratops,CharacterKind.Raptor})
+        foreach(int count in new[]{3,4})foreach(float gap in new[]{55f,85f,115f})
+        foreach(float age in new[]{0f,600f,3600f})foreach(float x in new[]{100f,720f})
+        foreach(float timingOffset in new[]{-.025f,0f,.025f})
         {
-            var run=MissileFixtureV13(age:age);SetProperty(run,"PlayerX",x);SetField(run,"nextRunMissileAt",double.MaxValue);
-            float speed=run.Speed+170f;
-            for(int i=0;i<count;i++)MissilesV13(run).Add(new RunMissile{Id=990010+i,VolleyId=1,X=1320+i*speed*.22f,Y=14,Width=40,Height=22,Radius=11,VelocityX=-speed,Lifetime=10});
-            for(int i=0;i<120*5&&run.RunMissiles.Count>0;i++){RunMissileBotV13(run);run.Update(1f/120);Check(run.State==RunState.Playing&&run.Lives==1,"Missile volley lacks real input path count="+count+" age="+age+" X="+x+" y="+run.PlayerY);}
+            var run=MissileFixtureV13(age:age,character:character);SetProperty(run,"PlayerX",x);SetField(run,"nextRunMissileAt",double.MaxValue);
+            var warning=new RunMissileWarning{Id=990010,VolleyId=1,Count=count,GapY=gap,GapHeight=180};
+            typeof(RunnerSession).GetMethod("LaunchRunMissileVolley",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(run,new object[]{warning});
+            for(int i=0;i<120*5&&run.RunMissiles.Count>0;i++){RunMissileBotV13(run,timingOffset);run.Update(1f/120);Check(run.State==RunState.Playing&&run.Lives==1,"Missile column lacks real input path count="+count+" gap="+gap+" age="+age+" X="+x+" y="+run.PlayerY+" character="+character+" timing="+timingOffset);}
             Check(run.RunMissiles.Count==0,"Real missile path did not wait through the full volley");cases++;
         }
-        Console.WriteLine("  Running missile real one-heart jump paths: "+cases+" low/late-speed cases.");
+        Console.WriteLine("  Running vertical missile real one-heart timed-jump paths: "+cases+" character/gap/speed/position cases.");
     }
     private static void UnderwaterJourneyV13()
     {
@@ -244,7 +261,7 @@ internal static partial class Program
         for(int i=0;i<120*160;i++)
         {
             foreach(var m in run.BossTelegraphs)if(m.Visible&&!m.Active&&!warnings.ContainsKey(m.Id)){warnings.Add(m.Id,Tuple.Create(run.BossElapsed-(m.Duration-m.Remaining),m.Duration));kinds.Add(m.Kind);}
-            foreach(var p in run.BossProjectiles.Where(p=>!p.Friendly&&!p.Removed))if(seen.Add(p.Id)){Check(warnings.ContainsKey(p.SourceTelegraphId),"Naval shot has no visible signal");var w=warnings[p.SourceTelegraphId];Check(w.Item2>=.7&&run.BossElapsed-w.Item1>=w.Item2-.03,"Naval shot skipped cue");Check(p.Lifetime>0&&p.Radius>0,"Naval projectile omitted finite circular body");}
+            foreach(var p in run.BossProjectiles.Where(p=>!p.Friendly&&!p.Removed))if(seen.Add(p.Id)){Check(warnings.ContainsKey(p.SourceTelegraphId),"Naval shot has no visible signal");var w=warnings[p.SourceTelegraphId];Check(w.Item2>=.44&&run.BossElapsed-w.Item1>=w.Item2-.03,"Naval shot skipped cue");Check(p.Lifetime>0&&p.Radius>0,"Naval projectile omitted finite circular body");}
             foreach(var o in run.BossObstacles.Where(o=>!o.Removed))if(seen.Add(o.Id)){Check(warnings.ContainsKey(o.SourceTelegraphId)&&o.Radius>0&&o.Remaining>0,"Sea mine omitted signal/circular body/lifetime");}
             Check(run.BossProjectiles.Count<100&&run.BossObstacles.Count<30,"Naval attack count accumulated without limits");run.Update(1f/120);
         }

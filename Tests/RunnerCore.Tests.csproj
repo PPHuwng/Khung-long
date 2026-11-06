@@ -15,6 +15,8 @@
     <Compile Include="Program.V11.cs" />
     <Compile Include="Program.V12.cs" />
     <Compile Include="Program.V13.cs" />
+    <Compile Include="Program.V14Boss.cs" />
+    <Compile Include="Program.V14Journey.cs" />
     <Compile Include="../Assets/CityDino/Core/*.cs" />
   </ItemGroup>
 </Project>

@@ -10,8 +10,8 @@ namespace CityDino
             get { return IsPractice ? Math.Max(1, practiceBossTier) : 3 + (Math.Max(1, BossNumber) - 1) / 4; }
         }
         public float BossHealthScale { get { return 1f + .18f * (BossTier - 1); } }
-        public float BossTierPace { get { return 1f + Math.Min(.65f, .11f * (float)Math.Log(BossTier, 2d)); } }
-        public float BossTierTempo { get { return 1f + Math.Min(.35f, .07f * (float)Math.Log(BossTier, 2d)); } }
+        public float BossTierPace { get { return 1f + Math.Min(.85f, .16f * (float)Math.Log(BossTier, 2d)); } }
+        public float BossTierTempo { get { return 1f + Math.Min(.45f, .10f * (float)Math.Log(BossTier, 2d)); } }
         // More volleys remain meaningful after the initial C3/C4 rounds. C6
         // gains a fifth cast and C8 a sixth without an unbounded object wall.
         public int BossRepeatCount { get { return BossTier <= 4 ? BossTier : Math.Min(6, 4 + (BossTier - 4) / 2); } }

@@ -119,16 +119,19 @@ namespace CityDino
             gaps.Clear();
             Palette palette = ForDistrict(session.CurrentDistrict);
             DrawSky(palette, session.Distance, session.Elapsed);
-            DrawUnderwaterWater(clock, GroundY + 35f - depth * (GroundY + 190f));
+            DrawUnderwaterWater(clock, session.UnderwaterExitWaterlineY);
             try
             {
-                // The surface-side quay comes into view as the diver rises.
-                // By the gate crossing WaterDepth is zero and both feet and
-                // the quay have reached the ordinary running baseline.
+                // The camera reveals shallow water first. The diver's route
+                // then follows this actual bank from below the waterline up
+                // to the quay; the sprite is never dropped onto a flat road.
                 GUI.matrix = canvas * Matrix4x4.TRS(new Vector3(-camera, depth * 680f, 0),
                     Quaternion.identity, Vector3.one);
-                DrawArenaFloor(BossKind.Sentinel, 1080f, RunnerSession.BossExitStreetX - 1080f);
-                Fill(new Rect(1080f, GroundY - 31f, RunnerSession.BossExitStreetX - 1080f, 27f), Hex(0x4e7c8b));
+                DrawUnderwaterShoreRamp();
+                DrawArenaFloor(BossKind.Sentinel, RunnerSession.UnderwaterRampEndX,
+                    RunnerSession.BossExitStreetX - RunnerSession.UnderwaterRampEndX);
+                Fill(new Rect(RunnerSession.UnderwaterRampEndX, GroundY + 4f,
+                    RunnerSession.BossExitStreetX - RunnerSession.UnderwaterRampEndX, 27f), Hex(0x4e7c8b));
                 DrawArenaGate(BossKind.Sentinel, Mathf.Clamp01((progress - .08f) / .46f), clock, RunnerSession.BossExitGateX);
                 GUI.matrix = canvas * Matrix4x4.TRS(new Vector3(RunnerSession.BossExitStreetX - camera,
                     depth * 680f, 0), Quaternion.identity, Vector3.one);
@@ -142,6 +145,31 @@ namespace CityDino
             finally { GUI.matrix = canvas; }
             DrawDino(session, session.PlayerAnimationTime);
             GUI.color = Color.white;
+        }
+
+        private void DrawUnderwaterShoreRamp()
+        {
+            const float strip = 10f;
+            float start = RunnerSession.UnderwaterRampStartX, end = RunnerSession.UnderwaterRampEndX;
+            // Narrow masonry strips fill only below the sloped top edge. The
+            // top line and every dinosaur foot use the same shared function.
+            for (float x = start; x < end; x += strip)
+            {
+                float width = Mathf.Min(strip + 1f, end - x);
+                float top = GroundY - RunnerSession.UnderwaterShoreHeightAt(x);
+                Fill(new Rect(x, top + 3f, width, Height + 160f - top), Hex(0x345e6e));
+                Fill(new Rect(x, top + 17f, width, 16f), Hex(0x4e7c8b));
+            }
+            Vector2 low = new Vector2(start, GroundY + RunnerSession.UnderwaterRampDepth);
+            Vector2 high = new Vector2(end, GroundY);
+            Line(low, high, Hex(0x80a9ae), 8f);
+            Line(new Vector2(low.x, low.y - 2f), new Vector2(high.x, high.y - 2f), Hex(0xc3d8d0), 2f);
+            for (int i = 1; i < 6; i++)
+            {
+                float x = start + (end - start) * i / 6f;
+                float y = GroundY - RunnerSession.UnderwaterShoreHeightAt(x);
+                Line(new Vector2(x - 4f, y + 4f), new Vector2(x + 4f, y + 14f), Hex(0x284c60), 2f);
+            }
         }
 
         private void DrawDivingHelmetPickup(RunnerSession session, float clock)
@@ -336,39 +364,22 @@ namespace CityDino
                     Line(new Vector2(x, rect.center.y - rect.height * .3f), new Vector2(x + 17f, rect.center.y + rect.height * .3f), Hex(0xe4ffff), 2f);
                 return true;
             }
-            if (mark.GapHeight > 0f && mark.Height > mark.GapHeight)
-            {
-                float lower = Mathf.Clamp(mark.GapY, mark.Y, mark.Y + mark.Height);
-                float upper = Mathf.Clamp(mark.GapY + mark.GapHeight, lower, mark.Y + mark.Height);
-                DrawBossWarningRect(new Rect(mark.X, GroundY - lower, mark.Width, lower - mark.Y), light, mark);
-                DrawBossWarningRect(new Rect(mark.X, GroundY - mark.Y - mark.Height, mark.Width, mark.Y + mark.Height - upper), light, mark);
-            }
-            else DrawBossWarningRect(rect, light, mark);
-            if (mark.GapWidth > 0f)
-            {
-                Line(new Vector2(mark.GapX, Mathf.Max(rect.y, 210f)), new Vector2(mark.GapX, GroundY), new Color(.56f, 1f, .8f, .6f), 1.5f);
-                Line(new Vector2(mark.GapX + mark.GapWidth, Mathf.Max(rect.y, 210f)), new Vector2(mark.GapX + mark.GapWidth, GroundY), new Color(.56f, 1f, .8f, .6f), 1.5f);
-            }
-            if (mark.Kind == BossAttackKind.SeaMine || mark.Kind == BossAttackKind.DepthCharge)
-            {
-                float sign = mark.Kind == BossAttackKind.SeaMine ? -1f : 1f;
-                for (float y = rect.y + 15f; y < rect.yMax - 12f; y += 52f)
-                {
-                    Vector2 tip = new Vector2(rect.center.x, y + sign * 7f);
-                    Line(new Vector2(tip.x - 7f, y - sign * 3f), tip, light, 2f);
-                    Line(new Vector2(tip.x + 7f, y - sign * 3f), tip, light, 2f);
-                }
-            }
+            // The warning identifies the source. Ordinary naval weapons no
+            // longer paint their entire future route or solve the gap on HUD.
+            if (mark.Kind == BossAttackKind.SonarBeam)
+                DrawBossLaserWarning(rect, light, mark);
+            else if (mark.Kind == BossAttackKind.SeaMine)
+                DrawBossLocalWarning(new Vector2(mark.OriginX + 19f, GroundY - 12f),
+                    new Vector2(0f, -1f), light, mark);
+            else if (mark.Kind == BossAttackKind.DepthCharge)
+                DrawBossLocalWarning(new Vector2(mark.OriginX + 14f, 150f),
+                    new Vector2(0f, 1f), light, mark);
+            else if (mark.Kind == BossAttackKind.SubmarineRam)
+                DrawBossLocalWarning(new Vector2(mark.OriginX, GroundY - mark.AimY - mark.Height * .5f),
+                    new Vector2(-1f, 0f), light, mark, mark.FullSweep);
             else
-            {
-                float direction = mark.VelocityX > 0f ? 1f : -1f;
-                for (float x = rect.x + 20f; x < rect.xMax - 20f; x += 74f)
-                {
-                    float y = rect.center.y;
-                    Line(new Vector2(x - direction * 8f, y - 7f), new Vector2(x + direction * 7f, y), light, 2f);
-                    Line(new Vector2(x - direction * 8f, y + 7f), new Vector2(x + direction * 7f, y), light, 2f);
-                }
-            }
+                DrawBossLocalWarning(new Vector2(mark.OriginX, GroundY - mark.OriginY - mark.Height * .5f),
+                    new Vector2(mark.VelocityX > 0f ? 1f : -1f, 0f), light, mark);
             return true;
         }
 

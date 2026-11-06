@@ -9,7 +9,7 @@ namespace CityDino
         private readonly List<BossObstacle> bossObstacles = new List<BossObstacle>();
         public IReadOnlyList<BossObstacle> BossObstacles { get { return bossObstacles; } }
 
-        private void ResetBossPatternState() { bossObstacles.Clear(); bossAttackBag.Clear(); previousBossPlan = -1; }
+        private void ResetBossPatternState() { bossObstacles.Clear(); bossAttackBag.Clear(); previousBossPlan = previousBossCombo = -1; }
 
         private readonly List<int> bossAttackBag = new List<int>();
         private BossKind bossPlanKind;
@@ -46,7 +46,11 @@ namespace CityDino
             bossActionCycle = basicCycle / (BossPracticePace * BossTierTempo);
             float warning = Math.Max(.75f, 1.02f - (bossPatternRage - 1) * .09f
                 - Math.Min(.12f, (BossTier - 1) * .015f)) * BossPracticeWarningScale;
+            if (BossTier >= 3)
+                warning = Math.Max(.45f, .62f - .025f * (bossPatternRage - 1)
+                    - .018f * (float)Math.Log(BossTier, 2d)) * BossPracticeWarningScale;
             CurrentBoss.Vulnerable = false;
+            if (TryPlanBossCombo(warning)) return;
             if (CurrentBoss.Kind == BossKind.Tank) PlanTankPattern(warning);
             else if (CurrentBoss.Kind == BossKind.Sentinel) PlanRobotPattern(warning);
             else if (CurrentBoss.Kind == BossKind.Submarine) PlanSubmarinePattern(warning);
@@ -171,6 +175,8 @@ namespace CityDino
 
         private void ScheduleBossAttack(BossAttackKind kind, float delay, float warning, float lockedPosition)
         {
+            if (BossTier >= 3 && (kind == BossAttackKind.LaserLow || kind == BossAttackKind.LaserHigh || kind == BossAttackKind.AirLaser))
+                warning = BossBeamWarning;
             BossTelegraph mark = new BossTelegraph
             {
                 Id = ++nextBossObjectId, Kind = kind, Remaining = warning, Duration = warning,
@@ -214,7 +220,7 @@ namespace CityDino
             else if (kind == BossAttackKind.AirMine)
             { mark.X = 90f; mark.Width = 690f; mark.Y = Math.Max(45f, Math.Min(300f, lockedPosition)) - 17f; mark.Height = 34f; }
             else if (kind == BossAttackKind.AirLaser)
-            { mark.X = 75f; mark.Width = 760f; mark.Y = Math.Max(40f, Math.Min(325f, lockedPosition)); mark.Height = 14f; }
+            { mark.X = 75f; mark.Width = 760f; mark.Y = BossBeamLaneY(lockedPosition,warning); mark.Height = 14f; }
             bossTelegraphs.Add(mark);
         }
 
@@ -265,6 +271,7 @@ namespace CityDino
                     mark.DelayRemaining -= consumed; activeDt -= consumed;
                     if (activeDt <= 0f) continue;
                 }
+                LockBossComboAim(mark);
                 mark.Remaining -= activeDt;
                 if (mark.Active)
                 {
@@ -293,7 +300,8 @@ namespace CityDino
             BossAttackKind kind = source.Kind;
             float lockedX = source.X + source.Width * .5f;
             float pace = (BossTierPace + (bossPatternRage - 1) * .08f) * BossPracticePace;
-            if (SpawnUnderwaterAttack(source, pace)) { }
+            if (SpawnComboProjectile(source, pace)) { }
+            else if (SpawnUnderwaterAttack(source, pace)) { }
             else if (SpawnSpecialBossAttack(source, pace)) { }
             else if (kind == BossAttackKind.MineDrop)
             {

@@ -58,7 +58,7 @@ namespace CityDino
             primaryBossAttack = choice == 0 ? BossAttackKind.Torpedo : choice == 1 ? BossAttackKind.FishShoal
                 : choice == 2 ? BossAttackKind.SeaMine : choice == 3 ? BossAttackKind.SonarBeam
                 : choice == 4 ? BossAttackKind.DepthCharge : BossAttackKind.SubmarineRam;
-            float warning = Math.Max(1.1f * BossPracticeWarningScale, ordinaryWarning);
+            float warning = BossTier >= 3 ? ordinaryWarning : Math.Max(1.1f * BossPracticeWarningScale, ordinaryWarning);
             int casts = Math.Min(5, BossRepeatCount);
             float last = 0f, clearance = 3.2f / BossTierPace;
             if (primaryBossAttack == BossAttackKind.SubmarineRam)
@@ -107,15 +107,16 @@ namespace CityDino
                 {
                     last = BossCastSpacing(wave * 1.1f);
                     float y = Math.Max(35f, Math.Min(325f, lockedY + (wave % 2 == 0 ? 0f : lockedY > 170f ? -110f : 110f)));
-                    AddSpecialCue(primaryBossAttack, last, Math.Max(warning, 1.2f * BossPracticeWarningScale), 75f, y, 760f, 14f);
+                    float beamWarning = BossTier >= 3 ? BossBeamWarning : Math.Max(warning, 1.2f * BossPracticeWarningScale);
+                    AddSpecialCue(primaryBossAttack, last, beamWarning, 75f, BossBeamLaneY(y,beamWarning), 760f, 14f);
                 }
-                warning = Math.Max(warning, 1.2f * BossPracticeWarningScale);
+                warning = BossTier >= 3 ? BossBeamWarning : Math.Max(warning, 1.2f * BossPracticeWarningScale);
                 clearance = .8f;
             }
             else if (primaryBossAttack == BossAttackKind.DepthCharge)
             {
                 casts = Math.Min(4, BossRepeatCount);
-                warning = Math.Max(warning, 1.35f * BossPracticeWarningScale);
+                warning = BossTier >= 3 ? Math.Max(warning, .6f * BossPracticeWarningScale) : Math.Max(warning, 1.35f * BossPracticeWarningScale);
                 float centre = Math.Max(235f, Math.Min(625f, PlayerX + (bossAttackIndex % 2 == 0 ? 100f : -100f)));
                 float gapX = centre - 120f;
                 for (int wave = 0; wave < casts; wave++)
@@ -157,7 +158,7 @@ namespace CityDino
                     bossProjectiles.Add(new BossProjectile {
                         Id = ++nextBossObjectId, Kind = source.Kind, X = x, Y = source.OriginY,
                         Width = width, Height = height, Radius = fish ? 11f : 10f,
-                        VelocityX = source.VelocityX * pace, Lifetime = 8f, SourceTelegraphId = source.Id
+                        VelocityX = source.VelocityX * pace, VelocityY = source.VelocityY * pace, Lifetime = 8f, SourceTelegraphId = source.Id
                     });
                 }
             }

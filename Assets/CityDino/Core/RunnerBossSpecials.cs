@@ -11,7 +11,7 @@ namespace CityDino
             {
                 float height = kind == BossAttackKind.TankRam ? 68f : kind == BossAttackKind.RobotDash ? 110f : 70f;
                 float y = (kind == BossAttackKind.GunshipDive || kind == BossAttackKind.SubmarineRam) ? Math.Max(35f, Math.Min(280f, PlayerY + 12f)) : 0f;
-                float cueTime = Math.Max(1.25f * BossPracticeWarningScale, warning), delay = 0f, end = 0f;
+                float cueTime = Math.Max((BossTier >= 3 ? 1.05f : 1.25f) * BossPracticeWarningScale, warning), delay = 0f, end = 0f;
                 int casts = BossRepeatCount;
                 for (int i = 0; i < casts; i++)
                 {
@@ -36,7 +36,7 @@ namespace CityDino
             }
             if (kind == BossAttackKind.CrossMissile)
             {
-                float cueTime = Math.Max(1.2f * BossPracticeWarningScale, warning), last = 0f;
+                float cueTime = BossTier >= 3 ? warning : Math.Max(1.2f * BossPracticeWarningScale, warning), last = 0f;
                 if (IsFlyingBoss)
                 {
                     float gapY = (bossAttackIndex / 7) % 2 == 0 ? 55f : 135f;
@@ -75,7 +75,8 @@ namespace CityDino
                 float side = BossTier == 1 ? (bossAttackIndex % 2 == 0 ? -1f : 1f) : (random.Next(2) == 0 ? -1f : 1f);
                 float centre = Math.Max(220f, Math.Min(620f, PlayerX + side * 140f));
                 float gapWidth = Math.Max(210f, 240f - BossExtraWaves * 10f), gapX = centre - gapWidth * .5f;
-                float cueTime = Math.Max(1.45f * BossPracticeWarningScale, warning), last = 0f;
+                float cueTime = BossTier >= 3 ? Math.Max(.6f * BossPracticeWarningScale, warning)
+                    : Math.Max(1.45f * BossPracticeWarningScale, warning), last = 0f;
                 int waves = Math.Min(6, (bossPatternRage >= 3 ? 2 : 1) + BossExtraWaves);
                 for (int wave = 0; wave < waves; wave++)
                 {
@@ -105,13 +106,13 @@ namespace CityDino
                 {
                     float y = i % 2 == 0 ? 12f : 62f;
                     last = BossCastSpacing(i * 1.1f);
-                    BossTelegraph cue = AddSpecialCue(kind, last, Math.Max(.95f * BossPracticeWarningScale, warning),
+                    BossTelegraph cue = AddSpecialCue(kind, last, BossTier >= 3 ? warning : Math.Max(.95f * BossPracticeWarningScale, warning),
                         90f, y, 1000f, 36f);
                     cue.OriginX = CurrentBoss.X - 20f; cue.OriginY = y;
                     cue.VelocityX = -300f; cue.VelocityY = 0f;
                 }
                 bossActionCycle = Math.Max(bossActionCycle, 4.8f / BossPracticePace);
-                if (BossTier > 1) ExtendBossCycle(last, Math.Max(.95f * BossPracticeWarningScale, warning), 2.8f / BossTierPace);
+                if (BossTier > 1) ExtendBossCycle(last, BossTier >= 3 ? warning : Math.Max(.95f * BossPracticeWarningScale, warning), 2.8f / BossTierPace);
             }
             else return false;
             CurrentBoss.AttackName = AttackName(kind) + (BossTier > 1 ? " · liên hoàn cấp " + BossTier : "");

@@ -17,6 +17,11 @@ namespace CityDino
         // running distance. The exit sits beyond the defeated boss.
         public const float BossExitGateX = 1320f;
         public const float BossExitStreetX = 1536f;
+        // The quay starts in shallow water, then climbs continuously to the
+        // street. These are world coordinates shared by the route and art.
+        public const float UnderwaterRampStartX = 880f;
+        public const float UnderwaterRampEndX = 1130f;
+        public const float UnderwaterRampDepth = 64f;
         private bool flightLiftHeld;
         private float flapCooldown;
         private float entranceClock;
@@ -58,6 +63,9 @@ namespace CityDino
         {
             get
             {
+                if (IsUnderwaterBoss)
+                    return SmoothClamp((DepartureWorldX - departurePlayerX) /
+                        Math.Max(1f, UnderwaterRampStartX - departurePlayerX), true);
                 // Land before reaching the exit, including a victory from
                 // the far-right edge where the gate is approached sooner.
                 float route = Math.Max(1f, BossExitStreetX + StartPlayerX - departurePlayerX);
@@ -65,6 +73,26 @@ namespace CityDino
                     (BossExitGateX - 48f - departurePlayerX) / route));
                 return SmoothClamp(ExitTravelProgress / landingEnd, true);
             }
+        }
+        public float UnderwaterRampProgress
+        {
+            get { return IsUnderwaterBoss && ArenaPhase == BossPhase.Victory
+                ? SmoothClamp((DepartureWorldX - UnderwaterRampStartX) /
+                    (UnderwaterRampEndX - UnderwaterRampStartX), false) : 0f; }
+        }
+        public bool UnderwaterOnShore
+        {
+            get { return IsUnderwaterBoss && ArenaPhase == BossPhase.Victory &&
+                DepartureWorldX >= UnderwaterRampStartX; }
+        }
+        public float UnderwaterExitWaterlineY
+        {
+            get { return GroundY + 35f - WaterDepth * (GroundY + 270f); }
+        }
+        public static float UnderwaterShoreHeightAt(float worldX)
+        {
+            return -UnderwaterRampDepth * (1f - SmoothClamp(
+                (worldX - UnderwaterRampStartX) / (UnderwaterRampEndX - UnderwaterRampStartX), false));
         }
         public float BossTransitionProgress
         {
@@ -284,15 +312,22 @@ namespace CityDino
             // screen coordinate settles at the normal running lane only
             // because scenery advances to the left; world travel never reverses.
             PlayerX = DepartureWorldX - BossExitCameraX;
-            PlayerY = IsFreeMovementBoss ? Blend(departurePlayerY, 0f, ExitLandingProgress)
+            // A diver stays beneath the waterline while the camera reaches
+            // the surface, then walks UP the same bank that is actually drawn.
+            // Interpolating directly to Y=0 used to put the diver in the sky
+            // above the rising quay and made the return look like a fall.
+            PlayerY = IsUnderwaterBoss ? UnderwaterOnShore
+                ? UnderwaterShoreHeightAt(DepartureWorldX)
+                : Blend(departurePlayerY, -UnderwaterRampDepth, ExitLandingProgress)
+                : IsFreeMovementBoss ? Blend(departurePlayerY, 0f, ExitLandingProgress)
                 : Blend(departurePlayerY, 0f, SmoothClamp((departureClock - BossExplosionDuration) / .9f, true));
             VelocityY = dt > 0f ? (PlayerY - beforeY) / dt : 0f;
             AnimationVelocityY = VelocityY;
             FacingLeft = false;
             IsDucking = duckRequested = false;
             if (IsFlyingBoss && ExitLandingProgress >= 1f) FlightDeviceCollected = false;
-            if (IsUnderwaterBoss && ExitLandingProgress >= 1f) DivingHelmetEquipped = false;
-            grounded = PlayerY <= .001f;
+            if (IsUnderwaterBoss && UnderwaterOnShore && PlayerY >= -80f) DivingHelmetEquipped = false;
+            grounded = IsUnderwaterBoss ? UnderwaterOnShore : PlayerY <= .001f;
         }
 
         private void FinishPractice(bool won, string reason)
