@@ -20,6 +20,10 @@ if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
   chmod 700 "$XDG_RUNTIME_DIR"
 fi
 export XDG_DATA_HOME="${XDG_DATA_HOME:-${TMPDIR:-/tmp}/city-dino-xdg-data}"
+if [[ "${1:-}" == "--submission" ]]; then
+  printf '%s\n' 'Editor build/packaging contracts with fake engine output in temporary test folders; no real Unity player compilation.'
+  exec "$dotnet_command" run --project "$repo_dir/Tests/BuildAutomation/BuildAutomation.csproj" --configuration Release
+fi
 if [[ "${1:-}" == "--render-contracts" ]]; then
   printf '%s\n' 'Recorded production draw-call contracts with affine API stubs; no Unity rendering.'
   exec "$dotnet_command" run --project "$repo_dir/Tests/RenderContracts/RenderContracts.csproj" --configuration Release

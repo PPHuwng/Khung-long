@@ -8,6 +8,7 @@ Cần .NET SDK 8. Các bộ console ở ngoài `Assets`, chạy trực tiếp m�
 ./scripts/test-core.sh --input-mapping
 ./scripts/test-core.sh --audio-contracts
 ./scripts/test-core.sh --compile-unity
+./scripts/test-core.sh --submission
 ```
 
 Có **147 nhóm gameplay, 64 nhóm lệnh vẽ, 48 nhóm input và 13 nhóm âm thanh**. Có thể chọn một nhóm gameplay bằng `./scripts/test-core.sh --only 'advanced boss'`; console ghi rõ các bài không được chọn chưa chạy.
@@ -76,3 +77,7 @@ Kiểm tra lệnh vẽ đối chiếu trực tiếp độ tối mạnh và chớ
 Ba nhóm lưu dữ liệu dùng bộ đếm tại stubs JSON/PlayerPrefs: 500 thông báo sao không serialize/ghi từng lần, checkpoint cố định không bị đẩy lùi mãi và ghi đúng dữ liệu mới nhất một lần; hoãn ghi khi đang đổi map, gần bẫy, có tên lửa hoặc đang nhảy; pause/mất tiêu điểm/về menu/thoát ép lưu trước hạn. Đây là kiểm tra lời gọi và thời điểm, không đo độ trễ đĩa thật.
 
 Bài âm thanh mới warm hai observer với warning/đạn/beam/vật cản rồi gọi 10.000 frame: **0 byte managed** trong đoạn đo bằng `GC.GetAllocatedBytesForCurrentThread`. Phép đo chỉ áp dụng các observer production trong .NET, không phải toàn bộ trò chơi hoặc Unity Audio.
+
+## Xuất bộ nộp bài
+
+`--submission` chạy 11 nhóm trên mã Editor `RunnerSubmissionBuild.cs`, kiểm tra ZIP source giữ đủ Assets/Packages/ProjectSettings và meta, ZIP Windows có đủ EXE/DLL/Data/Mono, APK ARM64, module/target sai, build lỗi, tệp thiếu/rỗng, cờ APK/IL2CPP/OBB và khôi phục setting. Fixtures EXE/APK chỉ là dữ liệu giả trong thư mục tạm, được dọn sau kiểm tra. Không có Unity Editor, biên dịch hoặc ký player thật. PowerShell được parse và chạy `-SourceOnly` thực tế riêng để kiểm tra ZIP và checksum; Windows/Android vẫn cần Unity trên máy có giấy phép/module. Xem [BUILDING.md](../BUILDING.md).

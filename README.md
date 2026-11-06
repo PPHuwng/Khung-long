@@ -2,6 +2,8 @@
 
 Game Unity 2D chạy vô tận: khủng long di chuyển trái/phải, nhảy kép, cúi tránh bẫy, gom sao và mua vật phẩm. Có menu tiếng Việt, sáu map chạy, bốn boss, cửa hàng, kỷ lục và lịch sử lượt chơi. Hình ảnh gốc từ `Assets.zip` được giữ lại cùng nền, bẫy, hoạt ảnh và vật phẩm pixel art mới.
 
+**Nộp ba dạng Unity / Windows / Android:** xem [BUILDING.md](BUILDING.md). Menu **City Dino → Build Submission** và `scripts/export-submission.ps1` xuất source ZIP, player Windows đầy đủ và APK ARM64 bằng Unity trên máy đã cài module. Có tùy chọn tải cả ba lên GitHub Releases; chưa có binary EXE/APK được build trên đám mây.
+
 ## Mở và cập nhật
 
 1. Dùng **Unity 6000.4.0f1**, revision `8cf496087c8f`, theo `ProjectSettings/ProjectVersion.txt` gốc.
