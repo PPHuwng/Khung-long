@@ -87,17 +87,21 @@ namespace UnityEngine
     public static class Screen { public static int width = 1280, height = 720; public static ScreenOrientation orientation; }
     public static class PlayerPrefs
     {
+        public static int TestStringWrites, TestDiskSaves;
+        public static string TestLastStringKey;
         public static bool HasKey(string key) { return false; }
         public static string GetString(string key) { return ""; }
-        public static void SetString(string key, string value) { }
+        public static void SetString(string key, string value) { TestStringWrites++; TestLastStringKey = key; }
         public static int GetInt(string key, int defaultValue = 0) { return defaultValue; }
         public static void SetInt(string key, int value) { }
-        public static void Save() { }
+        public static void Save() { TestDiskSaves++; }
     }
     public static class JsonUtility
     {
+        public static int TestSerializations;
+        public static object TestLastSerializedObject;
         public static T FromJson<T>(string json) { return default(T); }
-        public static string ToJson(object value) { return ""; }
+        public static string ToJson(object value) { TestSerializations++; TestLastSerializedObject = value; return ""; }
     }
     public static class Debug { public static void LogWarning(object value) { } public static void LogError(object value) { } }
     public static class Resources

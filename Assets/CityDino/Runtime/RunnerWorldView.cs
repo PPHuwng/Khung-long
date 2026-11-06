@@ -73,17 +73,19 @@ namespace CityDino
                 if (!menu)
                 {
                     DrawEntities(session, palette, clock);
-                    foreach (RunMissile missile in session.RunMissiles)
+                    for (int i = 0; i < session.RunMissiles.Count; i++)
+                    {
+                        RunMissile missile = session.RunMissiles[i];
                         if (!missile.Removed) DrawRunMissileBody(missile.Id, missile.X, missile.Y,
                             missile.Width, missile.Height, missile.VelocityX, missile.Radius, clock);
+                    }
                     DrawDino(session, session.PlayerAnimationTime);
                 }
                 if (!menu)
                 {
                     DrawWind(session, clock);
                     if (session.CurrentDistrict == District.Storm)
-                        stormVeil = .14f + .22f * Mathf.Clamp01(
-                            RunnerWeather.GetStormDarkness(session.DistrictElapsed) / .88f);
+                        stormVeil = RunnerWeather.GetStormDarkness(session.DistrictElapsed);
                     if (palette.Rain > .001f)
                         Fill(new Rect(0f, 0f, Width, Height),
                             new Color(0.025f, 0.04f, 0.075f, stormVeil * palette.Rain));
@@ -93,8 +95,8 @@ namespace CityDino
                 DrawWeather(palette, sceneryScroll, clock);
                 if (!menu)
                 {
-                    foreach (RunMissileWarning warning in session.RunMissileWarnings)
-                        DrawRunMissileWarning(warning, clock);
+                    for (int i = 0; i < session.RunMissileWarnings.Count; i++)
+                        DrawRunMissileWarning(session.RunMissileWarnings[i], clock);
                     DrawDarkness(session);
                 }
             }
@@ -336,9 +338,12 @@ namespace CityDino
         {
             gaps.Clear();
             if (session.State == RunState.Menu) return;
-            foreach (WorldEntity entity in session.Entities)
+            for (int i = 0; i < session.Entities.Count; i++)
+            {
+                WorldEntity entity = session.Entities[i];
                 if (!entity.Removed && entity.IsOpenGap && entity.X < Width && entity.X + entity.Width > 0f)
                     gaps.Add(new Vector2(Mathf.Max(0f, entity.X), Mathf.Min(Width, entity.X + entity.Width)));
+            }
             gaps.Sort((a, b) => a.x.CompareTo(b.x));
         }
 
@@ -453,8 +458,9 @@ namespace CityDino
 
         private void DrawEntities(RunnerSession session, Palette p, float time)
         {
-            foreach (WorldEntity entity in session.Entities)
+            for (int entityIndex = 0; entityIndex < session.Entities.Count; entityIndex++)
             {
+                WorldEntity entity = session.Entities[entityIndex];
                 if (entity.Removed || entity.Kind == EntityKind.Gap || entity.X > Width + 100f || entity.X + entity.Width < -100f) continue;
                 if (entity.Kind == EntityKind.CollapsingFloor)
                 {
@@ -1059,9 +1065,9 @@ namespace CityDino
             var lightning = RunnerWeather.GetLightning(session.CurrentDistrict, session.DistrictElapsed);
             float strength = Mathf.Clamp01(lightning.Amount) * Mathf.Clamp01(rainBlend);
             if (strength <= 0f) return;
-            // A single soft pulse per strike: the foreground remains readable,
-            // and the later blackout pass can still cover this completely.
-            Fill(new Rect(0f, 0f, Width, Height), new Color(0.75f, 0.87f, 1f, strength * 0.14f));
+            // The storm's repeated dark/bright pulse is a gameplay challenge.
+            // Only its map-entry/exit weight fades, not its in-map intensity.
+            Fill(new Rect(0f, 0f, Width, Height), new Color(0.75f, 0.87f, 1f, strength * 0.55f));
             float boltX = Mathf.Clamp(lightning.BoltX, 100f, Width - 100f);
             Vector2 from = new Vector2(boltX, 124f);
             Color halo = new Color(0.56f, 0.77f, 1f, strength * 0.35f);
@@ -1135,6 +1141,21 @@ namespace CityDino
         {
             Vector2 delta = to - from;
             if (delta.sqrMagnitude < 0.001f) return;
+            // Most road, machinery and warning details are axis-aligned.
+            // Their exact rectangle needs no angle, quaternion or GUI matrix
+            // changes; keep the general transform only for slanted segments.
+            if (delta.y == 0f)
+            {
+                Fill(new Rect(Mathf.Min(from.x, to.x), from.y - thickness * .5f,
+                    Mathf.Abs(delta.x), thickness), color);
+                return;
+            }
+            if (delta.x == 0f)
+            {
+                Fill(new Rect(from.x - thickness * .5f, Mathf.Min(from.y, to.y),
+                    thickness, Mathf.Abs(delta.y)), color);
+                return;
+            }
             Matrix4x4 previous = GUI.matrix;
             try
             {

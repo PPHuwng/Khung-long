@@ -17,13 +17,14 @@ internal static class Program
         SetUpResources();
         Test("rotating saw stays centred on collision geometry at every canvas scale",SawCentres);
         Test("line segments preserve endpoints under canvas scale and letterboxing",LineEndpoints);
+        Test("axis-aligned lines preserve exact thickness and endpoints without rotating the canvas",AxisAlignedLinesV15);
         Test("every hazard is drawn and no floating action labels remain",VisibleHazards);
         Test("peak blackout ends the world pass with fully opaque pure black",FullBlackout);
         Test("storm lightning rendering follows the shared strike clock",LightningDraw);
         Test("map blends keep skyline geometry and road tile grids fixed",DistrictTransitionComfortV14);
         Test("map palette blends freeze on pause and reset on a fresh run",PaletteLifecycleV14);
         Test("late decorative motion stays bounded without moving live terrain openings",DecorativeMotionV14);
-        Test("storm pulses stay restrained and fade with the map atmosphere",StormComfortV14);
+        Test("storm keeps repeated strong dark flashes while map entry and exit still fade smoothly",StormComfortV14);
         Test("storm rain remains visible above both darkness and lightning",StormRainOrder);
         Test("snow has a visible icy surface and falling flakes",SnowSurface);
         Test("snow road cuts match open gaps and collapsed floors",SnowGapCuts);
@@ -51,6 +52,7 @@ internal static class Program
         Test("companion collision silhouettes follow independent opaque and clear PNG samples",CharacterAlphaContacts);
         Test("character previews use the same atlas pose and physical layout",CharacterPreviews);
         Test("combat HUD shows boss health and limits fire and skill controls",CombatHud);
+        Test("running HUD reuses unchanged numeric strings and refreshes after real score and wallet changes",HudTextCacheV15);
         Test("character and shop modals disable every underlying action button",ModalButtonIsolation);
         Test("normal 20k encounter gradually reveals sky during collected-device takeoff",FlightJourneyRendering);
         Test("hoverboard remains visible below the feet with front deck and rear thrust at every canvas scale",FlightDeviceGeometry);
@@ -161,6 +163,47 @@ internal static class Program
             Point(draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.xMax,draw.Position.center.y,0)),canvas.MultiplyPoint3x4(to),"Line end displaced");
         }
     }
+    private static void AxisAlignedLinesV15()
+    {
+        MethodInfo line=typeof(RunnerWorldView).GetMethod("Line",BindingFlags.Static|BindingFlags.NonPublic);
+        var segments=new[]{
+            Tuple.Create(new Vector2(340,270),new Vector2(398,270)),
+            Tuple.Create(new Vector2(398,270),new Vector2(340,270)),
+            Tuple.Create(new Vector2(340,270),new Vector2(340,326)),
+            Tuple.Create(new Vector2(340,326),new Vector2(340,270))
+        };
+        foreach(Matrix4x4 canvas in new[]{Canvas(1),Canvas(1.5f,133,25),Canvas(.68f,0,140)})
+        foreach(var segment in segments)
+        foreach(float thickness in new[]{1f,2f,5.75f})
+        {
+            Vector2 from=segment.Item1,to=segment.Item2;
+            bool horizontal=from.y==to.y;
+            Rect expected=horizontal
+                ?new Rect(Math.Min(from.x,to.x),from.y-thickness*.5f,Math.Abs(to.x-from.x),thickness)
+                :new Rect(from.x-thickness*.5f,Math.Min(from.y,to.y),thickness,Math.Abs(to.y-from.y));
+            GUI.matrix=canvas;GUI.DrawCalls.Clear();
+            line.Invoke(null,new object[]{from,to,Color.white,thickness});
+            RecordedDraw draw=GUI.DrawCalls.Single();
+            Near(draw.Position.x,expected.x,"Axis line X changed");Near(draw.Position.y,expected.y,"Axis line Y changed");
+            Near(draw.Position.width,expected.width,"Axis line width changed");Near(draw.Position.height,expected.height,"Axis line height changed");
+            // The recorded rectangle remains directly in canvas coordinates.
+            // In particular a vertical line no longer rotates the draw matrix.
+            foreach(var point in new[]{new Vector3(0,0,0),new Vector3(1,0,0),new Vector3(0,1,0)})
+            {
+                Point(draw.Matrix.MultiplyPoint3x4(point),canvas.MultiplyPoint3x4(point),"Axis line unnecessarily transformed canvas");
+                Point(GUI.matrix.MultiplyPoint3x4(point),canvas.MultiplyPoint3x4(point),"Axis line changed caller matrix");
+            }
+            Vector3 first=horizontal?new Vector3(expected.x,expected.center.y,0):new Vector3(expected.center.x,expected.y,0);
+            Vector3 last=horizontal?new Vector3(expected.xMax,expected.center.y,0):new Vector3(expected.center.x,expected.yMax,0);
+            Point(draw.Matrix.MultiplyPoint3x4(first),canvas.MultiplyPoint3x4(horizontal
+                ?new Vector3(Math.Min(from.x,to.x),from.y,0):new Vector3(from.x,Math.Min(from.y,to.y),0)),"Axis first endpoint changed");
+            Point(draw.Matrix.MultiplyPoint3x4(last),canvas.MultiplyPoint3x4(horizontal
+                ?new Vector3(Math.Max(from.x,to.x),from.y,0):new Vector3(from.x,Math.Max(from.y,to.y),0)),"Axis last endpoint changed");
+        }
+        GUI.matrix=Canvas(1.5f,133,25);GUI.DrawCalls.Clear();
+        line.Invoke(null,new object[]{new Vector2(340,270),new Vector2(340,270),Color.white,2f});
+        Check(GUI.DrawCalls.Count==0,"Zero-length line emitted a rectangle");
+    }
     private static void VisibleHazards()
     {
         var art=new RunnerArt(); var run=New();
@@ -204,7 +247,7 @@ internal static class Program
             var flashes=GUI.DrawCalls.Where(d=>FullCanvas(d)&&d.Color.r>0.5f&&d.Color.b>d.Color.r&&d.Color.a>0).ToList();
             Check(flashes.Count==(district==District.Storm?1:0),"Lightning appeared on the wrong map or pulse duplicated");
             if(district==District.Storm)
-                Near(flashes[0].Color.a,RunnerWeather.GetLightning(district,peak).Amount*0.14f,"Flash uses a different clock from thunder");
+                Near(flashes[0].Color.a,RunnerWeather.GetLightning(district,peak).Amount*0.55f,"Flash uses a different clock from thunder");
         }
     }
     private static List<RecordedDraw> SkylinePaintV14(RunnerArt art)
@@ -289,16 +332,20 @@ internal static class Program
         var art=new RunnerArt();var run=New(District.Storm);
         using(var view=new RunnerWorldView(art))
         {
-            for(int i=0;i<60;i++)
+            float minimum=1f,maximum=0f;int flashes=0;
+            for(int i=0;i<240;i++)
             {
                 float time=1f+i*.03f;Set(run,"Elapsed",time);Set(run,"DistrictElapsed",time);Draw(view,run,Canvas(1));
                 var dark=GUI.DrawCalls.Where(d=>FullCanvas(d)&&d.Color.r<.1f&&d.Color.a>0).ToList();
-                Check(dark.Count==1&&dark[0].Color.a>=.139f&&dark[0].Color.a<=.361f,"Storm darkness returns to a high-contrast whole-screen pulse");
-                Check(!GUI.DrawCalls.Any(d=>FullCanvas(d)&&d.Color.r>.5f&&d.Color.a>.141f),"Storm flash exceeds the restrained brightness envelope");
+                Check(dark.Count==1,"Storm darkness is missing or stacked");
+                Near(dark[0].Color.a,RunnerWeather.GetStormDarkness(time),"Storm lost the shared strong darkness cycle");
+                minimum=Math.Min(minimum,dark[0].Color.a);maximum=Math.Max(maximum,dark[0].Color.a);
+                if(GUI.DrawCalls.Any(d=>FullCanvas(d)&&d.Color.r>.5f&&d.Color.a>.45f))flashes++;
             }
-            Field(run,"<CurrentDistrict>k__BackingField",District.Day);Set(run,"Elapsed",4);Draw(view,run,Canvas(1));
+            Check(minimum<.15f&&maximum>.85f&&flashes>=12,"Storm no longer repeatedly obscures the playfield and flashes about every two seconds");
+            Field(run,"<CurrentDistrict>k__BackingField",District.Day);Set(run,"Elapsed",9);Draw(view,run,Canvas(1));
             Check(GUI.DrawCalls.Any(d=>FullCanvas(d)&&d.Color.r<.1f&&d.Color.a>0),"Storm veil disappears abruptly at the map boundary");
-            Set(run,"Elapsed",7.1f);Draw(view,run,Canvas(1));
+            Set(run,"Elapsed",12.1f);Draw(view,run,Canvas(1));
             Check(!GUI.DrawCalls.Any(d=>FullCanvas(d)&&d.Color.r<.1f&&d.Color.a>0),"Storm veil remains after the three-second atmosphere fade");
         }
     }
@@ -964,6 +1011,27 @@ internal static class Program
         GUI.DrawCalls.Clear();GUI.matrix=Canvas(1);GUI.color=Color.white;GUI.enabled=true;
         typeof(CityRunnerController).GetMethod("OnGUI",Private).Invoke(controller,null);
     }
+    private static void HudTextCacheV15()
+    {
+        var art=new RunnerArt();var run=New();
+        using(var view=new RunnerWorldView(art))
+        {
+            var controller=Ui(run,art,view);DrawUi(controller);
+            var points=new[]{new Vector2(244,60),new Vector2(450,65),new Vector2(897,43),new Vector2(897,75),new Vector2(38,592)};
+            var text=points.Select(p=>GUI.DrawCalls.Single(d=>d.Kind=="Label"&&d.Position.x==p.x&&d.Position.y==p.y).Text).ToArray();
+            DrawUi(controller);
+            for(int i=0;i<points.Length;i++)
+            {
+                var p=points[i];string next=GUI.DrawCalls.Single(d=>d.Kind=="Label"&&d.Position.x==p.x&&d.Position.y==p.y).Text;
+                Check(ReferenceEquals(text[i],next),"Unchanged HUD label rebuilt its string between IMGUI passes at "+p.x+","+p.y);
+            }
+            run.Save.Wallet=123;run.Update(.2f);DrawUi(controller);
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text=="Ví: 123"),"Cached wallet became stale");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Position.x==244&&d.Text==run.Score.ToString("D5")),"Cached score became stale");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Position.x==38&&d.Position.y==592&&d.Text.StartsWith(((int)(run.Distance/20)).ToString()+" m")),"Cached distance became stale");
+            Check(GUI.DrawCalls.Count(d=>d.Kind=="Button"&&d.Enabled)>=2,"HUD caching removed active pause or sound controls");
+        }
+    }
     private static void CombatHud()
     {
         var art=new RunnerArt();
@@ -1370,7 +1438,7 @@ internal static class Program
                 Check(GUI.DrawCalls.Any(d=>d.Texture==art.GetCharacterTexture(kind,0)),"Practice omits a trial character preview: "+kind);
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("LÀM QUEN")),"Learning selector is missing");
             Check(GUI.DrawCalls.Any(d=>d.Kind=="Button"&&d.Enabled&&d.Text!=null&&d.Text.Contains("CHUẨN")),"Standard selector is missing");
-            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 14")),"Version footer is stale");
+            Check(GUI.DrawCalls.Any(d=>d.Kind=="Label"&&d.Text!=null&&d.Text.Contains("BẢN 15")),"Version footer is stale");
             Check(GUI.DrawCalls.Where(d=>d.Kind=="Button"&&d.Text!=null&&d.Text.StartsWith("BẮT ĐẦU")).All(d=>!d.Enabled),"Practice preparation leaves normal start active");
             Check(!run.Save.OwnsTriceratops&&!run.Save.OwnsRaptor&&run.State==RunState.Menu,"Previewing practice changed character ownership or began a run");
         }
@@ -1504,8 +1572,16 @@ internal static class Program
             string first=DrawSignature();DrawProjectileOnly(view,orb,.47f,canvas);Check(DrawSignature()!=first,"Electrical arcs are a static sticker");
         }
     }
-    private static Vector3 LineEnd(RecordedDraw draw)
-    {return draw.Matrix.MultiplyPoint3x4(new Vector3(draw.Position.xMax,draw.Position.center.y,0));}
+    private static bool LineHasEndpoint(RecordedDraw draw,Vector3 expected)
+    {
+        // A fast axis-aligned rectangle can be normalized left-to-right or
+        // top-to-bottom. Test its physical endpoints, not its storage order.
+        Rect r=draw.Position;
+        return SamePoint(draw.Matrix.MultiplyPoint3x4(new Vector3(r.x,r.center.y,0)),expected)||
+            SamePoint(draw.Matrix.MultiplyPoint3x4(new Vector3(r.xMax,r.center.y,0)),expected)||
+            SamePoint(draw.Matrix.MultiplyPoint3x4(new Vector3(r.center.x,r.y,0)),expected)||
+            SamePoint(draw.Matrix.MultiplyPoint3x4(new Vector3(r.center.x,r.yMax,0)),expected);
+    }
     private static bool SamePoint(Vector3 a,Vector3 b)
     {return Math.Abs(a.x-b.x)<.025f&&Math.Abs(a.y-b.y)<.025f;}
     private static float CanvasScaleV14(Matrix4x4 canvas)
@@ -1521,16 +1597,16 @@ internal static class Program
             Vector2 direction=new Vector2(velocity.x/velocity.magnitude,-velocity.y/velocity.magnitude);float length=horizontal?physical.width:physical.height;
             Vector3 expectedNose=canvas.MultiplyPoint3x4(physical.center+direction*(length*.46f));
             RecordedDraw nose=GUI.DrawCalls.Single(d=>d.Texture==Texture2D.whiteTexture&&d.Color.r>.85f&&d.Color.g<.6f&&d.Color.b<.5f&&d.Color.a>.9f);
-            Point(LineEnd(nose),expectedNose,"Missile nose points against its physical velocity");
+            Check(LineHasEndpoint(nose,expectedNose),"Missile nose points against its physical velocity");
             RecordedDraw exhaust=GUI.DrawCalls.First();Vector3 tail=canvas.MultiplyPoint3x4(physical.center-direction*(length*.42f));
-            Point(LineEnd(exhaust),tail,"Missile exhaust is not behind its metal body");
+            Check(LineHasEndpoint(exhaust,tail),"Missile exhaust is not behind its metal body");
             if(horizontal)
             {
                 var mark=new BossTelegraph{Id=58,Kind=BossAttackKind.CrossMissile,X=90,Y=18,Width=1000,Height=24,Duration=1,Remaining=.6f,OriginX=velocity.x>0?-30:1320,OriginY=18,VelocityX=velocity.x};
                 GUI.DrawCalls.Clear();GUI.matrix=canvas;typeof(RunnerWorldView).GetMethod("DrawBossTelegraph",Private).Invoke(view,new object[]{mark,.3f,new BossEncounter()});
                 float edgeX=velocity.x>0?25:1255,edgeY=RunnerSession.GroundY-30;
                 Vector3 tip=canvas.MultiplyPoint3x4(new Vector2(edgeX+(velocity.x>0?23:-23),edgeY));
-                Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&SamePoint(LineEnd(d),tip)),"Missile warning has no correctly directed edge arrival indicator");
+                Check(GUI.DrawCalls.Any(d=>d.Texture==Texture2D.whiteTexture&&LineHasEndpoint(d,tip)),"Missile warning has no correctly directed edge arrival indicator");
                 Check(!GUI.DrawCalls.Any(d=>VisibleBounds(d).width>CanvasScaleV14(canvas)*90),"Missile source warning still spreads across the arena");
             }
         }

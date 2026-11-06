@@ -23,11 +23,15 @@ namespace CityDino
         private readonly HashSet<int> live = new HashSet<int>();
         private readonly List<BossSoundCue> cues = new List<BossSoundCue>();
         private readonly HashSet<int> frameGroups = new HashSet<int>();
+        private readonly Predicate<int> expiredIdentity;
         private bool victory;
         private bool submerged, surfaced;
         private int charge;
         private float previousHealth, lastWindup = -10f;
         public int TrackedCount { get { return warned.Count + shots.Count + obstacles.Count; } }
+
+        public BossSoundTracker() { expiredIdentity = IsExpiredIdentity; }
+        private bool IsExpiredIdentity(int id) { return !live.Contains(id); }
 
         public IReadOnlyList<BossSoundCue> Observe(RunnerSession session, bool silent)
         {
@@ -57,22 +61,24 @@ namespace CityDino
             {
                 bool newWarning = false; float warningPan = 0f;
                 live.Clear();
-                foreach (BossTelegraph mark in session.BossTelegraphs)
+                for (int i = 0; i < session.BossTelegraphs.Count; i++)
                 {
+                    BossTelegraph mark = session.BossTelegraphs[i];
                     if (!mark.Visible || mark.Active) continue;
                     live.Add(mark.Id);
                     if (!warned.Add(mark.Id)) continue;
                     newWarning = true;
                     warningPan = mark.VelocityX > 0f ? -.65f : mark.VelocityX < 0f ? .65f : .2f;
                 }
-                warned.RemoveWhere(id => !live.Contains(id));
+                warned.RemoveWhere(expiredIdentity);
                 // A rain wave may have six warning strips. One charging sound
                 // communicates that wave without stacking six loud clips.
                 if (newWarning && session.BossElapsed - lastWindup >= .28f)
                 { lastWindup = session.BossElapsed; Emit(session.IsUnderwaterBoss ? BossSoundKind.Sonar : BossSoundKind.Windup, warningPan); }
                 live.Clear();
-                foreach (BossProjectile shot in session.BossProjectiles)
+                for (int i = 0; i < session.BossProjectiles.Count; i++)
                 {
+                    BossProjectile shot = session.BossProjectiles[i];
                     if (shot.Removed || shot.Friendly) continue;
                     live.Add(shot.Id);
                     if (!shots.Add(shot.Id)) continue;
@@ -80,27 +86,33 @@ namespace CityDino
                     float pan = shot.VelocityX > 0f ? -.65f : shot.VelocityX < 0f ? .65f : 0f;
                     Emit(kind, pan);
                 }
-                foreach (BossTelegraph mark in session.BossTelegraphs) if (mark.Active) live.Add(-mark.Id);
-                shots.RemoveWhere(id => !live.Contains(id));
+                for (int i = 0; i < session.BossTelegraphs.Count; i++)
+                    if (session.BossTelegraphs[i].Active) live.Add(-session.BossTelegraphs[i].Id);
+                shots.RemoveWhere(expiredIdentity);
                 if (boss.ContactActive && boss.ChargeSourceTelegraphId != charge)
                 {
                     charge = boss.ChargeSourceTelegraphId;
                     Emit(session.IsUnderwaterBoss ? BossSoundKind.Torpedo : BossSoundKind.Charge, .2f);
                 }
-                foreach (BossTelegraph mark in session.BossTelegraphs)
+                for (int i = 0; i < session.BossTelegraphs.Count; i++)
+                {
+                    BossTelegraph mark = session.BossTelegraphs[i];
                     if (mark.Active && shots.Add(-mark.Id))
                         Emit(mark.Kind == BossAttackKind.SonarBeam ? BossSoundKind.Sonar
                             : mark.Kind == BossAttackKind.DepthCharge ? BossSoundKind.Splash
                             : mark.Kind == BossAttackKind.Artillery || mark.Kind == BossAttackKind.Missile ||
                             mark.Kind == BossAttackKind.MissileRain ? BossSoundKind.Blast : BossSoundKind.Laser, .25f);
+                }
                 // Active beams have separate identities; keep them only while
                 // live so the bookkeeping stays bounded during long practice.
-                foreach (BossTelegraph mark in session.BossTelegraphs) if (mark.Active) live.Add(-mark.Id);
-                shots.RemoveWhere(id => !live.Contains(id));
+                for (int i = 0; i < session.BossTelegraphs.Count; i++)
+                    if (session.BossTelegraphs[i].Active) live.Add(-session.BossTelegraphs[i].Id);
+                shots.RemoveWhere(expiredIdentity);
                 if (boss.Health < previousHealth && boss.Health > 0f) Emit(BossSoundKind.Impact, .25f);
                 live.Clear();
-                foreach (BossObstacle obstacle in session.BossObstacles)
+                for (int i = 0; i < session.BossObstacles.Count; i++)
                 {
+                    BossObstacle obstacle = session.BossObstacles[i];
                     if (obstacle.Removed || !obstacle.Active) continue;
                     live.Add(obstacle.Id);
                     if (!obstacles.Add(obstacle.Id)) continue;
@@ -108,7 +120,7 @@ namespace CityDino
                         : obstacle.Kind == BossAttackKind.ElectricPillar || obstacle.Kind == BossAttackKind.AirGate ||
                         obstacle.Kind == BossAttackKind.ShieldDrone ? BossSoundKind.Electric : BossSoundKind.Impact, .25f);
                 }
-                obstacles.RemoveWhere(id => !live.Contains(id));
+                obstacles.RemoveWhere(expiredIdentity);
                 previousHealth = boss.Health;
             }
             if (silent || !playing) cues.Clear();
@@ -144,7 +156,11 @@ namespace CityDino
         private readonly HashSet<int> launched = new HashSet<int>();
         private readonly HashSet<int> live = new HashSet<int>();
         private readonly List<BossSoundCue> cues = new List<BossSoundCue>();
+        private readonly Predicate<int> expiredIdentity;
         public int TrackedCount { get { return warnings.Count + launched.Count; } }
+
+        public RunMissileSoundTracker() { expiredIdentity = IsExpiredIdentity; }
+        private bool IsExpiredIdentity(int id) { return !live.Contains(id); }
 
         public IReadOnlyList<BossSoundCue> Observe(RunnerSession session, bool silent)
         {
@@ -165,22 +181,24 @@ namespace CityDino
             bool newWarning = false, newLaunch = false;
             float launchPan = .65f;
             live.Clear();
-            foreach (RunMissileWarning warning in session.RunMissileWarnings)
+            for (int i = 0; i < session.RunMissileWarnings.Count; i++)
             {
+                RunMissileWarning warning = session.RunMissileWarnings[i];
                 live.Add(warning.VolleyId);
                 if (warnings.Add(warning.VolleyId)) newWarning = true;
             }
-            warnings.RemoveWhere(id => !live.Contains(id));
+            warnings.RemoveWhere(expiredIdentity);
             live.Clear();
-            foreach (RunMissile missile in session.RunMissiles)
+            for (int i = 0; i < session.RunMissiles.Count; i++)
             {
+                RunMissile missile = session.RunMissiles[i];
                 if (missile.Removed) continue;
                 live.Add(missile.VolleyId);
                 if (!launched.Add(missile.VolleyId)) continue;
                 newLaunch = true;
                 launchPan = missile.VelocityX > 0f ? -.65f : .65f;
             }
-            launched.RemoveWhere(id => !live.Contains(id));
+            launched.RemoveWhere(expiredIdentity);
             if (!silent && session.State == RunState.Playing)
             {
                 if (newWarning) cues.Add(new BossSoundCue(BossSoundKind.Windup, .65f));

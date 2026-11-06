@@ -10,7 +10,7 @@ Game Unity 2D chạy vô tận: khủng long di chuyển trái/phải, nhảy k�
 4. Mở `Assets/CityDino/Scenes/CityRunner.unity`, hoặc menu **City Dino → Open City Runner Scene**, rồi nhấn **Play**.
 5. Chọn tab **Game**, tỷ lệ **16:9**, ví dụ 1280 × 720. Giao diện tự co theo cửa sổ; điện thoại dùng màn hình ngang.
 
-**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 14**.
+**Nếu project trên máy đã chạy được:** đóng Unity, giải nén ZIP mới rồi chép và thay thế riêng thư mục **`Assets/CityDino`** vào project đang dùng. Giữ `Packages` và `ProjectSettings` đang chạy được. Mở lại, chờ import; menu phải hiện **BẢN 15**.
 
 Scene mới đứng đầu Build Settings. Chạy `Assets/Scenes/SampleScene.unity` cũ cũng được bootstrap sang game mới, không cần gán prefab hoặc UI. Cấu hình gốc, định danh ứng dụng, layer và Input System actions được giữ lại. **Active Input Handling = Both** để các menu IMGUI hoạt động cùng Input System của gameplay.
 
@@ -121,11 +121,19 @@ Tim/khiên/đồ dự trữ chưa dùng được lưu khi đóng game. Bắt đ�
 
 Tim hồi máu vẫn sinh hiếm: lần đầu sau 20–30 giây, sau đó cách 18–32 giây; nhặt hồi một mạng, tối đa 5, đầy mạng đổi thành một sao. Va chạm mất một mạng và cho 2 giây miễn sát thương nếu còn sống. Khiên chặn va chạm cho 1 giây bảo vệ.
 
+## Sấm chớp và giảm giật — BẢN 15
+
+Map Giông bão khôi phục nhịp tối mạnh → lóe sáng/tia sét → tối lặp lại mỗi **1,8 giây** (gần 2 giây), cùng đồng hồ âm sấm. Lớp tối dao động tới 88%, chớp sáng đạt alpha 55%; không làm nhẹ cơ chế này. Chỉ lúc vào/rời map, các lớp thời tiết hòa dần trong **3 giây** cùng nền ổn định của BẢN 14. Pause giữ nguyên pha; các map khác không có sấm chớp.
+
+Để giảm các nguồn giật khi chạy, callback nhặt sao chỉ đánh dấu dữ liệu thay đổi; JSON và ghi đĩa được gom sau khoảng **20 giây**, đợi đoạn đang chạy trên mặt đất trống, không có bẫy/tên lửa gần và đã qua cảnh đổi map. Mua đồ, bắt đầu lượt dùng kho, pause, thua, về menu, mất tiêu điểm và thoát vẫn ghi ngay dữ liệu mới nhất. Giữ nguyên khóa lưu và schema. HUD tái dùng chuỗi số khi chưa đổi; các vòng đọc thực thể và bộ âm thanh tránh tạo iterator/delegate lặp mỗi frame. Nét ngang/dọc không còn xoay ma trận để vẽ. Không hạ tốc độ, đổi luật va chạm hoặc giảm số chiêu boss.
+
+Các thay đổi giảm công việc và cấp phát đã xác định trong mã; môi trường này không có Unity Profiler/Editor để xác nhận FPS hay bảo đảm hết mọi giật trên máy người chơi.
+
 ## Điều chỉnh BẢN 14
 
 - **Boss cấp 3 trở lên:** xen kẽ chuỗi phối hợp nhiều họ chiêu thay cho lặp một làn. Xe tăng ghép pháo thấp/cao, tên lửa xiên từ hai phía và pháo khóa đường lui; robot ghép laser đổi nhịp, cầu điện chéo, cột điện và drone; máy bay ghép cổng đổi tầng, đạn quạt, tên lửa hậu tuyến và mìn; tàu ngầm ghép ngư lôi chéo, đàn cá, thủy lôi, sonar và bom chìm. Cấp cao thêm lượt phối hợp. Đòn ngắm khóa vị trí khi dấu báo xuất hiện, không đuổi theo người chơi sau đó.
 - **Cảnh báo gọn:** dấu ! tại đầu nòng, mép vào hoặc điểm tạo vật cản; bỏ thảm đỏ, mũi tên chạy xuyên màn và hướng dẫn hành lang né. Laser tức thời giữ đường ngắm mảnh trong thời gian ngắn. Vật thể/luồng chiêu đang gây sát thương vẫn vẽ đầy đủ.
-- **Chuyển map nhẹ hơn:** giữ chiều cao, kích thước và vị trí các lớp thành phố cố định; đổi màu trong 3 giây thay vì kéo cả nền lên/xuống. Mặt đường chuyển bằng hai lớp có pha ổn định. Chỉ tốc độ trang trí/nền có giới hạn riêng; vị trí bẫy, hố, điểm và gia tốc thực vẫn dùng mô phỏng. Tạm dừng giữ nguyên pha chuyển màu. Bão giữ mưa/tia sét/âm sấm nhưng giảm độ chói và mức thay đổi tối trên toàn màn.
+- **Chuyển map nhẹ hơn:** giữ chiều cao, kích thước và vị trí các lớp thành phố cố định; đổi màu trong 3 giây thay vì kéo cả nền lên/xuống. Mặt đường chuyển bằng hai lớp có pha ổn định. Chỉ tốc độ trang trí/nền có giới hạn riêng; vị trí bẫy, hố, điểm và gia tốc thực vẫn dùng mô phỏng. Tạm dừng giữ nguyên pha chuyển màu. Cơ chế sấm chớp trong map được giữ riêng với hiệu ứng chuyển map.
 - **Rời trận tàu ngầm:** bơi về mặt nước, tiếp cận chân dốc, đi lên đúng dốc bờ đang vẽ rồi tiến qua cổng. Mũ được cất khi rời nước; không thả nhân vật từ phía trên xuống bờ.
 
 ## Tên lửa trong lượt chạy
@@ -187,7 +195,7 @@ Windows có thể dùng `dotnet run --project Tests/RunnerCore.Tests.csproj --co
 
 Môi trường đám mây **không có Unity Editor**. Stub kiểm tra biên dịch, phép toán input và lệnh vẽ; không chạy Play Mode, raster hoá ảnh, âm thanh, cảm ứng thật hoặc build Unity. Cần thử trong Unity:
 
-1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 14 và tiếng Việt đầy đủ.
+1. Import hoàn tất, Console không lỗi biên dịch; menu hiện BẢN 15 và tiếng Việt đầy đủ.
 2. Trái/phải, nhảy kép, cúi, đa chạm và pause; cửa hàng không bấm xuyên.
 3. Tuyết trượt/cốc nóng/băng rơi, nắng/nước/khe phun, gió/hố đôi/cầu sập, đêm đen 2–3 giây, bão nháy có mưa/sấm/biển cuốn. Thử lúc cảnh báo, đang kích hoạt và khoảng tắt để phân biệt vùng thật gây sát thương.
 4. Giá tim theo số mua, kho hàng lưu khi đóng game và dùng ở lượt sau; nâng thời lượng, ×2, nam châm và khiên.

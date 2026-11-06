@@ -69,6 +69,9 @@ internal static class Program
         Test("swimming multitouch separates up dive direction fire and skills at every scale",SwimTouch);
         Test("swim pause releases both intents and practice retry preserves submarine tier and stock",SwimPauseRetry);
         Test("normal running missile volleys do not unlock the boss weapon",MissileRunInput);
+        Test("star save events batch latest data without JSON churn or a postponed checkpoint",SaveBatchV15);
+        Test("running checkpoints defer during map fades hazards rockets and jumps but pause flushes immediately",SaveGapV15);
+        Test("focus loss and menu exits force the latest save before the delayed deadline",SaveBoundaryV15);
         Console.WriteLine();
         Console.WriteLine("Input mapping: " + passed + " passed, " + failed + " failed.");
         Console.WriteLine("Production mapping ran against math/device stubs; Unity event delivery and device hardware were not executed.");
@@ -78,6 +81,65 @@ internal static class Program
     private static void Check(bool ok, string message)
     {
         if (!ok) throw new InvalidOperationException(message);
+    }
+
+    private static void ResetSaveCountersV15()
+    {
+        PlayerPrefs.TestDiskSaves=PlayerPrefs.TestStringWrites=JsonUtility.TestSerializations=0;
+        PlayerPrefs.TestLastStringKey=null;JsonUtility.TestLastSerializedObject=null;
+    }
+    private static void InvokeSaveV15(CityRunnerController controller,string name,params object[] args)
+    {typeof(CityRunnerController).GetMethod(name,PrivateInstance).Invoke(controller,args);}
+    private static void SaveBatchV15()
+    {
+        var run=Session(CharacterKind.Classic);var controller=Controller(run);ResetSaveCountersV15();
+        for(int i=1;i<=500;i++)
+        {
+            run.Save.Wallet=i;Time.unscaledTime=i*.038f;
+            InvokeSaveV15(controller,"SaveProgress");
+        }
+        Check(JsonUtility.TestSerializations==0&&PlayerPrefs.TestDiskSaves==0&&PlayerPrefs.TestStringWrites==0,
+            "Pickup callbacks still serialize or write every star");
+        float deadline=(float)typeof(CityRunnerController).GetField("nextSave",PrivateInstance).GetValue(controller);
+        Check(deadline<21f,"Repeated pickups postponed the fixed batch deadline indefinitely");
+        SetField(run,"districtClock",5d);SetField(run,"<DistrictElapsed>k__BackingField",5f);Time.unscaledTime=deadline+.1f;
+        Frame(controller);
+        Check(JsonUtility.TestSerializations==1&&PlayerPrefs.TestStringWrites==1&&PlayerPrefs.TestDiskSaves==1,
+            "A clear grounded checkpoint did not write exactly one batch");
+        Check(PlayerPrefs.TestLastStringKey=="CityDino.Save.v1"&&ReferenceEquals(JsonUtility.TestLastSerializedObject,run.Save)&&run.Save.Wallet==500,
+            "Checkpoint changed the save key or serialized stale progress");
+        InvokeSaveV15(controller,"FlushSave");
+        Check(PlayerPrefs.TestDiskSaves==1,"An unchanged save wrote the disk again");
+    }
+    private static void SaveGapV15()
+    {
+        var run=Session(CharacterKind.Classic);var controller=Controller(run);ResetSaveCountersV15();
+        InvokeSaveV15(controller,"SaveProgress");Time.unscaledTime=25f;
+        SetField(run,"districtClock",1d);SetField(run,"<DistrictElapsed>k__BackingField",1f);Frame(controller);
+        Check(PlayerPrefs.TestDiskSaves==0,"Checkpoint wrote inside the map transition");
+        SetField(run,"districtClock",5d);SetField(run,"<DistrictElapsed>k__BackingField",5f);
+        var entities=(IList<WorldEntity>)run.Entities;
+        entities.Add(new WorldEntity{Id=97001,Kind=EntityKind.Barrier,X=run.PlayerX+180,Y=0,Width=60,Height=55});
+        Frame(controller);Check(PlayerPrefs.TestDiskSaves==0,"Checkpoint wrote beside an approaching hazard");entities.Clear();
+        var warnings=(IList<RunMissileWarning>)run.RunMissileWarnings;
+        warnings.Add(new RunMissileWarning{Id=97002,VolleyId=1,Count=3,Remaining=1,Duration=1,GapY=85,GapHeight=180});
+        Frame(controller);Check(PlayerPrefs.TestDiskSaves==0,"Checkpoint wrote during a missile warning");warnings.Clear();
+        SetField(run,"<PlayerY>k__BackingField",80f);SetField(run,"grounded",false);
+        Frame(controller);Check(PlayerPrefs.TestDiskSaves==0,"Checkpoint wrote during a jump");
+        run.TogglePause();Frame(controller);
+        Check(PlayerPrefs.TestDiskSaves==1&&JsonUtility.TestSerializations==1,"Pause did not flush the pending latest data immediately");
+    }
+    private static void SaveBoundaryV15()
+    {
+        foreach(string boundary in new[]{"OnApplicationFocus","GoToMenu","OnApplicationQuit"})
+        {
+            var run=Session(CharacterKind.Classic);var controller=Controller(run);ResetSaveCountersV15();
+            run.Save.Wallet=777;InvokeSaveV15(controller,"SaveProgress");
+            if(boundary=="OnApplicationFocus")InvokeSaveV15(controller,boundary,false);
+            else InvokeSaveV15(controller,boundary);
+            Check(PlayerPrefs.TestDiskSaves==1&&JsonUtility.TestSerializations==1&&ReferenceEquals(JsonUtility.TestLastSerializedObject,run.Save)&&run.Save.Wallet==777,
+                boundary+" dropped the delayed latest progress");
+        }
     }
 
     private static void Test(string name, Action body)

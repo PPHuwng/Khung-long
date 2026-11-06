@@ -23,6 +23,7 @@ internal static class Program
         Test("running missile volleys sound once and never replay after silence or boss entry",RunMissileAudio);
         Test("underwater entry naval attacks defeat and surfacing have distinct bounded cues",UnderwaterCues);
         Test("submarine and breathing loops stop on pause mute and a completed swim exit",UnderwaterLoops);
+        Test("warmed audio identity observers allocate no managed objects on stable live frames",TrackerAllocations);
         Console.WriteLine(passed + " passed; " + failed + " failed. Stub sound commands and samples only; no audio device or Unity mixer.");
         if (failed != 0) Environment.Exit(1);
     }
@@ -245,6 +246,35 @@ internal static class Program
         for(int i=0;i<120*5&&run.State==RunState.Playing;i++){run.Update(1f/120);Call(controller,"UpdateBossAudio");}
         Check(!Source(controller,"bossMovement").isPlaying&&!Source(controller,"boardMovement").isPlaying,"Completed dive retained an underwater loop on the street/results");
         Call(controller,"DisposeBossAudio");
+    }
+
+    private static void TrackerAllocations()
+    {
+        var bossRun=Practice();Marks(bossRun).Clear();Shots(bossRun).Clear();Obstacles(bossRun).Clear();
+        Marks(bossRun).Add(new BossTelegraph{Id=91001,Kind=BossAttackKind.CrossMissile,Duration=.6f,Remaining=.6f});
+        Marks(bossRun).Add(new BossTelegraph{Id=91002,Kind=BossAttackKind.LaserLow,Active=true});
+        Shots(bossRun).Add(new BossProjectile{Id=91003,Kind=BossAttackKind.CrossMissile,VelocityX=-400});
+        Obstacles(bossRun).Add(new BossObstacle{Id=91004,Kind=BossAttackKind.ShieldDrone,Active=true});
+        var bossTracker=new BossSoundTracker();
+
+        var roadRun=new RunnerSession(null,81);roadRun.SetStartingDistrict(District.Day);roadRun.StartRun();
+        ((IList<RunMissileWarning>)roadRun.RunMissileWarnings).Add(new RunMissileWarning{Id=92001,VolleyId=71,Count=4});
+        ((IList<RunMissile>)roadRun.RunMissiles).Add(new RunMissile{Id=92002,VolleyId=72,VelocityX=-530});
+        var roadTracker=new RunMissileSoundTracker();
+        // Exclude construction, initial capacity growth and JIT warmup. These
+        // calls observe real production lists without invoking stub draw/audio
+        // recording, reflection, or the simulation's intentional spawn objects.
+        for(int i=0;i<1000;i++){bossTracker.Observe(bossRun,false);roadTracker.Observe(roadRun,false);}
+        Check(bossTracker.TrackedCount==4&&roadTracker.TrackedCount==2,"Allocation fixture omitted a live audio identity category");
+        long before=GC.GetAllocatedBytesForCurrentThread();
+        for(int i=0;i<10000;i++)
+        {
+            bossTracker.Observe(bossRun,(i&1)==0);
+            roadTracker.Observe(roadRun,(i&1)==0);
+        }
+        long bytes=GC.GetAllocatedBytesForCurrentThread()-before;
+        Check(bytes==0,"Stable observers allocated "+bytes+" bytes over 10,000 paired frames");
+        Console.WriteLine("  Audio event observers: "+bytes+" managed bytes over 10,000 warmed boss + road frames.");
     }
 
 }

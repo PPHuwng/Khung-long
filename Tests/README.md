@@ -1,4 +1,4 @@
-# Kiểm tra DINO CITY — BẢN 14
+# Kiểm tra DINO CITY — BẢN 15
 
 Cần .NET SDK 8. Các bộ console ở ngoài `Assets`, chạy trực tiếp mã C# production; Unity không nhập stubs hoặc mã kiểm tra vào game.
 
@@ -10,7 +10,7 @@ Cần .NET SDK 8. Các bộ console ở ngoài `Assets`, chạy trực tiếp m�
 ./scripts/test-core.sh --compile-unity
 ```
 
-Có **147 nhóm gameplay, 62 nhóm lệnh vẽ, 45 nhóm input và 12 nhóm âm thanh**. Có thể chọn một nhóm gameplay bằng `./scripts/test-core.sh --only 'advanced boss'`; console ghi rõ các bài không được chọn chưa chạy.
+Có **147 nhóm gameplay, 64 nhóm lệnh vẽ, 48 nhóm input và 13 nhóm âm thanh**. Có thể chọn một nhóm gameplay bằng `./scripts/test-core.sh --only 'advanced boss'`; console ghi rõ các bài không được chọn chưa chạy.
 
 ## Gameplay và đường chạy
 
@@ -61,10 +61,18 @@ Có **27 đường rời trận dưới nước** = 3 nhân vật × 3 vị trí
 
 ## Lệnh vẽ, input và âm thanh
 
-**62 nhóm render** ghi lệnh production qua phép toán affine, nhiều canvas/letterbox. Bao gồm tâm/UV/alpha/va chạm, pose ba nhân vật, cổng/đấu trường, kính mũ trong suốt, cột tên lửa và điểm phóng ! cục bộ. Kiểm tra marker tại nguồn vật thể thật, không phủ cả làn; laser ngắm mảnh khác beam sống. Bài dưới nước đối chiếu chân nhân vật với đường dốc đã biến đổi camera.
+**64 nhóm render** ghi lệnh production qua phép toán affine, nhiều canvas/letterbox. Bao gồm tâm/UV/alpha/va chạm, pose ba nhân vật, cổng/đấu trường, kính mũ trong suốt, cột tên lửa và điểm phóng ! cục bộ. Kiểm tra marker tại nguồn vật thể thật, không phủ cả làn; laser ngắm mảnh khác beam sống. Bài dưới nước đối chiếu chân nhân vật với đường dốc đã biến đổi camera.
 
-Các bài BẢN14 giữ vị trí/kích thước skyline và hai lưới đường khi đổi mây; pause giữ màu, restart đặt lại; nền muộn có tốc độ riêng trong khi hố vật lý vẫn đi theo mô phỏng; mưa bão giảm độ chói và màn tối fade 3 giây khi đổi map. Đêm vẫn phủ đen hoàn toàn 2–3 giây theo luật gameplay.
+Các bài BẢN14 giữ vị trí/kích thước skyline và hai lưới đường khi đổi mây; pause giữ màu, restart đặt lại; nền muộn có tốc độ riêng trong khi hố vật lý vẫn đi theo mô phỏng; mưa bão giữ độ tối/chớp mạnh trong map, chỉ hòa dần 3 giây khi đổi map. Đêm vẫn phủ đen hoàn toàn 2–3 giây theo luật gameplay.
 
-**45 nhóm input** gọi controller production bằng thiết bị/tọa độ giả: bàn phím, nhiều ngón, bấm xuyên modal, bay/bơi/lặn/bắn, chặn thao tác lúc chuyển cảnh/pause/menu/chết. **12 nhóm audio** kiểm tra sự kiện theo ID và mẫu PCM: một tiếng mỗi đợt, hướng âm, tiếng hạ boss, cơ cấu/bơi/thở, mute/pause/mất tiêu điểm/menu/huỷ controller; không lặp lại sau khi tiếp tục.
+**48 nhóm input** gọi controller production bằng thiết bị/tọa độ giả: bàn phím, nhiều ngón, bấm xuyên modal, bay/bơi/lặn/bắn, chặn thao tác lúc chuyển cảnh/pause/menu/chết. **13 nhóm audio** kiểm tra sự kiện theo ID và mẫu PCM: một tiếng mỗi đợt, hướng âm, tiếng hạ boss, cơ cấu/bơi/thở, mute/pause/mất tiêu điểm/menu/huỷ controller; không lặp lại sau khi tiếp tục.
 
 Các stubs không raster hoá ảnh, chạy Unity events, chạm thiết bị, phát âm qua mixer hoặc build Unity. Kiểm tra biên dịch dùng chữ ký API Unity giả cho toàn bộ runtime mới và script cũ. **Vẫn cần thử Play Mode trong Unity Editor**, đặc biệt cảm giác né/độ khó, chuyển map, lên bờ, chất lượng hình và âm thanh trên thiết bị thật.
+
+## Hồi quy BẢN 15
+
+Kiểm tra lệnh vẽ đối chiếu trực tiếp độ tối mạnh và chớp sáng với đồng hồ sấm, qua nhiều chu kỳ 1,8 giây; lớp tối vẫn hòa hết khi rời map trong 3 giây. Có 36 trường hợp nét ngang/dọc với nhiều hướng, độ dày và canvas, giữ nguyên đường chéo và vị trí cưa/tên lửa. HUD được vẽ lặp thật để kiểm tra tái dùng cùng chuỗi và cập nhật khi điểm/ví đổi; nút vẫn hoạt động.
+
+Ba nhóm lưu dữ liệu dùng bộ đếm tại stubs JSON/PlayerPrefs: 500 thông báo sao không serialize/ghi từng lần, checkpoint cố định không bị đẩy lùi mãi và ghi đúng dữ liệu mới nhất một lần; hoãn ghi khi đang đổi map, gần bẫy, có tên lửa hoặc đang nhảy; pause/mất tiêu điểm/về menu/thoát ép lưu trước hạn. Đây là kiểm tra lời gọi và thời điểm, không đo độ trễ đĩa thật.
+
+Bài âm thanh mới warm hai observer với warning/đạn/beam/vật cản rồi gọi 10.000 frame: **0 byte managed** trong đoạn đo bằng `GC.GetAllocatedBytesForCurrentThread`. Phép đo chỉ áp dụng các observer production trong .NET, không phải toàn bộ trò chơi hoặc Unity Audio.

@@ -13,6 +13,7 @@ namespace CityDino
         private const string StartingDistrictKey = "CityDino.StartDistrict";
         private const float CanvasWidth = 1280f;
         private const float CanvasHeight = 720f;
+        private const float SaveCheckpointInterval = 20f;
         private static readonly Rect MoveLeftButton = new Rect(38, 618, 88, 70);
         private static readonly Rect MoveRightButton = new Rect(136, 618, 88, 70);
         private static readonly Rect DuckButton = new Rect(1000, 618, 112, 70);
@@ -35,6 +36,10 @@ namespace CityDino
         private int bestAtStart;
         private int shopTab;
         private int thunderStage, lastThunderStrike;
+        private int hudScore = -1, hudBest = -1, hudStars = -1, hudWallet = -1;
+        private string hudScoreText, hudBestText, hudStarsText, hudWalletText;
+        private int hintMetres = -1, hintSpeedHundredths = -1, hintBossScore = -1;
+        private string runningHint;
         private readonly Color ink = new Color32(24, 43, 51, 255);
         private readonly Color cream = new Color32(249, 246, 233, 255);
         private readonly Color mint = new Color32(190, 231, 164, 255);
@@ -182,7 +187,8 @@ namespace CityDino
             if (session.Lives < oldLives) Play(hurtSound);
             if (session.Lives > oldLives && oldState == RunState.Playing) Play(buySound);
             if (oldState != RunState.GameOver && session.State == RunState.GameOver) FlushSave();
-            if (dirty && Time.unscaledTime >= nextSave) FlushSave();
+            if (dirty && (session.State == RunState.Paused ||
+                Time.unscaledTime >= nextSave && CanCheckpointNow())) FlushSave();
         }
 
         private static void ReadPointers(ref float horizontal, ref bool jump, ref bool duck)
@@ -280,6 +286,8 @@ namespace CityDino
             bestAtStart = session.Save.BestScore;
             thunderStage = lastThunderStrike = 0;
             session.StartRun();
+            // Consume purchased stock durably before the active running frames.
+            FlushSave();
         }
 
         private void OnGUI()
@@ -343,7 +351,7 @@ namespace CityDino
             if (Button(new Rect(98, 534, 130, 52), "Nhân vật", ink, cream, 16)) OpenCharacters();
             if (Button(new Rect(242, 534, 130, 52), "Cửa hàng", ink, cream, 16)) showShop = true;
             if (Button(new Rect(386, 534, 130, 52), "Thành tích", new Color32(231, 231, 215, 255), ink, 16)) showHistory = true;
-            Text(new Rect(98, 606, 420, 24), "BẢN 14  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
+            Text(new Rect(98, 606, 420, 24), "BẢN 15  ·  SPACE để bắt đầu  ·  Có cảm ứng", 14, soft);
 
             Box(new Rect(782, 78, 408, 47), new Color(1, 1, 1, 0.82f));
             Text(new Rect(800, 90, 372, 24), RunnerSession.CharacterName(session.Save.SelectedCharacter) + " · SẴN SÀNG ĐẤU BOSS", 16, ink, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -412,13 +420,20 @@ namespace CityDino
 
         private void DrawHud()
         {
+            // IMGUI can visit Layout/input/Repaint in one frame. Numeric labels
+            // reuse their strings until the visible value actually changes.
+            int best = Math.Max(session.Score, session.Save.BestScore);
+            if (hudScore != session.Score) { hudScore = session.Score; hudScoreText = hudScore.ToString("D5"); }
+            if (hudBest != best) { hudBest = best; hudBestText = hudBest.ToString("D5"); }
+            if (hudStars != session.RunStars) { hudStars = session.RunStars; hudStarsText = "+" + hudStars; }
+            if (hudWallet != session.Save.Wallet) { hudWallet = session.Save.Wallet; hudWalletText = "Ví: " + hudWallet; }
             Box(new Rect(36, 26, 1208, 86), cream);
             Text(new Rect(58, 43, 170, 19), "DINO CITY", 16, ink, FontStyle.Bold);
             Text(new Rect(58, 70, 180, 23), session.IsPractice ? "ĐẤU TẬP · " + (session.PracticeLearning ? "CƠ BẢN" : "CHUẨN") : session.IsBossArena ? "ĐẤU TRƯỜNG · " + session.BossNumber : DistrictName(session.CurrentDistrict), 14, soft);
             Text(new Rect(246, 40, 180, 21), session.IsPractice ? "LƯỢT TẬP" : session.IsBossArena ? "ĐIỂM · TẠM DỪNG" : "ĐIỂM", 12, soft, FontStyle.Bold);
-            Text(new Rect(244, 60, 182, 39), session.IsPractice ? session.PracticeElapsed.ToString("0.0") + " s" : session.Score.ToString("D5"), 30, ink, FontStyle.Bold);
+            Text(new Rect(244, 60, 182, 39), session.IsPractice ? session.PracticeElapsed.ToString("0.0") + " s" : hudScoreText, 30, ink, FontStyle.Bold);
             Text(new Rect(452, 40, 155, 21), session.IsPractice ? "TRÚNG ĐÒN" : "KỶ LỤC", 12, soft, FontStyle.Bold);
-            Text(new Rect(450, 65, 168, 29), session.IsPractice ? session.PracticeHits.ToString() : Math.Max(session.Score, session.Save.BestScore).ToString("D5"), 22, ink, FontStyle.Bold);
+            Text(new Rect(450, 65, 168, 29), session.IsPractice ? session.PracticeHits.ToString() : hudBestText, 22, ink, FontStyle.Bold);
             for (int i = 0; i < 5; i++)
             {
                 Color previous = GUI.color;
@@ -427,8 +442,8 @@ namespace CityDino
                 GUI.color = previous;
             }
             Icon(art.Star, new Rect(852, 48, 32, 32));
-            Text(new Rect(897, 43, 124, 26), session.IsPractice ? "ĐẤU TẬP" : "+" + session.RunStars, session.IsPractice ? 18 : 24, ink, FontStyle.Bold);
-            Text(new Rect(897, 75, 150, 20), "Ví: " + session.Save.Wallet, 13, soft);
+            Text(new Rect(897, 43, 124, 26), session.IsPractice ? "ĐẤU TẬP" : hudStarsText, session.IsPractice ? 18 : 24, ink, FontStyle.Bold);
+            Text(new Rect(897, 75, 150, 20), hudWalletText, 13, soft);
             if (Button(new Rect(1070, 43, 54, 50), muted ? "♫ ×" : "♫", new Color32(231, 231, 215, 255), ink, 18)) ToggleSound();
             if (Button(new Rect(1136, 43, 82, 50), "II", ink, cream, 22)) session.TogglePause();
             DrawRunResources();
@@ -510,10 +525,22 @@ namespace CityDino
                 ? "ĐẤU TẬP · Không thưởng sao, không ghi kỷ lục · Né dấu báo trước đòn"
                 : session.IsBossArena
                 ? "Hạ boss để tiếp tục hành trình · Điểm và hiệu ứng đang được giữ"
-                : Mathf.FloorToInt(session.Distance / 20f) + " m  ·  " + (session.Speed / RunnerSession.InitialSpeed).ToString("0.00") + "×  ·  Boss: " + session.NextBossScore.ToString("N0"),
+                : RunningHint(),
                 14, cream, FontStyle.Bold);
             if (session.InvincibleRemaining > 0)
                 Text(new Rect(726, 592, 250, 28), "Bảo vệ: " + session.InvincibleRemaining.ToString("0.0") + " s", 14, mint, FontStyle.Bold);
+        }
+
+        private string RunningHint()
+        {
+            int metres = Mathf.FloorToInt(session.Distance / 20f);
+            int speed = (int)Math.Round(session.Speed / RunnerSession.InitialSpeed * 100d);
+            if (runningHint == null || metres != hintMetres || speed != hintSpeedHundredths || session.NextBossScore != hintBossScore)
+            {
+                hintMetres = metres; hintSpeedHundredths = speed; hintBossScore = session.NextBossScore;
+                runningHint = metres + " m  ·  " + (speed / 100f).ToString("0.00") + "×  ·  Boss: " + hintBossScore.ToString("N0");
+            }
+            return runningHint;
         }
 
         private void DrawSkillControl()
@@ -940,11 +967,39 @@ namespace CityDino
 
         private void SaveProgress()
         {
-            PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(session.Save));
+            // Picking up a row of stars only marks the latest live data dirty.
+            // Do not allocate JSON for every star or postpone the deadline on
+            // every pickup; serialize once when the batch is actually saved.
+            if (dirty) return;
             dirty = true;
-            nextSave = Time.unscaledTime + 1f;
+            nextSave = Time.unscaledTime + SaveCheckpointInterval;
         }
-        private void FlushSave() { if (dirty) { PlayerPrefs.Save(); dirty = false; } }
+        private bool CanCheckpointNow()
+        {
+            if (session.State != RunState.Playing) return true;
+            // Synchronous PlayerPrefs writes belong in a clear grounded gap,
+            // never in the three-second map fade, a jump or a rocket approach.
+            if (session.IsBossArena || session.DistrictElapsed < 3.2f || session.PlayerY > 1f ||
+                session.PlayerY < -.5f || session.RunMissiles.Count > 0 || session.RunMissileWarnings.Count > 0) return false;
+            float ahead = session.PlayerX + Math.Max(300f, session.Speed * 1.25f);
+            for (int i = 0; i < session.Entities.Count; i++)
+            {
+                WorldEntity entity = session.Entities[i];
+                if (entity.Removed || entity.Kind == EntityKind.Star || entity.Kind == EntityKind.Heart ||
+                    entity.Kind == EntityKind.Water || entity.Kind == EntityKind.HotDrink ||
+                    entity.Kind == EntityKind.DoubleScore || entity.Kind == EntityKind.Magnet || entity.Kind == EntityKind.Shield) continue;
+                if (entity.X - entity.MotionAmplitudeX * 2f < ahead &&
+                    entity.X + entity.Width + entity.MotionAmplitudeX * 2f > session.PlayerX - 75f) return false;
+            }
+            return true;
+        }
+        private void FlushSave()
+        {
+            if (!dirty || session == null) return;
+            PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(session.Save));
+            PlayerPrefs.Save();
+            dirty = false;
+        }
         private void OnApplicationFocus(bool focused)
         {
             if (focused || session == null) return;
